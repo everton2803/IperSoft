@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ipersoft_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ipersoft_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ipersoft_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ipersoft_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ipersoft_user} -d ${POSTGRES_DB:-ipersoft_db}"]
+      interval: 4s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ipersoft_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-ipersoft_user}:${POSTGRES_PASSWORD:-ipersoft_secret}@db:5432/${POSTGRES_DB:-ipersoft_db}
+      SECRET_KEY: ${SECRET_KEY:-ipersoft_super_secret_jwt_key_2026_network_assets}
+      ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ipersoft_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+      - "3000:5173"
+      - "80:5173"
+    environment:
+      - VITE_API_BASE_URL=/api/v1
+      - VITE_BACKEND_URL=http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
