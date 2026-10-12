@@ -126,10 +126,19 @@ async def sync_oxidized_nodes(
         raise HTTPException(status_code=400, detail=f"Erro na sincronização: {e}")
 
 
+from fastapi.responses import PlainTextResponse
+
+
 @router.get("/nodes")
 def get_source_nodes(db: Session = Depends(get_db)):
-    """Endpoint público consumido pelo Oxidized via `source: http` para descobrir nós."""
+    """Endpoint público consumido pelo Oxidized via `source: http` para descobrir nós em JSON."""
     return OxidizedService.get_source_nodes(db)
+
+
+@router.get("/router.db", response_class=PlainTextResponse)
+def get_source_router_db(db: Session = Depends(get_db)):
+    """Endpoint compatível com router.db do Oxidized (name:model:ip:proto:port:user:pwd)."""
+    return OxidizedService.get_source_csv(db)
 
 
 @router.get("/assets/{asset_id}/config")

@@ -245,11 +245,59 @@ class OxidizedService:
         for a in assets:
             ip = a.ip_address.strip()
             group = a.client_group or "default"
-            model = a.backup_model or "RouterOS"
+            # O Oxidized exige o nome do modelo em minúsculo (routeros, cisco, dmos, huawei, etc.)
+            raw_model = (a.backup_model or "routeros").strip().lower()
+            name = a.name.strip() if a.name else (a.hostname.strip() if a.hostname else f"node-{a.id}")
+
+            # Busca credenciais e portas associadas se houver conexão remota cadastrada
+            conn = a.guacamole[0] if (a.guacamole and len(a.guacamole) > 0) else None
+            protocol = (conn.protocol if conn and conn.protocol else "ssh").lower()
+
+            # Dispositivos com protocolo RDP (Windows/Desktop) não são suportados pelo Oxidized
+            if protocol == "rdp":
+                continue
+
+            port_val = conn.port if conn and conn.port else ("23" if protocol == "telnet" else "22")
             
+            try:
+                port_num = int(port_val)
+            except (ValueError, TypeError):
+                port_num = 23 if protocol == "telnet" else 22
+
+            node_entry = {
+                "name": name,
+                "model": raw_model,
+                "ip": ip,
+                "group": group,
+                "protocol": protocol,
+                "ssh_port": port_num,
+                "telnet_port": port_num,
+            }
+
+            if conn and conn.username:
+                node_entry["username"] = conn.username
+            if conn and conn.password:
+                node_entry["password"] = conn.password
+
             source_list.append(node_entry)
 
         return source_list
+
+    @classmethod
+    def get_source_csv(cls, db: Session) -> str:
+        """Gera texto no formato router.db (name:model:ip:protocol:port:username:password)."""
+        nodes = cls.get_source_nodes(db)
+        lines = []
+        for n in nodes:
+            name = n["name"]
+            model = n["model"]
+            ip = n["ip"]
+            proto = n.get("protocol", "ssh")
+            port = n.get("ssh_port" if proto == "ssh" else "telnet_port", 22)
+            user = n.get("username", "") or ""
+            pwd = n.get("password", "") or ""
+            lines.append(f"{name}:{model}:{ip}:{proto}:{port}:{user}:{pwd}")
+        return "\n".join(lines) + ("\n" if lines else "")
 
     @classmethod
     async def fetch_node_details(

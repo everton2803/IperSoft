@@ -152,9 +152,15 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 - **Itens e Histórico**: Coleta de métricas do host (`item.get`) e histórico numérico (`history.get` com tipos numéricos `0` float e `3` integer) ou de texto (`1`, `2`, `4`).
 
 ### 5.3. `OxidizedService` (`app/services/oxidized.py`)
-- Consulta endpoints `/nodes.json`, `/node/fetch/{node}` e `/node/version/{node}`.
-- Sincronização em massa de status de nós com equipamentos do IperSoft.
-- Suporte a gatilho manual de backup (`next` / `fetch`).
+- **Consulta e Sincronização de Status**: Consulta endpoints `/nodes.json`, `/node/fetch/{node}` e `/node/version/{node}` para sincronizar status de backup dos nós com equipamentos do IperSoft.
+- **Disparo Manual de Backup**: Suporte a gatilho manual de backup (`/node/next/{node}`).
+- **Fornecimento Dinâmico de Inventário (`source: http`)**:
+  - Endpoint `GET /api/v1/integrations/oxidized/nodes`: Entrega a lista de nós participantes do backup (`backup_enabled == True`) em formato JSON para consumo dinâmico pelo driver nativo `source: http` do Oxidized.
+  - **Normalização de Modelos em Minúsculas**: No Oxidized (Linux/Ruby), os arquivos de modelo de sistema operacional são estritamente case-sensitive e em minúsculas (`routeros.rb`, `dmos.rb`, `cisco.rb`). O backend converte automaticamente os modelos cadastrados no banco para minúsculas (`.lower()`).
+  - **Filtragem de Protocolos Incompatíveis**: Conexões com protocolo não suportado pelo Oxidized (como `rdp` para máquinas Windows) são automaticamente ignoradas na exportação de nós.
+  - **Portas Customizadas e Credenciais**: Mapeia automaticamente portas não padrão (ex: `2200`, `2233`) e credenciais de acesso remoto a partir dos vínculos com `AssetGuacamole`.
+  - **Endpoint Legado / Compatibilidade CSV**: `GET /api/v1/integrations/oxidized/router.db` entrega o inventário diretamente no formato texto `router.db` delimitado por dois pontos (`name:model:ip:proto:port:user:pwd`).
+- **Diretiva `resolve_dns: false` no Oxidized**: No `/opt/oxidized/config`, deve-se declarar `resolve_dns: false` para que o Oxidized conecte diretamente pelo endereço informado no campo `ip`, impedindo erros de resolução DNS (`Resolv::ResolvError`) provocados por nomes amigáveis que contenham espaços ou pontuações.
 
 ### 5.4. `DiagnosticsService` (`app/services/diagnostics.py`)
 - **ICMP Ping**: Execução nativa Linux (`ping -c 1 -W 2`) via `asyncio.create_subprocess_exec`.
@@ -230,3 +236,8 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
    - O projeto está versionado no GitHub em `everton2803/IperSoft` na branch `main`.
    - Sob nenhuma circunstância comitar o arquivo `.env` ou credenciais em texto claro. O `.gitignore` na raiz do projeto protege senhas, tokens, `node_modules/` e diretórios de build.
    - Sempre utilize mensagens de commit padronizadas (ex: `feat:`, `fix:`, `docs:`) e envie atualizações via `git push origin main`.
+9. **Integração com Oxidized (`source: http`)**:
+   - O plugin `source: http` do Oxidized herda da classe Ruby `JSONFile` e **somente aceita payloads JSON**. Configurações como `format: csv` ou `delimiter: ":"` causam quebra imediata (`undefined method 'empty?' for nil`).
+   - Os arquivos de modelo dentro do container do Oxidized utilizam nomes em minúsculas (ex: `routeros.rb`, `dmos.rb`, `cisco.rb`). Qualquer modelo enviado em maiúsculas gera `Oxidized::ModelNotFound`. O IperSoft sempre envia os modelos em `.lower()`.
+   - Na configuração do `/opt/oxidized/config`, a diretiva `resolve_dns: false` é mandatória para evitar falhas de `Resolv::ResolvError` decorrentes de nomes amigáveis de equipamentos. As chaves `map:` e `vars_map:` devem ser indentadas obrigatoriamente dentro de `http:`.
+
