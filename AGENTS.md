@@ -15,10 +15,17 @@ O **IperSoft** é uma plataforma centralizada de **Gestão e Monitoramento de At
 
 ---
 
-## 2. Estrutura do Repositório
+## 2. Estrutura do Repositório & Controle de Versão
+
+- **Repositório GitHub**: [https://github.com/everton2803/IperSoft](https://github.com/everton2803/IperSoft)
+- **Origem Remota Git**: `git@github.com:everton2803/IperSoft.git` (SSH)
+- **Branch Principal**: `main`
+- **Autenticação**: Chave SSH Ed25519 (`~/.ssh/id_ed25519`) vinculada à conta GitHub `everton2803`.
+- **Segurança de Credenciais**: O arquivo `.gitignore` bloqueia estritamente `.env`, pastas de dependências (`node_modules`), builds (`dist`) e caches do Python.
 
 ```
 /home/everton/IperSoft/
+├── .gitignore                 # Exclusões do Git (.env, node_modules, caches)
 ├── .env                       # Variáveis de ambiente gerais (DB, JWT, portas)
 ├── docker-compose.yml         # Orquestração dos 3 containers (db, backend, frontend)
 ├── backend/
@@ -217,3 +224,7 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
    - Triggers do Zabbix geradas por Descoberta de Baixo Nível (LLD) contêm macros como `{#IFNAME}`, `{#SNMPVALUE}`, e referências a thresholds como `{$TEMP.CRIT}`. Sempre requisitar `expandDescription: 1`, `expandComment: 1` e incluir `name` no `selectLastEvent` nas chamadas `trigger.get`. Priorizar `last_event.name` com fallback na `description` expandida da trigger para garantir que nenhum placeholder em formato `{...}` seja exibido ao operador.
 7. **Tela Inicial do Sistema**:
    - A Central de Alarmes Zabbix (`zabbix_alarms`) é a tela de entrada do IperSoft por padrão. Alterações em rotas e redirecionamento de login no `App.jsx` devem sempre manter o foco operacional na central de incidentes.
+8. **Controle de Versão Git e Segurança de Segredos**:
+   - O projeto está versionado no GitHub em `everton2803/IperSoft` na branch `main`.
+   - Sob nenhuma circunstância comitar o arquivo `.env` ou credenciais em texto claro. O `.gitignore` na raiz do projeto protege senhas, tokens, `node_modules/` e diretórios de build.
+   - Sempre utilize mensagens de commit padronizadas (ex: `feat:`, `fix:`, `docs:`) e envie atualizações via `git push origin main`.
