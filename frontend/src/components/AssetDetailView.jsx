@@ -361,6 +361,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   const [zbxProblems, setZbxProblems] = useState(null);
   const [isLoadingZbxProblems, setIsLoadingZbxProblems] = useState(false);
   const [acknowledgingEvents, setAcknowledgingEvents] = useState({});
+  const [closingEvents, setClosingEvents] = useState({});
 
   const handleToggleAcknowledge = async (prob) => {
     if (!prob.eventid) {
@@ -388,6 +389,44 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       setFeedback({ type: 'error', message: `Erro ao alterar reconhecimento: ${err.message}` });
     } finally {
       setAcknowledgingEvents(prev => ({ ...prev, [prob.eventid]: false }));
+    }
+  };
+
+  const handleCloseProblem = async (prob) => {
+    if (!prob.eventid && !prob.triggerid) {
+      setFeedback({ type: 'error', message: 'Este alarme não possui identificador no Zabbix.' });
+      return;
+    }
+    if (!window.confirm(`Deseja realmente encerrar este alarme no Zabbix?\n\n"${prob.description}"`)) {
+      return;
+    }
+
+    const targetKey = prob.eventid || prob.triggerid;
+    setClosingEvents(prev => ({ ...prev, [targetKey]: true }));
+    try {
+      const res = await authService.closeZabbixProblem({
+        eventid: prob.eventid,
+        triggerid: prob.triggerid
+      });
+      setZbxProblems(prev => (prev || []).map(p => 
+        (p.triggerid === prob.triggerid || (p.eventid && p.eventid === prob.eventid))
+          ? { ...p, is_closed: true, acknowledged: true, eventid: res.eventid || p.eventid } 
+          : p
+      ));
+      setFeedback({
+        type: 'success',
+        message: `Alarme "${prob.description}" encerrado com sucesso no Zabbix.`
+      });
+      // Após breve intervalo (1.2s), remove o alarme encerrado da lista
+      setTimeout(() => {
+        setZbxProblems(prev => (prev || []).filter(p => 
+          !(p.triggerid === prob.triggerid || (p.eventid && p.eventid === prob.eventid))
+        ));
+      }, 1200);
+    } catch (err) {
+      setFeedback({ type: 'error', message: `Erro ao encerrar alarme no Zabbix: ${err.message}` });
+    } finally {
+      setClosingEvents(prev => ({ ...prev, [targetKey]: false }));
     }
   };
 
@@ -1744,9 +1783,9 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     ) : zbxProblems && zbxProblems.length > 0 ? (
                       <div className="alarms-active-list">
                         {zbxProblems.map((prob) => (
-                          <div key={prob.triggerid} className="alarm-active-item" style={{ borderLeftColor: prob.severity_color }}>
+                          <div key={prob.triggerid} className={`alarm-active-item ${prob.is_closed ? 'row-closed' : ''}`} style={{ borderLeftColor: prob.severity_color }}>
                             <div className="alarm-item-header">
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
                                 <span className="alarm-sev-badge" style={{ backgroundColor: prob.severity_color }}>
                                   {prob.severity_label}
                                 </span>
@@ -1759,12 +1798,29 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                                   <input
                                     type="checkbox"
                                     checked={Boolean(prob.acknowledged)}
-                                    disabled={Boolean(acknowledgingEvents[prob.eventid] || !prob.eventid)}
+                                    disabled={Boolean(acknowledgingEvents[prob.eventid] || !prob.eventid || prob.is_closed)}
                                     onChange={() => handleToggleAcknowledge(prob)}
                                     className="diag-custom-checkbox"
                                   />
                                   <span className={prob.acknowledged ? 'ack-status-pill pill-ack' : 'ack-status-pill pill-unack'}>
                                     {acknowledgingEvents[prob.eventid] ? 'Salvando...' : (prob.acknowledged ? 'Reconhecido' : 'Não Reconhecido')}
+                                  </span>
+                                </label>
+
+                                <label 
+                                  className="alarm-close-toggle-label"
+                                  title={prob.is_closed ? "Alarme já encerrado no Zabbix" : "Clique para encerrar este alarme no Zabbix"}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(prob.is_closed)}
+                                    disabled={Boolean(closingEvents[prob.eventid || prob.triggerid] || (!prob.eventid && !prob.triggerid) || prob.is_closed)}
+                                    onChange={() => handleCloseProblem(prob)}
+                                    className="diag-custom-checkbox"
+                                  />
+                                  <span className={prob.is_closed ? 'ack-status-pill pill-closed' : 'ack-status-pill pill-open'}>
+                                    {closingEvents[prob.eventid || prob.triggerid] ? 'Encerrando...' : (prob.is_closed ? 'Encerrado' : 'Encerrar')}
                                   </span>
                                 </label>
                               </div>

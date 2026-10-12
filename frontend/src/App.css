@@ -3848,6 +3848,41 @@
   border: 1px solid rgba(229, 57, 53, 0.28);
 }
 
+.pill-open {
+  background-color: rgba(255, 152, 0, 0.12);
+  color: #ff9800;
+  border: 1px solid rgba(255, 152, 0, 0.28);
+}
+
+.alarm-close-toggle-label:hover .pill-open {
+  background-color: rgba(255, 152, 0, 0.22);
+  border-color: rgba(255, 152, 0, 0.5);
+}
+
+.pill-closed {
+  background-color: rgba(76, 175, 80, 0.14);
+  color: #4caf50;
+  border: 1px solid rgba(76, 175, 80, 0.35);
+  font-weight: 700;
+}
+
+.alarm-close-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.alarm-close-toggle-label input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.alarm-close-toggle-label input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .zabbix-alarm-row {
   transition: background-color var(--transition-fast);
 }

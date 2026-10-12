@@ -275,6 +275,12 @@ class ZabbixAcknowledgeRequest(BaseModel):
     message: Optional[str] = None
 
 
+class ZabbixCloseRequest(BaseModel):
+    eventid: Optional[str] = None
+    triggerid: Optional[str] = None
+    message: Optional[str] = None
+
+
 @router.get("/problems")
 async def get_zabbix_global_problems(
     search: Optional[str] = None,
@@ -466,5 +472,43 @@ async def acknowledge_zabbix_problem(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Falha ao atualizar reconhecimento no Zabbix: {exc}"
+        )
+
+
+@router.post("/close")
+async def close_zabbix_problem(
+    req: ZabbixCloseRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Encerra (resolve manualmente) um evento/problema no Zabbix.
+    """
+    cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "zabbix").first()
+    if not cfg:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Configuração do Zabbix não encontrada."
+        )
+
+    try:
+        user_label = current_user.full_name or current_user.username
+        default_msg = f"Alarme encerrado por {user_label} via IperSoft"
+        msg = req.message or default_msg
+
+        res = await ZabbixService.close_event(
+            cfg.url,
+            eventid=req.eventid,
+            triggerid=req.triggerid,
+            message=msg,
+            token=cfg.token,
+            username=cfg.username,
+            password=cfg.password
+        )
+        return res
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Falha ao encerrar alarme no Zabbix: {exc}"
         )
 

@@ -183,7 +183,7 @@ O modal de detalhes do equipamento foi planejado para carregar dados sob demanda
 4. **Linha 4 — Dados no Oxidized**:
    - Carrega status de backup, nome do nó, modelo configurado (`RouterOS`, `Cisco`, etc.), grupo e data/hora do último backup com tempo de execução.
 5. **Linha 5 — Status Zabbix (Alarmes e Itens)**:
-   - Alarmes/Triggers ativos do host com badge de severidade e checkbox de reconhecimento direto (`event.acknowledge`).
+   - Alarmes/Triggers ativos do host com badge de severidade, checkbox de reconhecimento direto (`event.acknowledge`) e checkbox de encerramento/resolução manual do alarme (`event.acknowledge` com action de close).
    - Lista completa de itens monitorados pelo Zabbix.
    - Ao selecionar um item numérico, renderiza o sub-componente `ZabbixNumericChart`: gráfico SVG interativo com cálculo de mínimo, máximo, média e último valor com tooltip ao passar o mouse.
 6. **Linha 6 — Conexão Remota Guacamole**:
@@ -195,7 +195,9 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
 - Consulta em tempo real de triggers ativas (`GET /api/v1/integrations/zabbix/problems`) com cruzamento automático do inventário do IperSoft por hostid, hostname e nome.
 - **Resolução Completa de Macros**: Utiliza `expandDescription: 1`, `expandComment: 1` e priorização de `lastEvent.name` no backend para expandir 100% das macros de LLD (`{#IFNAME}`, etc.) e macros de thresholds (`{$TEMP.CRIT}`, etc.).
 - **Redirecionamento ao Equipamento**: Ao clicar no host/equipamento na lista, o usuário é redirecionado imediatamente para a tela de detalhes do equipamento (`AssetDetailView`) no IperSoft.
-- **Reconhecimento de Alarmes**: Checkbox integrado na lista global e na Linha 5 dos detalhes do ativo que aciona `event.acknowledge` no Zabbix (marcando ou desmarcando reconhecimento com atualização de estado em tempo real sem recarregar a página).
+- **Reconhecimento e Encerramento de Alarmes**: Checkboxes integrados na lista global e na Linha 5 dos detalhes do ativo:
+  - Checkbox **Reconhecido**: aciona `event.acknowledge` no Zabbix (marcando ou desmarcando reconhecimento com atualização de estado em tempo real sem recarregar a página).
+  - Checkbox **Encerrar**: aciona `event.acknowledge` com ação de fechamento manual do problema (`POST /api/v1/integrations/zabbix/close`), marcando como resolvido e sincronizando em tempo real com o Zabbix Server.
 - **Filtros e KPIs**: Cards de severidade clicáveis (Desastre, Alto, Médio, Aviso, Informação), barra de filtros alinhada horizontalmente com seletores lado a lado (Ordenar Por: Mais Recentes Primeiro, Reconhecimento, Severidade, Inventário) e pesquisa dinâmica por nome, IP, descrição ou tags.
 
 ### 6.3. Regras de Cores e Estados dos Badges nas Linhas

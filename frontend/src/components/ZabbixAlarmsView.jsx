@@ -42,8 +42,9 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
   const [sortField, setSortField] = useState('duration'); // 'duration' | 'priority' | 'asset_name' | 'description' | 'acknowledged'
   const [sortDirection, setSortDirection] = useState('desc'); // 'desc' (mais recente) | 'asc' (mais antigo)
 
-  // Acknowledge em andamento por identificador
+  // Acknowledge e Encerramento em andamento por identificador
   const [acknowledgingEvents, setAcknowledgingEvents] = useState({});
+  const [closingEvents, setClosingEvents] = useState({});
   const [feedbackMsg, setFeedbackMsg] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -126,6 +127,81 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
       });
     } finally {
       setAcknowledgingEvents(prev => ({ ...prev, [targetKey]: false }));
+    }
+  };
+
+  // Encerramento de Trigger no Zabbix
+  const handleCloseProblem = async (prob, e) => {
+    if (e) e.stopPropagation();
+    if (!prob.eventid && !prob.triggerid) {
+      setFeedbackMsg({
+        type: 'error',
+        text: 'Alarme sem identificador de evento no Zabbix.'
+      });
+      return;
+    }
+
+    if (!window.confirm(`Deseja realmente encerrar este alarme no Zabbix?\n\n"${prob.description}"`)) {
+      return;
+    }
+
+    const targetKey = prob.eventid || prob.triggerid;
+    setClosingEvents(prev => ({ ...prev, [targetKey]: true }));
+
+    try {
+      const res = await authService.closeZabbixProblem({
+        eventid: prob.eventid,
+        triggerid: prob.triggerid
+      });
+
+      // Atualiza o estado local imediatamente marcando como encerrado e reconhecido
+      setData(prev => {
+        const nextProblems = (prev.problems || []).map(p => 
+          (p.triggerid === prob.triggerid || (p.eventid && p.eventid === prob.eventid))
+            ? { ...p, is_closed: true, acknowledged: true, eventid: res.eventid || p.eventid } 
+            : p
+        );
+        return { ...prev, problems: nextProblems };
+      });
+
+      setFeedbackMsg({
+        type: 'success',
+        text: `Alarme "${prob.description}" encerrado com sucesso no Zabbix.`
+      });
+
+      // Após breve intervalo (1.2s), remove o alarme encerrado da lista ativa e atualiza os contadores
+      setTimeout(() => {
+        setData(prev => {
+          const wasAck = prob.acknowledged;
+          const nextProblems = (prev.problems || []).filter(p => 
+            !(p.triggerid === prob.triggerid || (p.eventid && p.eventid === prob.eventid))
+          );
+          const nextStats = { ...prev.stats };
+          nextStats.total = Math.max(0, (nextStats.total || 1) - 1);
+          if (wasAck) {
+            nextStats.acknowledged = Math.max(0, (nextStats.acknowledged || 1) - 1);
+          } else {
+            nextStats.unacknowledged = Math.max(0, (nextStats.unacknowledged || 1) - 1);
+          }
+          const pPrio = prob.priority;
+          if (pPrio === 5) nextStats.disaster = Math.max(0, (nextStats.disaster || 1) - 1);
+          else if (pPrio === 4) nextStats.high = Math.max(0, (nextStats.high || 1) - 1);
+          else if (pPrio === 3) nextStats.average = Math.max(0, (nextStats.average || 1) - 1);
+          else if (pPrio === 2) nextStats.warning = Math.max(0, (nextStats.warning || 1) - 1);
+          else if (pPrio === 1) nextStats.info = Math.max(0, (nextStats.info || 1) - 1);
+          else nextStats.not_classified = Math.max(0, (nextStats.not_classified || 1) - 1);
+
+          return { ...prev, problems: nextProblems, stats: nextStats };
+        });
+      }, 1200);
+
+    } catch (err) {
+      setFeedbackMsg({
+        type: 'error',
+        text: `Erro ao encerrar alarme no Zabbix: ${err.message}`
+      });
+    } finally {
+      setClosingEvents(prev => ({ ...prev, [targetKey]: false }));
     }
   };
 
@@ -551,6 +627,10 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
                 </div>
               </th>
 
+              <th style={{ width: '120px', textAlign: 'center', userSelect: 'none' }}>
+                <span>Encerrar</span>
+              </th>
+
               <th 
                 style={{ width: '125px', cursor: 'pointer', userSelect: 'none' }}
                 onClick={() => handleHeaderSort('priority')}
@@ -601,14 +681,14 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan="6" style={{ textAlign: 'center', padding: '3.5rem' }}>
+                <td colSpan="7" style={{ textAlign: 'center', padding: '3.5rem' }}>
                   <RefreshCw size={26} className="spin-icon" style={{ color: 'var(--color-primary)', margin: '0 auto 0.5rem' }} />
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Carregando alarmes em tempo real do Zabbix...</p>
                 </td>
               </tr>
             ) : displayedProblems.length === 0 ? (
               <tr>
-                <td colSpan="6" style={{ textAlign: 'center', padding: '4rem' }}>
+                <td colSpan="7" style={{ textAlign: 'center', padding: '4rem' }}>
                   <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: '0 auto 0.75rem' }} />
                   <h3 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.25rem' }}>
                     Nenhuma trigger em estado de problema!
@@ -624,12 +704,13 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
               displayedProblems.map((prob) => {
                 const targetKey = prob.eventid || prob.triggerid;
                 const isAckPending = acknowledgingEvents[targetKey];
+                const isClosePending = closingEvents[targetKey];
                 const canNavigate = Boolean(prob.asset_id && onSelectAsset);
 
                 return (
                   <tr 
                     key={prob.triggerid}
-                    className={`zabbix-alarm-row ${prob.acknowledged ? 'row-acknowledged' : 'row-unacknowledged'}`}
+                    className={`zabbix-alarm-row ${prob.is_closed ? 'row-closed' : (prob.acknowledged ? 'row-acknowledged' : 'row-unacknowledged')}`}
                     onClick={() => {
                       if (canNavigate) {
                         onSelectAsset(prob.asset_id);
@@ -647,12 +728,31 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
                         <input
                           type="checkbox"
                           checked={Boolean(prob.acknowledged)}
-                          disabled={Boolean(isAckPending)}
+                          disabled={Boolean(isAckPending || prob.is_closed)}
                           onChange={(e) => handleToggleAcknowledge(prob, e)}
                           className="diag-custom-checkbox"
                         />
                         <span className={prob.acknowledged ? 'ack-status-pill pill-ack' : 'ack-status-pill pill-unack'}>
                           {isAckPending ? 'Salvando...' : (prob.acknowledged ? 'Reconhecido' : 'Não Reconhecido')}
+                        </span>
+                      </label>
+                    </td>
+
+                    {/* CHECKBOX ENCERRAR */}
+                    <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+                      <label 
+                        className="alarm-close-toggle-label"
+                        title={prob.is_closed ? "Alarme já encerrado no Zabbix" : "Clique para encerrar este alarme no Zabbix"}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(prob.is_closed)}
+                          disabled={Boolean(isClosePending || prob.is_closed)}
+                          onChange={(e) => handleCloseProblem(prob, e)}
+                          className="diag-custom-checkbox"
+                        />
+                        <span className={prob.is_closed ? 'ack-status-pill pill-closed' : 'ack-status-pill pill-open'}>
+                          {isClosePending ? 'Encerrando...' : (prob.is_closed ? 'Encerrado' : 'Encerrar')}
                         </span>
                       </label>
                     </td>

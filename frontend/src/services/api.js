@@ -279,6 +279,27 @@ export const authService = {
     return data;
   },
 
+  async closeZabbixProblem({ eventid, triggerid, message }) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/zabbix/close`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        eventid,
+        triggerid,
+        message
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao encerrar alarme no Zabbix.');
+    return data;
+  },
+
   // Assets Management
   async getAssets({ search, group, status, presence, sort_by, sort_dir } = {}) {
     const token = this.getToken();

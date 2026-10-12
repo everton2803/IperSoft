@@ -736,6 +736,113 @@ class ZabbixService:
             raise exc
 
     @classmethod
+    async def close_event(
+        cls,
+        url: str,
+        eventid: Optional[str] = None,
+        triggerid: Optional[str] = None,
+        message: Optional[str] = None,
+        token: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Encerra (resolve manualmente) um evento/problema no Zabbix.
+        Se o eventid fornecido já foi normalizado ou for inválido, busca automaticamente
+        o problema ativo associado ao triggerid via problem.get.
+        """
+        auth_token = token
+        if not auth_token and username and password:
+            auth_token = await cls.authenticate_user(url, username, password)
+
+        if not auth_token:
+            raise ValueError("Autenticação com o Zabbix não configurada.")
+
+        # action bitmask: 1 (close problem) + 2 (ack) + 4 (message) = 7
+        action = 7
+        msg_text = message or "Alarme encerrado via IperSoft"
+
+        target_eventid = eventid
+
+        # Se não tiver eventid ou se for buscar pelo trigger
+        if not target_eventid and triggerid:
+            problems = await cls.call_api(
+                url,
+                "problem.get",
+                {"objectids": [str(triggerid)], "output": ["eventid", "acknowledged"]},
+                auth=auth_token
+            )
+            if problems:
+                target_eventid = str(problems[0]["eventid"])
+
+        if not target_eventid:
+            raise ValueError("Nenhum evento ativo encontrado para esta trigger no Zabbix.")
+
+        # Verificar se a trigger permite fechamento manual (manual_close == 1)
+        if triggerid:
+            try:
+                trig_info = await cls.call_api(
+                    url,
+                    "trigger.get",
+                    {"triggerids": [str(triggerid)], "output": ["triggerid", "manual_close", "flags"]},
+                    auth=auth_token
+                )
+                if trig_info and str(trig_info[0].get("manual_close")) != "1":
+                    # Tentar habilitar manual_close caso seja trigger comum (flags == 0)
+                    if str(trig_info[0].get("flags")) == "0":
+                        await cls.call_api(
+                            url,
+                            "trigger.update",
+                            {"triggerid": str(triggerid), "manual_close": 1},
+                            auth=auth_token
+                        )
+            except Exception:
+                pass
+
+        params = {
+            "eventids": [str(target_eventid)],
+            "action": action,
+            "message": msg_text
+        }
+
+        try:
+            res = await cls.call_api(url, "event.acknowledge", params=params, auth=auth_token)
+            return {
+                "success": True,
+                "eventid": str(target_eventid),
+                "closed": True,
+                "result": res
+            }
+        except Exception as exc:
+            err_msg = str(exc)
+            if ("No permissions" in err_msg or "does not exist" in err_msg) and triggerid:
+                problems = await cls.call_api(
+                    url,
+                    "problem.get",
+                    {"objectids": [str(triggerid)], "output": ["eventid", "acknowledged"]},
+                    auth=auth_token
+                )
+                if problems and str(problems[0]["eventid"]) != str(target_eventid):
+                    new_eid = str(problems[0]["eventid"])
+                    params["eventids"] = [new_eid]
+                    res = await cls.call_api(url, "event.acknowledge", params=params, auth=auth_token)
+                    return {
+                        "success": True,
+                        "eventid": new_eid,
+                        "closed": True,
+                        "result": res
+                    }
+                else:
+                    raise ValueError(
+                        "Este alarme já foi normalizado ou encerrado no Zabbix."
+                    )
+            elif "does not allow manual closing" in err_msg:
+                raise ValueError(
+                    "Esta trigger não permite encerramento manual no Zabbix (fechamento manual desabilitado na trigger)."
+                )
+            raise exc
+
+    @classmethod
     async def fetch_host_items(
         cls,
         url: str,
