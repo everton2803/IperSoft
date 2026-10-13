@@ -470,6 +470,11 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     backup_enabled: true
   });
 
+  // Status de Ativação por Integração (acessíveis em todo o componente e useEffects)
+  const zbxActive = formData.status === 'monitored';
+  const guacActive = !ignoreGuacamole;
+  const oxActive = formData.backup_enabled !== false;
+
   // Carregar dados locais canônicos
   const loadData = async () => {
     setIsLoading(true);
@@ -922,16 +927,13 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   const snmpDiag = diagnostics?.snmp;
   const remoteDiag = diagnostics?.[formData.remote_protocol || 'ssh'];
 
-  // Status de Ativação e Sincronização por Integração
-  const zbxActive = formData.status === 'monitored';
+  // Sincronização e Cores por Integração
   const zbxSynced = Boolean(zabbix?.is_synced);
   const zbxColor = !zbxActive ? 'gray' : (zbxSynced ? 'green' : 'red');
 
-  const guacActive = !ignoreGuacamole;
   const guacSynced = Boolean(guacamole?.is_synced);
   const guacColor = !guacActive ? 'gray' : (guacSynced ? 'green' : 'red');
 
-  const oxActive = formData.backup_enabled !== false;
   const oxSynced = Boolean(comparison?.oxidized?.is_synced || oxDetails);
   const oxStatus = oxDetails?.status || comparison?.oxidized?.status;
   const oxColor = !oxActive 
