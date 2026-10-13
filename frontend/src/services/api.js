@@ -767,6 +767,11 @@ export const diagnosticsService = {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'Falha ao testar ativo.');
     return data;
+  },
+
+  async runForAsset(assetId, options = {}) {
+    return this.testAsset(assetId, options);
   }
 };
+
 

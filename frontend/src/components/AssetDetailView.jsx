@@ -885,7 +885,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     setIsTesting(true);
     setFeedback(null);
     try {
-      await diagnosticsService.runForAsset(assetId);
+      await diagnosticsService.testAsset(assetId);
       setFeedback({ type: 'success', message: 'Testes de conectividade concluídos com sucesso!' });
       await loadData();
     } catch (err) {
