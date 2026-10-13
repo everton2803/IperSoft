@@ -669,6 +669,19 @@ export const authService = {
     return data;
   },
 
+  async reloadOxidizedNodes() {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/oxidized/reload`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao recarregar nós do Oxidized.');
+    return data;
+  },
+
   async getAssetOxidizedConfig(assetId) {
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');

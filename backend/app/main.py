@@ -62,6 +62,7 @@ from app.routers.guacamole import router as guacamole_router
 from app.routers.diagnostics import router as diagnostics_router
 from app.routers.oxidized import router as oxidized_router
 from app.services.diagnostics import run_all_diagnostics_batch
+from app.services.oxidized import OxidizedService
 import asyncio
 
 # Routers
@@ -74,8 +75,8 @@ app.include_router(diagnostics_router, prefix="/api/v1")
 app.include_router(oxidized_router, prefix="/api/v1")
 
 async def hourly_diagnostics_scheduler():
-    """Rotina agendada para testar conectividade de rede a cada 1 hora (3600s)."""
-    logger.info("Agendador de diagnósticos ativo (intervalo: 1h).")
+    """Rotina agendada para testar conectividade de rede e sincronizar status do Oxidized a cada 1 hora (3600s)."""
+    logger.info("Agendador de diagnósticos e status ativo (intervalo: 1h).")
     # Pequena pausa no boot para garantir que banco e APIs estejam prontos
     await asyncio.sleep(20)
     while True:
@@ -83,7 +84,21 @@ async def hourly_diagnostics_scheduler():
             logger.info("Iniciando ciclo automático de diagnósticos de rede (1h)...")
             await run_all_diagnostics_batch()
         except Exception as e:
-            logger.error(f"Erro no ciclo do agendador horário: {e}")
+            logger.error(f"Erro no ciclo do agendador horário de diagnósticos: {e}")
+
+        try:
+            db_ox = SessionLocal()
+            ox_cfg = db_ox.query(IntegrationConfig).filter(
+                IntegrationConfig.name == "oxidized",
+                IntegrationConfig.is_active == True
+            ).first()
+            if ox_cfg and ox_cfg.url:
+                logger.info("Iniciando ciclo automático de sincronização do Oxidized (1h)...")
+                await OxidizedService.sync_nodes_with_database(db_ox, ox_cfg.url, ox_cfg.username, ox_cfg.password)
+            db_ox.close()
+        except Exception as ox_err:
+            logger.error(f"Erro no ciclo do agendador horário do Oxidized: {ox_err}")
+
         await asyncio.sleep(3600)
 
 @app.on_event("startup")

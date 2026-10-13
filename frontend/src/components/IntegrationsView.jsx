@@ -16,7 +16,8 @@ import {
   Check,
   Layers,
   ExternalLink,
-  Copy
+  Copy,
+  RotateCcw
 } from 'lucide-react';
 import { authService } from '../services/api';
 
@@ -52,6 +53,7 @@ export const IntegrationsView = ({ isAdmin }) => {
   const [oxLoading, setOxLoading] = useState(false);
   const [oxTesting, setOxTesting] = useState(false);
   const [oxSyncing, setOxSyncing] = useState(false);
+  const [oxReloading, setOxReloading] = useState(false);
   const [oxSyncResult, setOxSyncResult] = useState(null);
   const [copiedSourceUrl, setCopiedSourceUrl] = useState(false);
 
@@ -290,6 +292,22 @@ export const IntegrationsView = ({ isAdmin }) => {
       setFeedback({ type: 'error', text: err.message || 'Falha ao sincronizar nós do Oxidized.' });
     } finally {
       setOxSyncing(false);
+    }
+  };
+
+  const handleReloadOxidized = async () => {
+    setOxReloading(true);
+    setFeedback(null);
+    try {
+      const res = await authService.reloadOxidizedNodes();
+      setFeedback({
+        type: 'success',
+        text: res.message || 'Lista recarregada no Oxidized! Equipamentos excluídos foram removidos da memória.'
+      });
+    } catch (err) {
+      setFeedback({ type: 'error', text: err.message || 'Falha ao recarregar nós no Oxidized.' });
+    } finally {
+      setOxReloading(false);
     }
   };
 
@@ -738,11 +756,22 @@ export const IntegrationsView = ({ isAdmin }) => {
               type="button"
               className="btn-secondary"
               onClick={handleSyncOxidized}
-              disabled={oxSyncing || oxTesting || oxLoading}
+              disabled={oxSyncing || oxTesting || oxLoading || oxReloading}
               title="Ler nós cadastrados no Oxidized e associar aos ativos do IperSoft"
             >
               {oxSyncing ? <Loader2 size={14} className="spin-icon" /> : <Layers size={14} />}
               <span>{oxSyncing ? 'Sincronizando Nós...' : 'Sincronizar Nós do Oxidized'}</span>
+            </button>
+
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleReloadOxidized}
+              disabled={oxReloading || oxSyncing || oxTesting || oxLoading}
+              title="Força o Oxidized a recarregar a fonte de dados (/reload), removendo da memória nós excluídos do IperSoft"
+            >
+              {oxReloading ? <Loader2 size={14} className="spin-icon" /> : <RotateCcw size={14} />}
+              <span>{oxReloading ? 'Recarregando...' : 'Recarregar Nós no Oxidized'}</span>
             </button>
 
             {isAdmin && (
@@ -750,7 +779,7 @@ export const IntegrationsView = ({ isAdmin }) => {
                 type="submit"
                 className="btn-primary"
                 style={{ width: 'auto' }}
-                disabled={oxLoading || oxTesting || oxSyncing}
+                disabled={oxLoading || oxTesting || oxSyncing || oxReloading}
               >
                 {oxLoading ? 'Salvando...' : 'Salvar Configurações'}
               </button>

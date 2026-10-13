@@ -126,6 +126,37 @@ async def sync_oxidized_nodes(
         raise HTTPException(status_code=400, detail=f"Erro na sincronização: {e}")
 
 
+@router.post("/reload", response_model=Dict[str, Any])
+async def reload_oxidized_nodes(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Solicita ao Oxidized para recarregar sua lista de nós via API (/reload).
+    Descarta da memória os equipamentos excluídos ou desativados no IperSoft.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas administradores podem recarregar nós do Oxidized."
+        )
+
+    cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "oxidized").first()
+    if not cfg or not cfg.url:
+        raise HTTPException(status_code=400, detail="Oxidized não configurado.")
+
+    try:
+        result = await OxidizedService.reload_nodes(
+            url=cfg.url,
+            username=cfg.username,
+            password=cfg.password
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erro ao recarregar nós no Oxidized: {e}")
+
+
+
 from fastapi.responses import PlainTextResponse
 
 

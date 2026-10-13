@@ -153,7 +153,11 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 
 ### 5.3. `OxidizedService` (`app/services/oxidized.py`)
 - **Consulta e Sincronização de Status**: Consulta endpoints `/nodes.json`, `/node/fetch/{node}` e `/node/version/{node}` para sincronizar status de backup dos nós com equipamentos do IperSoft.
+  - **Prevenção de Colisões e Chaves Duplicadas**: A função `sync_nodes_with_database` utiliza dicionário em memória de registros existentes e dá prioridade absoluta a correspondência exata por nome (`node_name.lower()`), seguida por IP, garantindo que múltiplos nós com mesmo IP (ou NAT/VMs) nunca gerem `UniqueViolation` em `asset_oxidized`.
 - **Disparo Manual de Backup**: Suporte a gatilho manual de backup (`/node/next/{node}`).
+- **Recarregamento e Expurgar Nós Excluídos (`/reload`)**:
+  - O daemon do Oxidized mantém nós na memória RAM. Ao excluir um equipamento no IperSoft ou desativar seu backup, o IperSoft automaticamente aciona `GET /reload` no Oxidized para que a lista da fonte seja relida e os nós excluídos sejam expurgados da memória imediatamente.
+  - Há também botão dedicado na tela de Integrações: **Recarregar Nós no Oxidized** (`POST /api/v1/integrations/oxidized/reload`).
 - **Fornecimento Dinâmico de Inventário (`source: http`)**:
   - Endpoint `GET /api/v1/integrations/oxidized/nodes`: Entrega a lista de nós participantes do backup (`backup_enabled == True`) em formato JSON para consumo dinâmico pelo driver nativo `source: http` do Oxidized.
   - **Normalização de Modelos em Minúsculas**: No Oxidized (Linux/Ruby), os arquivos de modelo de sistema operacional são estritamente case-sensitive e em minúsculas (`routeros.rb`, `dmos.rb`, `cisco.rb`). O backend converte automaticamente os modelos cadastrados no banco para minúsculas (`.lower()`).

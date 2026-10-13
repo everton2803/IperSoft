@@ -1524,7 +1524,15 @@
 .presence-dot.green { background-color: var(--color-success); }
 .presence-dot.orange { background-color: var(--color-primary); }
 .presence-dot.blue { background-color: #818cf8; }
+.presence-dot.red { background-color: var(--color-danger); }
+.presence-dot.yellow { background-color: #fbbf24; }
 .presence-dot.gray { background-color: var(--text-muted); }
+
+.presence-pill.presence-zbx-pending {
+  background-color: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
 
 /* Credential Badges & Password Reveal */
 .cred-badge {

@@ -593,10 +593,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   };
 
   useEffect(() => {
-    if (openSections.oxidized && !oxDetails && comparison?.oxidized?.is_synced) {
+    if (openSections.oxidized && !oxDetails && oxActive) {
       fetchOxidizedDetails();
     }
-  }, [openSections.oxidized]);
+  }, [openSections.oxidized, oxActive]);
 
   // Linha 5: Status do Zabbix (Alarmes e Itens)
   const fetchZabbixStatusAndItems = async () => {
@@ -932,8 +932,15 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   const guacColor = !guacActive ? 'gray' : (guacSynced ? 'green' : 'red');
 
   const oxActive = formData.backup_enabled !== false;
-  const oxSynced = Boolean(comparison?.oxidized?.is_synced);
-  const oxColor = !oxActive ? 'gray' : (oxSynced ? 'green' : 'red');
+  const oxSynced = Boolean(comparison?.oxidized?.is_synced || oxDetails);
+  const oxStatus = oxDetails?.status || comparison?.oxidized?.status;
+  const oxColor = !oxActive 
+    ? 'gray' 
+    : (oxStatus === 'success' 
+        ? 'green' 
+        : (oxStatus && oxStatus !== 'success' && oxStatus !== 'unknown' 
+            ? 'red' 
+            : (oxSynced ? 'green' : 'yellow')));
 
   // URL final de lançamento do Guacamole (se tiver token usa ele, senão URL base)
   const directGuacUrl = guacLaunchData?.launch_url || (
@@ -1611,7 +1618,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 <FileCode size={18} color="#e91e63" />
                 <span className="acc-title-text">Dados no Oxidized (Backup de Configurações)</span>
                 <span className={`badge-status-pill badge-${oxColor}`}>
-                  {oxColor === 'green' ? 'Ativo & Backup em Dia' : oxColor === 'red' ? 'Pendente / Falha' : 'Desativado'}
+                  {oxColor === 'green' ? 'Ativo & Backup em Dia' : oxColor === 'yellow' ? 'Ativo (Aguardando Coleta)' : oxColor === 'red' ? 'Pendente / Falha' : 'Desativado'}
                 </span>
               </div>
             </div>

@@ -13,7 +13,7 @@ from app.models.integration import IntegrationConfig
 from app.routers.auth import get_current_user
 from app.services.zabbix import ZabbixService
 from app.services.guacamole import GuacamoleService
-from app.services.oxidized import OxidizedService
+from app.services.oxidized import OxidizedService, parse_oxidized_datetime
 import time
 
 logger = logging.getLogger(__name__)
@@ -567,7 +567,7 @@ async def update_asset(
 
 
 @router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_asset(
+async def delete_asset(
     asset_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -578,8 +578,24 @@ def delete_asset(
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+
+    was_backup_enabled = bool(asset.backup_enabled)
     db.delete(asset)
     db.commit()
+
+    # Se o equipamento fazia backup no Oxidized, notifica o Oxidized para recarregar e remover o nó da memória
+    if was_backup_enabled:
+        try:
+            ox_cfg = db.query(IntegrationConfig).filter(
+                IntegrationConfig.name == "oxidized",
+                IntegrationConfig.is_active == True
+            ).first()
+            if ox_cfg and ox_cfg.url:
+                await OxidizedService.reload_nodes(ox_cfg.url, ox_cfg.username, ox_cfg.password)
+                logger.info(f"Oxidized notificado para expurgar nó do ativo {asset_id} após exclusão.")
+        except Exception as ox_err:
+            logger.warning(f"Aviso ao notificar reload no Oxidized após deletar ativo {asset_id}: {ox_err}")
+
     return None
 
 
@@ -1503,6 +1519,7 @@ async def get_asset_oxidized_details(
     """
     Busca o status detalhado e dados atualizados do nó no Oxidized.
     (Lazy Loading: invocado ao expandir a Linha 4).
+    Também persiste os dados no banco local para manter a listagem atualizada.
     """
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
@@ -1515,9 +1532,49 @@ async def get_asset_oxidized_details(
         details = await OxidizedService.fetch_node_details(
             cfg.url,
             node_name=node_name,
+            node_ip=asset.ip_address,
+            node_hostname=asset.hostname,
             username=cfg.username,
             password=cfg.password
         )
+
+        # Atualiza ou cria o registro AssetOxidized com os dados mais recentes do Oxidized
+        ox_rec = db.query(AssetOxidized).filter(AssetOxidized.asset_id == asset.id).first()
+        dt_val = parse_oxidized_datetime(details.get("last_backup"))
+        tt_val = None
+        if details.get("time_taken") is not None:
+            try:
+                tt_val = float(details["time_taken"])
+            except (ValueError, TypeError):
+                pass
+
+        if not ox_rec:
+            ox_rec = AssetOxidized(
+                asset_id=asset.id,
+                node_name=details.get("name") or node_name,
+                model=details.get("model") or asset.backup_model or "RouterOS",
+                group=details.get("group") or asset.client_group or "default",
+                status=details.get("status") or "unknown",
+                last_backup=dt_val,
+                backup_time_taken=tt_val,
+                vars=details.get("raw", {}).get("vars", {}),
+                last_sync=func.now()
+            )
+            db.add(ox_rec)
+        else:
+            ox_rec.node_name = details.get("name") or node_name
+            ox_rec.model = details.get("model") or ox_rec.model
+            ox_rec.group = details.get("group") or ox_rec.group
+            ox_rec.status = details.get("status") or ox_rec.status
+            if dt_val:
+                ox_rec.last_backup = dt_val
+            ox_rec.backup_time_taken = tt_val
+            ox_rec.last_sync = func.now()
+
+        asset.backup_model = details.get("model") or asset.backup_model
+        asset.backup_enabled = True
+        db.commit()
+
         return details
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Erro ao consultar Oxidized: {exc}")

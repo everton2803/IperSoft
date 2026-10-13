@@ -779,14 +779,16 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                                 Guacamole {hasGuac && <Check size={10} style={{ marginLeft: 2 }} />}
                               </span>
                             )}
-                            {asset.oxidized && (
+                            {(asset.oxidized || asset.backup_enabled) && (
                               <span 
-                                className={`presence-pill ${asset.oxidized.status === 'success' ? 'presence-zbx-ok' : 'presence-zbx-none'}`}
+                                className={`presence-pill ${asset.oxidized?.status === 'success' ? 'presence-zbx-ok' : (asset.oxidized ? 'presence-zbx-none' : 'presence-zbx-pending')}`}
                                 style={{ borderColor: 'rgba(233, 30, 99, 0.35)' }}
-                                title={`Backup Oxidized: ${asset.oxidized.status === 'success' ? 'Em dia' : asset.oxidized.status} (${asset.oxidized.model || 'RouterOS'})`}
+                                title={asset.oxidized 
+                                  ? `Backup Oxidized: ${asset.oxidized.status === 'success' ? 'Em dia' : asset.oxidized.status} (${asset.oxidized.model || asset.backup_model || 'RouterOS'})`
+                                  : `Backup habilitado no Oxidized: Aguardando primeira coleta (${asset.backup_model || 'RouterOS'})`}
                               >
-                                <span className={`presence-dot ${asset.oxidized.status === 'success' ? 'green' : 'red'}`}></span>
-                                Oxidized {asset.oxidized.status === 'success' && <Check size={10} style={{ marginLeft: 2 }} />}
+                                <span className={`presence-dot ${asset.oxidized?.status === 'success' ? 'green' : (asset.oxidized ? 'red' : 'yellow')}`}></span>
+                                Oxidized {asset.oxidized?.status === 'success' && <Check size={10} style={{ marginLeft: 2 }} />}
                               </span>
                             )}
                           </div>

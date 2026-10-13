@@ -147,22 +147,28 @@ class OxidizedService:
         nodes = await cls.fetch_nodes(url, username, password)
         assets = db.query(Asset).all()
 
-        # Índices rápidos por IP e por Nome normalizado
-        asset_by_ip = {}
+        # Índices rápidos por Nome normalizado e por IP (como lista para tratar IPs compartilhados)
         asset_by_name = {}
+        asset_by_ip = {}
         for a in assets:
-            if a.ip_address and a.ip_address.strip() and a.ip_address.strip() != "-":
-                asset_by_ip[a.ip_address.strip()] = a
             if a.name and a.name.strip():
                 asset_by_name[a.name.strip().lower()] = a
             if a.hostname and a.hostname.strip():
                 asset_by_name[a.hostname.strip().lower()] = a
+            if a.ip_address and a.ip_address.strip() and a.ip_address.strip() != "-":
+                clean_ip = a.ip_address.strip()
+                if clean_ip not in asset_by_ip:
+                    asset_by_ip[clean_ip] = []
+                asset_by_ip[clean_ip].append(a)
+
+        # Mapa de registros existentes para evitar UNIQUE constraint violations
+        existing_ox = {ox.asset_id: ox for ox in db.query(AssetOxidized).all()}
 
         matched_count = 0
         unmatched_nodes = []
 
         for node in nodes:
-            node_name = node.get("name") or node.get("full_name") or ""
+            node_name = (node.get("name") or node.get("full_name") or "").strip()
             node_ip = (node.get("ip") or "").strip()
             node_model = node.get("model") or "RouterOS"
             node_group = node.get("group") or "default"
@@ -182,13 +188,27 @@ class OxidizedService:
 
             node_vars = node.get("vars") if isinstance(node.get("vars"), dict) else {}
 
-            target_asset = asset_by_ip.get(node_ip)
-            if not target_asset and node_name:
-                target_asset = asset_by_name.get(node_name.strip().lower())
+            target_asset = None
+            # 1. Prioridade absoluta: Match exato por nome do nó (ou hostname)
+            if node_name and node_name.lower() in asset_by_name:
+                target_asset = asset_by_name[node_name.lower()]
+            # 2. Match secundário por IP
+            elif node_ip and node_ip in asset_by_ip:
+                candidates = asset_by_ip[node_ip]
+                if len(candidates) == 1:
+                    target_asset = candidates[0]
+                else:
+                    # Desempata procurando se o nome do nó contém parte do nome do ativo
+                    for c in candidates:
+                        if (c.name and c.name.lower() in node_name.lower()) or (node_name.lower() in (c.name or "").lower()):
+                            target_asset = c
+                            break
+                    if not target_asset:
+                        target_asset = candidates[0]
 
             if target_asset:
                 matched_count += 1
-                ox_record = db.query(AssetOxidized).filter(AssetOxidized.asset_id == target_asset.id).first()
+                ox_record = existing_ox.get(target_asset.id)
                 if not ox_record:
                     ox_record = AssetOxidized(
                         asset_id=target_asset.id,
@@ -202,6 +222,7 @@ class OxidizedService:
                         last_sync=func.now()
                     )
                     db.add(ox_record)
+                    existing_ox[target_asset.id] = ox_record
                 else:
                     ox_record.node_name = node_name
                     ox_record.model = node_model
@@ -304,6 +325,8 @@ class OxidizedService:
         cls,
         url: str,
         node_name: str,
+        node_ip: Optional[str] = None,
+        node_hostname: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -333,15 +356,20 @@ class OxidizedService:
             except Exception:
                 pass
 
-        # Fallback para buscar na lista geral de nós
+        # Fallback para buscar na lista geral de nós por nome, hostname ou IP
         nodes = await cls.fetch_nodes(url, username, password)
+        clean_ip = node_ip.strip() if node_ip and node_ip.strip() != "-" else None
+        clean_host = node_hostname.strip().lower() if node_hostname else None
+        clean_target = node_name.strip().lower()
+
+        # 1. Busca por nome do nó
         for n in nodes:
-            n_name = n.get("name") or n.get("full_name") or ""
-            if n_name.lower() == node_name.lower():
+            n_name = (n.get("name") or n.get("full_name") or "").strip().lower()
+            if n_name == clean_target:
                 last_obj = n.get("last") or {}
                 dt_raw = n.get("time") or last_obj.get("end")
                 return {
-                    "name": n_name,
+                    "name": n.get("name") or n.get("full_name") or node_name,
                     "model": n.get("model") or "RouterOS",
                     "group": n.get("group") or "default",
                     "ip": n.get("ip"),
@@ -351,5 +379,68 @@ class OxidizedService:
                     "raw": n
                 }
 
+        # 2. Busca por hostname
+        if clean_host:
+            for n in nodes:
+                n_name = (n.get("name") or n.get("full_name") or "").strip().lower()
+                if n_name == clean_host:
+                    last_obj = n.get("last") or {}
+                    dt_raw = n.get("time") or last_obj.get("end")
+                    return {
+                        "name": n.get("name") or n.get("full_name") or node_name,
+                        "model": n.get("model") or "RouterOS",
+                        "group": n.get("group") or "default",
+                        "ip": n.get("ip"),
+                        "status": n.get("status") or last_obj.get("status") or "unknown",
+                        "last_backup": dt_raw,
+                        "time_taken": last_obj.get("time"),
+                        "raw": n
+                    }
+
+        # 3. Busca por IP
+        if clean_ip:
+            for n in nodes:
+                n_ip = (n.get("ip") or "").strip()
+                if n_ip == clean_ip:
+                    last_obj = n.get("last") or {}
+                    dt_raw = n.get("time") or last_obj.get("end")
+                    return {
+                        "name": n.get("name") or n.get("full_name") or node_name,
+                        "model": n.get("model") or "RouterOS",
+                        "group": n.get("group") or "default",
+                        "ip": n.get("ip"),
+                        "status": n.get("status") or last_obj.get("status") or "unknown",
+                        "last_backup": dt_raw,
+                        "time_taken": last_obj.get("time"),
+                        "raw": n
+                    }
+
         raise ValueError(f"Nó '{node_name}' não encontrado no Oxidized.")
+
+    @classmethod
+    async def reload_nodes(
+        cls,
+        url: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Dispara recarregamento imediato da lista de nós no Oxidized (/reload).
+        Isso faz o Oxidized reler a fonte (IperSoft) e expurgar nós excluídos da memória."""
+        base_url = cls.normalize_url(url)
+        endpoint = f"{base_url}/reload"
+        kwargs = cls._build_client_kwargs(username, password)
+
+        async with httpx.AsyncClient(**kwargs) as client:
+            try:
+                response = await client.get(endpoint)
+                if response.status_code in (200, 302, 303):
+                    return {
+                        "success": True,
+                        "message": "Lista de nós recarregada com sucesso no Oxidized! Equipamentos excluídos foram removidos da base ativa."
+                    }
+                raise ValueError(f"HTTP {response.status_code} retornado pelo Oxidized ({response.text[:100]})")
+            except httpx.RequestError as exc:
+                raise ValueError(f"Falha de comunicação com Oxidized em {endpoint}: {exc}")
+            except Exception as exc:
+                raise ValueError(f"Erro ao recarregar lista no Oxidized: {exc}")
 
