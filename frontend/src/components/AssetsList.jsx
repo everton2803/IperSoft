@@ -77,6 +77,221 @@ const compareAssets = (a, b, field, direction) => {
   return direction === 'asc' ? diff : -diff;
 };
 
+// Retorna o status visual padronizado de uma integração: 'ok' (verde) | 'disabled' (cinza) | 'divergent' (laranja/âmbar) | 'error' (vermelho)
+const getIntegrationBadge = (asset, type) => {
+  if (type === 'zabbix') {
+    // 1. Zabbix: Desativado na integração (Cinza)
+    const isZbxDisabled = asset.status === 'unmonitored' || asset.zabbix?.status === 'unmonitored';
+    if (isZbxDisabled) {
+      return {
+        label: 'Zabbix',
+        status: 'disabled',
+        tooltip: 'Monitoramento Zabbix desativado para este equipamento no IperSoft',
+        dotColor: 'gray',
+        hasCheck: false,
+        hasAlert: false
+      };
+    }
+
+    // 2. Zabbix: Ativo no IperSoft, verificar vínculo no Zabbix
+    const hostId = asset.zabbix?.hostid || asset.external_id;
+    const hasZbxHost = Boolean(hostId && hostId !== 'None');
+
+    if (!hasZbxHost) {
+      return {
+        label: 'Zabbix',
+        status: 'divergent',
+        tooltip: 'Ativo no IperSoft, porém pendente de cadastro ou não vinculado no Zabbix Server',
+        dotColor: 'yellow',
+        hasCheck: false,
+        hasAlert: true
+      };
+    }
+
+    // Verificar se há informações divergentes conhecidas
+    if (asset.zabbix?.snmp_community && asset.snmp_community && 
+        asset.zabbix.snmp_community.trim() !== asset.snmp_community.trim()) {
+      return {
+        label: 'Zabbix',
+        status: 'divergent',
+        tooltip: `Zabbix: Community SNMP divergente (Zabbix: ${asset.zabbix.snmp_community} vs IperSoft: ${asset.snmp_community})`,
+        dotColor: 'yellow',
+        hasCheck: false,
+        hasAlert: true
+      };
+    }
+
+    if (asset.zabbix?.port && asset.port && 
+        String(asset.zabbix.port).trim() !== String(asset.port).trim()) {
+      return {
+        label: 'Zabbix',
+        status: 'divergent',
+        tooltip: `Zabbix: Porta do agente divergente (Zabbix: ${asset.zabbix.port} vs IperSoft: ${asset.port})`,
+        dotColor: 'yellow',
+        hasCheck: false,
+        hasAlert: true
+      };
+    }
+
+    // Ativo e Presente (Verde)
+    return {
+      label: 'Zabbix',
+      status: 'ok',
+      tooltip: `Cadastrado e ativo no Zabbix (HostID: ${hostId})`,
+      dotColor: 'green',
+      hasCheck: true,
+      hasAlert: false
+    };
+  }
+
+  if (type === 'guacamole') {
+    // 1. Guacamole: Desativado na integração (Cinza)
+    const isGuacDisabled = Boolean(asset.ignore_guacamole);
+    if (isGuacDisabled) {
+      return {
+        label: 'Guacamole',
+        status: 'disabled',
+        tooltip: 'Acesso remoto Guacamole desativado/ignorado para este equipamento no IperSoft',
+        dotColor: 'gray',
+        hasCheck: false,
+        hasAlert: false
+      };
+    }
+
+    // 2. Guacamole: Ativo no IperSoft, verificar conexão
+    const primaryGuac = (asset.guacamole && asset.guacamole.length > 0) ? asset.guacamole[0] : null;
+    const connId = primaryGuac?.connection_id || asset.guacamole_connection_id;
+    const hasRealGuac = Boolean(connId && !String(connId).startsWith('local-'));
+
+    if (!hasRealGuac) {
+      return {
+        label: 'Guacamole',
+        status: 'divergent',
+        tooltip: 'Habilitado no IperSoft, porém sem conexão cadastrada no Apache Guacamole',
+        dotColor: 'yellow',
+        hasCheck: false,
+        hasAlert: true
+      };
+    }
+
+    // Checar divergência de IP entre Guacamole e IperSoft
+    const cleanAssetIp = (asset.ip_address || '').trim().toLowerCase();
+    const cleanGuacIp = (primaryGuac?.hostname || '').trim().toLowerCase();
+    if (cleanAssetIp && cleanGuacIp && cleanAssetIp !== '-' && cleanGuacIp !== cleanAssetIp) {
+      return {
+        label: 'Guacamole',
+        status: 'divergent',
+        tooltip: `Guacamole: Endereço IP divergente (Guacamole: ${cleanGuacIp} vs IperSoft: ${cleanAssetIp})`,
+        dotColor: 'yellow',
+        hasCheck: false,
+        hasAlert: true
+      };
+    }
+
+    // Checar divergência de porta entre Guacamole e IperSoft
+    if (primaryGuac?.port && asset.guacamole_port && 
+        String(primaryGuac.port).trim() !== String(asset.guacamole_port).trim()) {
+      return {
+        label: 'Guacamole',
+        status: 'divergent',
+        tooltip: `Guacamole: Porta remota divergente (Guacamole: ${primaryGuac.port} vs IperSoft: ${asset.guacamole_port})`,
+        dotColor: 'yellow',
+        hasCheck: false,
+        hasAlert: true
+      };
+    }
+
+    const remoteProto = (primaryGuac?.protocol || asset.guacamole_protocol || 'ssh').toUpperCase();
+    const remotePort = primaryGuac?.port || asset.guacamole_port || '';
+
+    // Ativo e Presente (Verde)
+    return {
+      label: 'Guacamole',
+      status: 'ok',
+      tooltip: `Terminal configurado no Guacamole (${remoteProto}${remotePort ? `:${remotePort}` : ''})`,
+      dotColor: 'green',
+      hasCheck: true,
+      hasAlert: false
+    };
+  }
+
+  if (type === 'oxidized') {
+    // 1. Oxidized: Desativado na integração (Cinza)
+    const isOxDisabled = asset.backup_enabled === false;
+    if (isOxDisabled) {
+      return {
+        label: 'Oxidized',
+        status: 'disabled',
+        tooltip: 'Backup no Oxidized desativado para este equipamento no IperSoft',
+        dotColor: 'gray',
+        hasCheck: false,
+        hasAlert: false
+      };
+    }
+
+    // 2. Oxidized: Ativo no IperSoft, verificar nó no Oxidized
+    const ox = asset.oxidized;
+    if (!ox) {
+      return {
+        label: 'Oxidized',
+        status: 'divergent',
+        tooltip: `Backup habilitado no IperSoft, aguardando sincronização no Oxidized (${asset.backup_model || 'RouterOS'})`,
+        dotColor: 'yellow',
+        hasCheck: false,
+        hasAlert: true
+      };
+    }
+
+    // Checar divergência de modelo de sistema operacional
+    if (ox.model && asset.backup_model && 
+        ox.model.trim().toLowerCase() !== asset.backup_model.trim().toLowerCase()) {
+      return {
+        label: 'Oxidized',
+        status: 'divergent',
+        tooltip: `Oxidized: Modelo de SO divergente (Oxidized: ${ox.model} vs IperSoft: ${asset.backup_model})`,
+        dotColor: 'yellow',
+        hasCheck: false,
+        hasAlert: true
+      };
+    }
+
+    // Status do backup
+    if (ox.status === 'success') {
+      return {
+        label: 'Oxidized',
+        status: 'ok',
+        tooltip: `Backup Oxidized: Em dia (${ox.model || asset.backup_model || 'RouterOS'})`,
+        dotColor: 'green',
+        hasCheck: true,
+        hasAlert: false
+      };
+    }
+
+    if (ox.status === 'fail' || ox.status === 'no_connection') {
+      return {
+        label: 'Oxidized',
+        status: 'error',
+        tooltip: `Backup Oxidized: Falha no último backup (${ox.status}) - ${ox.model || asset.backup_model || 'RouterOS'}`,
+        dotColor: 'red',
+        hasCheck: false,
+        hasAlert: true
+      };
+    }
+
+    // Outros status (never, pending, etc.)
+    return {
+      label: 'Oxidized',
+      status: 'divergent',
+      tooltip: `Backup Oxidized: Aguardando primeira coleta (${ox.status || 'Pendente'})`,
+      dotColor: 'yellow',
+      hasCheck: false,
+      hasAlert: true
+    };
+  }
+
+  return { label: type, status: 'disabled', tooltip: '', dotColor: 'gray', hasCheck: false, hasAlert: false };
+};
+
 export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
   const [assets, setAssets] = useState([]);
   const [retestingId, setRetestingId] = useState(null);
@@ -755,42 +970,21 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                         {/* PLATAFORMAS SINCRONIZADAS */}
                         <td>
                           <div className="presence-badge-pair">
-                            <span 
-                              className={`presence-pill ${hasZbx ? 'presence-zbx-ok' : 'presence-zbx-none'}`} 
-                              title={hasZbx ? `Cadastrado no Zabbix (HostID: ${zbx?.hostid || asset.external_id || '-'})` : 'Não vinculado ao Zabbix'}
-                            >
-                              <span className={`presence-dot ${hasZbx ? 'green' : 'gray'}`}></span>
-                              Zabbix {hasZbx && <Check size={10} style={{ marginLeft: 2 }} />}
-                            </span>
-                            {asset.ignore_guacamole ? (
-                              <span 
-                                className="presence-pill presence-guac-ignored" 
-                                title="Sincronização com o Guacamole ignorada para este equipamento"
-                              >
-                                <span className="presence-dot blue"></span>
-                                Guac (Ignorado)
-                              </span>
-                            ) : (
-                              <span 
-                                className={`presence-pill ${hasGuac ? 'presence-guac-ok' : 'presence-guac-none'}`} 
-                                title={hasGuac ? `Terminal configurado no Guacamole (${remoteProto})` : 'Sem conexão no Guacamole'}
-                              >
-                                <span className={`presence-dot ${hasGuac ? 'orange' : 'gray'}`}></span>
-                                Guacamole {hasGuac && <Check size={10} style={{ marginLeft: 2 }} />}
-                              </span>
-                            )}
-                            {(asset.oxidized || asset.backup_enabled) && (
-                              <span 
-                                className={`presence-pill ${asset.oxidized?.status === 'success' ? 'presence-zbx-ok' : (asset.oxidized ? 'presence-zbx-none' : 'presence-zbx-pending')}`}
-                                style={{ borderColor: 'rgba(233, 30, 99, 0.35)' }}
-                                title={asset.oxidized 
-                                  ? `Backup Oxidized: ${asset.oxidized.status === 'success' ? 'Em dia' : asset.oxidized.status} (${asset.oxidized.model || asset.backup_model || 'RouterOS'})`
-                                  : `Backup habilitado no Oxidized: Aguardando primeira coleta (${asset.backup_model || 'RouterOS'})`}
-                              >
-                                <span className={`presence-dot ${asset.oxidized?.status === 'success' ? 'green' : (asset.oxidized ? 'red' : 'yellow')}`}></span>
-                                Oxidized {asset.oxidized?.status === 'success' && <Check size={10} style={{ marginLeft: 2 }} />}
-                              </span>
-                            )}
+                            {['zabbix', 'guacamole', 'oxidized'].map((itype) => {
+                              const badge = getIntegrationBadge(asset, itype);
+                              return (
+                                <span 
+                                  key={itype}
+                                  className={`presence-pill presence-status-${badge.status}`} 
+                                  title={badge.tooltip}
+                                >
+                                  <span className={`presence-dot ${badge.dotColor}`}></span>
+                                  {badge.label}
+                                  {badge.hasCheck && <Check size={10} style={{ marginLeft: 2 }} />}
+                                  {badge.hasAlert && <AlertTriangle size={10} style={{ marginLeft: 2 }} />}
+                                </span>
+                              );
+                            })}
                           </div>
                         </td>
 

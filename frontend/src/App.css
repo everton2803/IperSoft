@@ -1473,7 +1473,8 @@
 .presence-badge-pair {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .presence-pill {
@@ -1482,10 +1483,39 @@
   gap: 4px;
   font-size: 0.68rem;
   font-weight: 600;
-  padding: 0.12rem 0.45rem;
+  padding: 0.15rem 0.5rem;
   border-radius: 4px;
+  transition: all 0.15s ease;
+  user-select: none;
 }
 
+/* Novo padrão unificado das 3 integrações (Zabbix, Guacamole, Oxidized) */
+.presence-status-ok {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: var(--color-success);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.presence-status-disabled {
+  background-color: rgba(148, 163, 184, 0.06);
+  color: var(--text-muted);
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  opacity: 0.85;
+}
+
+.presence-status-divergent {
+  background-color: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.presence-status-error {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: var(--color-danger);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+/* Compatibilidade com classes anteriores */
 .presence-zbx-ok {
   background-color: rgba(16, 185, 129, 0.12);
   color: var(--color-success);
@@ -1499,9 +1529,9 @@
 }
 
 .presence-guac-ok {
-  background-color: rgba(255, 107, 0, 0.12);
-  color: var(--color-primary);
-  border: 1px solid rgba(255, 107, 0, 0.3);
+  background-color: rgba(16, 185, 129, 0.12);
+  color: var(--color-success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
 .presence-guac-none {
@@ -1511,21 +1541,22 @@
 }
 
 .presence-guac-ignored {
-  background-color: rgba(99, 102, 241, 0.1);
-  color: #818cf8;
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background-color: rgba(148, 163, 184, 0.06);
+  color: var(--text-muted);
+  border: 1px dashed rgba(148, 163, 184, 0.28);
 }
 
 .presence-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 .presence-dot.green { background-color: var(--color-success); }
 .presence-dot.orange { background-color: var(--color-primary); }
 .presence-dot.blue { background-color: #818cf8; }
 .presence-dot.red { background-color: var(--color-danger); }
-.presence-dot.yellow { background-color: #fbbf24; }
+.presence-dot.yellow { background-color: #f59e0b; }
 .presence-dot.gray { background-color: var(--text-muted); }
 
 .presence-pill.presence-zbx-pending {
