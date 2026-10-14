@@ -1,4 +1,5 @@
 import httpx
+import logging
 import urllib.parse
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
 from app.models.asset import Asset, AssetOxidized
+
+logger = logging.getLogger(__name__)
 
 
 def parse_oxidized_datetime(dt_str: Optional[str]) -> Optional[datetime]:
@@ -166,6 +169,7 @@ class OxidizedService:
 
         matched_count = 0
         unmatched_nodes = []
+        needs_reload = False
 
         for node in nodes:
             node_name = (node.get("name") or node.get("full_name") or "").strip()
@@ -207,6 +211,14 @@ class OxidizedService:
                         target_asset = candidates[0]
 
             if target_asset:
+                # SE O BACKUP DESTE ATIVO FOI EXPLICITAMENTE DESATIVADO NO IPERSOFT, RESPEITAR!
+                if target_asset.backup_enabled is False:
+                    if target_asset.id in existing_ox:
+                        db.delete(existing_ox[target_asset.id])
+                        del existing_ox[target_asset.id]
+                    needs_reload = True
+                    continue
+
                 matched_count += 1
                 ox_record = existing_ox.get(target_asset.id)
                 if not ox_record:
@@ -244,6 +256,13 @@ class OxidizedService:
                 })
 
         db.commit()
+
+        if needs_reload:
+            try:
+                await cls.reload_nodes(url, username, password)
+                logger.info("Oxidized recarregado após sincronização para descartar nós desativados da memória.")
+            except Exception as e:
+                logger.warning(f"Aviso ao recarregar nós no Oxidized durante sincronização: {e}")
 
         return {
             "total_nodes": len(nodes),

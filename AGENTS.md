@@ -156,7 +156,8 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
   - **Prevenção de Colisões e Chaves Duplicadas**: A função `sync_nodes_with_database` utiliza dicionário em memória de registros existentes e dá prioridade absoluta a correspondência exata por nome (`node_name.lower()`), seguida por IP, garantindo que múltiplos nós com mesmo IP (ou NAT/VMs) nunca gerem `UniqueViolation` em `asset_oxidized`.
 - **Disparo Manual de Backup**: Suporte a gatilho manual de backup (`/node/next/{node}`).
 - **Recarregamento e Expurgar Nós Excluídos (`/reload`)**:
-  - O daemon do Oxidized mantém nós na memória RAM. Ao excluir um equipamento no IperSoft ou desativar seu backup, o IperSoft automaticamente aciona `GET /reload` no Oxidized para que a lista da fonte seja relida e os nós excluídos sejam expurgados da memória imediatamente.
+  - O daemon do Oxidized mantém nós na memória RAM. Ao excluir um equipamento no IperSoft ou desativar seu backup (`backup_enabled = False`), o IperSoft remove imediatamente o registro de `AssetOxidized` e aciona `GET /reload` no Oxidized para que a lista da fonte seja relida e os nós excluídos sejam expurgados da memória imediatamente.
+  - Na sincronização periódica (`sync_nodes_with_database`), caso o nó pertença a um ativo cujo backup está desativado no IperSoft (`backup_enabled == False`), o IperSoft respeita estritamente a escolha do operador, não reativando o backup e expurgando o nó do daemon.
   - Há também botão dedicado na tela de Integrações: **Recarregar Nós no Oxidized** (`POST /api/v1/integrations/oxidized/reload`).
 - **Fornecimento Dinâmico de Inventário (`source: http`)**:
   - Endpoint `GET /api/v1/integrations/oxidized/nodes`: Entrega a lista de nós participantes do backup (`backup_enabled == True`) em formato JSON para consumo dinâmico pelo driver nativo `source: http` do Oxidized.
@@ -214,6 +215,14 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
 - **Verde**: Integração ativa e equipamento sincronizado/online.
 - **Vermelho**: Equipamento marcado como ativo na integração, porém com falha de conexão, sem sincronização ou ausente na ferramenta externa.
 - **Cinza / Desabilitado**: Integração desmarcada ou desativada no sistema (o usuário não precisa abrir a linha).
+
+### 6.4. `AssetsList.jsx` — Seleção Múltipla e Ações em Lote de Integrações
+- Permite seleção individual por checkbox em cada linha e seleção em massa via cabeçalho da tabela.
+- Barra de ações em lote flutuante/topo (`bulk-actions-bar`):
+  - Ativar / Desativar monitoramento no Zabbix em lote (com sincronização em tempo real no Zabbix Server).
+  - Ativar / Desativar acesso remoto no Apache Guacamole em lote (com atualização de `ignore_guacamole`).
+  - Ativar / Desativar backup no Oxidized em lote (com exclusão de dados obsoletos de backup e disparo automático de `GET /reload` para expurgo imediato da memória do Oxidized).
+  - Endpoint dedicado no backend: `POST /api/v1/assets/bulk-integrations`.
 
 ---
 

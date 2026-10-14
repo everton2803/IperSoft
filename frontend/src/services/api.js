@@ -386,6 +386,32 @@ export const authService = {
     return result;
   },
 
+  async toggleZabbixHostStatus(id, isMonitored) {
+    return this.toggleAssetStatus(id, isMonitored ? 'monitored' : 'unmonitored', true);
+  },
+
+  async bulkUpdateIntegrations({ asset_ids, zabbix_enabled, guacamole_enabled, oxidized_enabled }) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/assets/bulk-integrations`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        asset_ids,
+        zabbix_enabled,
+        guacamole_enabled,
+        oxidized_enabled
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || 'Falha ao atualizar integrações em lote.');
+    return result;
+  },
+
   async getAssetComparison(id) {
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');

@@ -126,6 +126,12 @@ class StatusToggleRequest(BaseModel):
     status: str # "monitored" | "unmonitored"
     sync_zabbix: Optional[bool] = True
 
+class BulkIntegrationsRequest(BaseModel):
+    asset_ids: List[int]
+    zabbix_enabled: Optional[bool] = None      # True -> monitored, False -> unmonitored
+    guacamole_enabled: Optional[bool] = None   # True -> active, False -> ignored
+    oxidized_enabled: Optional[bool] = None    # True -> backup_enabled=True, False -> backup_enabled=False
+
 
 def _ip_sort_key(ip_val: Optional[str]):
     if not ip_val:
@@ -364,6 +370,99 @@ async def toggle_asset_status(
     }
 
 
+@router.post("/bulk-integrations")
+async def bulk_update_integrations(
+    payload: BulkIntegrationsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Atualiza status de integrações (Zabbix, Guacamole, Oxidized) em lote
+    para múltiplos equipamentos selecionados.
+    """
+    if not payload.asset_ids:
+        raise HTTPException(status_code=400, detail="Nenhum ativo informado para atualização em lote.")
+
+    assets = db.query(Asset).filter(Asset.id.in_(payload.asset_ids)).all()
+    if not assets:
+        raise HTTPException(status_code=404, detail="Nenhum ativo encontrado para os IDs informados.")
+
+    updated_count = len(assets)
+    zbx_synced_count = 0
+    ox_reloaded = False
+
+    # 1. Zabbix (Ativar / Desativar monitoramento)
+    if payload.zabbix_enabled is not None:
+        new_status = "monitored" if payload.zabbix_enabled else "unmonitored"
+        status_code = 0 if payload.zabbix_enabled else 1
+        cfg_zbx = db.query(IntegrationConfig).filter(
+            IntegrationConfig.name == "zabbix",
+            IntegrationConfig.is_active == True
+        ).first()
+
+        for a in assets:
+            a.status = new_status
+            if a.zabbix:
+                a.zabbix.status = new_status
+
+        if cfg_zbx and cfg_zbx.url:
+            for a in assets:
+                h_id = a.zabbix.hostid if (a.zabbix and a.zabbix.hostid) else a.external_id
+                if h_id and str(h_id).strip().lower() != "none":
+                    try:
+                        await ZabbixService.update_host_status(
+                            cfg_zbx.url,
+                            str(h_id),
+                            status_code,
+                            token=cfg_zbx.token,
+                            username=cfg_zbx.username,
+                            password=cfg_zbx.password
+                        )
+                        zbx_synced_count += 1
+                    except Exception as err:
+                        logger.warning(f"Erro ao alterar status Zabbix do host {h_id} em lote: {err}")
+
+    # 2. Apache Guacamole (Ativar / Desativar/Ignorar)
+    if payload.guacamole_enabled is not None:
+        for a in assets:
+            raw = dict(a.raw_data or {})
+            raw["ignore_guacamole"] = not payload.guacamole_enabled
+            a.raw_data = raw
+
+    # 3. Oxidized (Ativar backup / Desativar backup e expurgar do daemon)
+    if payload.oxidized_enabled is not None:
+        for a in assets:
+            a.backup_enabled = payload.oxidized_enabled
+            if not payload.oxidized_enabled:
+                if a.oxidized:
+                    db.delete(a.oxidized)
+
+        db.commit()
+
+        # Recarrega daemon do Oxidized para refletir inclusão ou expurgo imediato
+        cfg_ox = db.query(IntegrationConfig).filter(
+            IntegrationConfig.name == "oxidized",
+            IntegrationConfig.is_active == True
+        ).first()
+        if cfg_ox and cfg_ox.url:
+            try:
+                await OxidizedService.reload_nodes(cfg_ox.url, cfg_ox.username, cfg_ox.password)
+                ox_reloaded = True
+                logger.info(f"Oxidized notificado para reload após bulk update de backup_enabled={payload.oxidized_enabled}.")
+            except Exception as ox_err:
+                logger.warning(f"Aviso ao notificar reload no Oxidized após bulk update: {ox_err}")
+    else:
+        db.commit()
+
+    return {
+        "success": True,
+        "updated_count": updated_count,
+        "zabbix_synced_count": zbx_synced_count,
+        "oxidized_reloaded": ox_reloaded,
+        "message": f"{updated_count} equipamentos atualizados em lote com sucesso."
+    }
+
+
 @router.patch("/{asset_id}", response_model=AssetResponse)
 async def update_asset(
     asset_id: int,
@@ -549,12 +648,15 @@ async def update_asset(
                     g.tcp_latency_ms = None
                     g.tcp_message = None
 
+    old_backup_enabled = asset.backup_enabled
     if payload.backup_model is not None:
         asset.backup_model = payload.backup_model.strip() or "RouterOS"
         if asset.oxidized:
             asset.oxidized.model = asset.backup_model
     if payload.backup_enabled is not None:
         asset.backup_enabled = payload.backup_enabled
+        if payload.backup_enabled is False and asset.oxidized:
+            db.delete(asset.oxidized)
 
     if payload.ignore_guacamole is not None:
         raw = dict(asset.raw_data or {})
@@ -563,6 +665,19 @@ async def update_asset(
 
     db.commit()
     db.refresh(asset)
+
+    if payload.backup_enabled is not None and old_backup_enabled != payload.backup_enabled:
+        try:
+            ox_cfg = db.query(IntegrationConfig).filter(
+                IntegrationConfig.name == "oxidized",
+                IntegrationConfig.is_active == True
+            ).first()
+            if ox_cfg and ox_cfg.url:
+                await OxidizedService.reload_nodes(ox_cfg.url, ox_cfg.username, ox_cfg.password)
+                logger.info(f"Oxidized recarregado após alteração de backup_enabled={payload.backup_enabled} no ativo {asset.id}.")
+        except Exception as ox_err:
+            logger.warning(f"Aviso ao notificar reload no Oxidized após update do ativo {asset.id}: {ox_err}")
+
     return asset
 
 

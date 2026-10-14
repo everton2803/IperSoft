@@ -27,7 +27,10 @@ import {
   Cpu,
   ArrowUp,
   ArrowDown,
-  ArrowUpDown
+  ArrowUpDown,
+  CheckSquare,
+  HardDrive,
+  PowerOff
 } from 'lucide-react';
 import { authService, diagnosticsService } from '../services/api';
 
@@ -323,6 +326,75 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
   const [sortField, setSortField] = useState('name'); // 'name' | 'ip'
   const [sortDirection, setSortDirection] = useState('asc'); // 'asc' | 'desc'
   const [showOnlyDuplicates, setShowOnlyDuplicates] = useState(false);
+
+  // Seleção múltipla para ações em lote
+  const [selectedAssetIds, setSelectedAssetIds] = useState([]);
+  const [isBulkLoading, setIsBulkLoading] = useState(false);
+
+  const handleToggleSelect = (assetId) => {
+    setSelectedAssetIds(prev => 
+      prev.includes(assetId) 
+        ? prev.filter(id => id !== assetId)
+        : [...prev, assetId]
+    );
+  };
+
+  const handleSelectAllDisplayed = () => {
+    const displayedIds = displayedAssets.map(a => a.id);
+    const allSelected = displayedIds.length > 0 && displayedIds.every(id => selectedAssetIds.includes(id));
+    if (allSelected) {
+      setSelectedAssetIds(prev => prev.filter(id => !displayedIds.includes(id)));
+    } else {
+      setSelectedAssetIds(prev => Array.from(new Set([...prev, ...displayedIds])));
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedAssetIds([]);
+  };
+
+  const handleBulkIntegrationAction = async (integration, enable) => {
+    if (selectedAssetIds.length === 0) return;
+    const count = selectedAssetIds.length;
+    const actionLabel = enable ? 'Ativar' : 'Desativar';
+    const integNames = {
+      zabbix: 'Zabbix',
+      guacamole: 'Guacamole',
+      oxidized: 'Oxidized'
+    };
+    const integName = integNames[integration] || integration;
+
+    const confirmMsg = `Deseja realmente ${actionLabel.toLowerCase()} a integração ${integName} para os ${count} equipamentos selecionados?` +
+      (integration === 'oxidized' && !enable ? ' O backup será desativado e os nós serão expurgados da memória do Oxidized imediatamente.' : '');
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsBulkLoading(true);
+    setFeedbackMsg(null);
+    try {
+      const payload = {
+        asset_ids: selectedAssetIds
+      };
+      if (integration === 'zabbix') payload.zabbix_enabled = enable;
+      if (integration === 'guacamole') payload.guacamole_enabled = enable;
+      if (integration === 'oxidized') payload.oxidized_enabled = enable;
+
+      await authService.bulkUpdateIntegrations(payload);
+      setFeedbackMsg({
+        type: 'success',
+        text: `${count} equipamentos atualizados: ${integName} ${enable ? 'ativado' : 'desativado'} com sucesso!`
+      });
+      setSelectedAssetIds([]);
+      await loadAssets();
+    } catch (err) {
+      setFeedbackMsg({
+        type: 'error',
+        text: err.message || `Erro ao atualizar integração ${integName} em lote.`
+      });
+    } finally {
+      setIsBulkLoading(false);
+    }
+  };
 
   // Edit Asset Modal state
   const [editingAsset, setEditingAsset] = useState(null);
@@ -874,6 +946,99 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
       )}
 
       {/* ========================================================================= */}
+      {/* BARRA DE AÇÕES EM LOTE QUANDO HÁ SELEÇÃO */}
+      {/* ========================================================================= */}
+      {selectedAssetIds.length > 0 && (
+        <div className="bulk-actions-bar">
+          <div className="bulk-actions-info">
+            <CheckSquare size={16} color="#60a5fa" />
+            <span className="bulk-count">
+              {selectedAssetIds.length} {selectedAssetIds.length === 1 ? 'equipamento selecionado' : 'equipamentos selecionados'}
+            </span>
+            <button type="button" className="btn-bulk-text" onClick={handleSelectAllDisplayed}>
+              {displayedAssets.length > 0 && displayedAssets.every(a => selectedAssetIds.includes(a.id))
+                ? 'Desmarcar Exibidos' 
+                : `Selecionar Todos Exibidos (${displayedAssets.length})`}
+            </button>
+            <button type="button" className="btn-bulk-text" onClick={handleClearSelection}>
+              Limpar Seleção
+            </button>
+          </div>
+
+          <div className="bulk-actions-buttons">
+            {/* Zabbix */}
+            <div className="bulk-action-group">
+              <span className="bulk-group-label">Zabbix:</span>
+              <button 
+                type="button" 
+                className="btn-bulk-action btn-bulk-enable"
+                onClick={() => handleBulkIntegrationAction('zabbix', true)}
+                disabled={isBulkLoading}
+                title="Ativar monitoramento no Zabbix para os equipamentos selecionados"
+              >
+                <Activity size={13} /> Ativar
+              </button>
+              <button 
+                type="button" 
+                className="btn-bulk-action btn-bulk-disable"
+                onClick={() => handleBulkIntegrationAction('zabbix', false)}
+                disabled={isBulkLoading}
+                title="Desativar monitoramento no Zabbix para os equipamentos selecionados"
+              >
+                <PowerOff size={13} /> Desativar
+              </button>
+            </div>
+
+            {/* Guacamole */}
+            <div className="bulk-action-group">
+              <span className="bulk-group-label">Guacamole:</span>
+              <button 
+                type="button" 
+                className="btn-bulk-action btn-bulk-enable"
+                onClick={() => handleBulkIntegrationAction('guacamole', true)}
+                disabled={isBulkLoading}
+                title="Ativar acesso remoto no Apache Guacamole para os equipamentos selecionados"
+              >
+                <Terminal size={13} /> Ativar
+              </button>
+              <button 
+                type="button" 
+                className="btn-bulk-action btn-bulk-disable"
+                onClick={() => handleBulkIntegrationAction('guacamole', false)}
+                disabled={isBulkLoading}
+                title="Desativar/ignorar acesso no Guacamole para os equipamentos selecionados"
+              >
+                <PowerOff size={13} /> Desativar
+              </button>
+            </div>
+
+            {/* Oxidized */}
+            <div className="bulk-action-group">
+              <span className="bulk-group-label">Oxidized:</span>
+              <button 
+                type="button" 
+                className="btn-bulk-action btn-bulk-enable"
+                onClick={() => handleBulkIntegrationAction('oxidized', true)}
+                disabled={isBulkLoading}
+                title="Ativar backup no Oxidized para os equipamentos selecionados"
+              >
+                <HardDrive size={13} /> Ativar
+              </button>
+              <button 
+                type="button" 
+                className="btn-bulk-action btn-bulk-disable"
+                onClick={() => handleBulkIntegrationAction('oxidized', false)}
+                disabled={isBulkLoading}
+                title="Desativar backup e expurgar nós do daemon do Oxidized para os selecionados"
+              >
+                <PowerOff size={13} /> Desativar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* TABELA DE ATIVOS: RENDERIZAÇÃO CONFORME VIEW MODE */}
       {/* ========================================================================= */}
       <div className="assets-table-container">
@@ -894,6 +1059,15 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
               <>
                 <thead>
                   <tr>
+                    <th className="checkbox-cell">
+                      <input 
+                        type="checkbox" 
+                        className="asset-checkbox"
+                        checked={displayedAssets.length > 0 && displayedAssets.every(a => selectedAssetIds.includes(a.id))}
+                        onChange={handleSelectAllDisplayed}
+                        title="Selecionar / Desmarcar todos os exibidos"
+                      />
+                    </th>
                     {renderSortHeader('Equipamento', 'name')}
                     {renderSortHeader('Endereço IP', 'ip')}
                     <th>Plataformas Sincronizadas</th>
@@ -914,13 +1088,21 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                     return (
                       <tr 
                         key={asset.id} 
-                        className={`clickable-asset-row ${isDup ? 'row-duplicate-ip' : ''}`}
+                        className={`clickable-asset-row ${isDup ? 'row-duplicate-ip' : ''} ${selectedAssetIds.includes(asset.id) ? 'row-selected' : ''}`}
                         onClick={(e) => {
-                          // Evita disparar se clicou num botão específico
-                          if (e.target.closest('button') || e.target.closest('a')) return;
+                          // Evita disparar se clicou num botão específico ou checkbox
+                          if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) return;
                           if (onSelectAsset) onSelectAsset(asset.id);
                         }}
                       >
+                        <td className="checkbox-cell" onClick={(e) => e.stopPropagation()}>
+                          <input 
+                            type="checkbox" 
+                            className="asset-checkbox"
+                            checked={selectedAssetIds.includes(asset.id)}
+                            onChange={() => handleToggleSelect(asset.id)}
+                          />
+                        </td>
                         {/* EQUIPAMENTO */}
                         <td>
                           <div className="asset-name-cell">
@@ -1094,6 +1276,15 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
               <>
                 <thead>
                   <tr>
+                    <th className="checkbox-cell">
+                      <input 
+                        type="checkbox" 
+                        className="asset-checkbox"
+                        checked={displayedAssets.length > 0 && displayedAssets.every(a => selectedAssetIds.includes(a.id))}
+                        onChange={handleSelectAllDisplayed}
+                        title="Selecionar / Desmarcar todos os exibidos"
+                      />
+                    </th>
                     {renderSortHeader('Host Zabbix', 'name')}
                     {renderSortHeader('IP / DNS', 'ip')}
                     <th>Ping (ICMP)</th>
@@ -1114,7 +1305,22 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                     const isDup = cleanIp && cleanIp !== '-' && duplicateIpMap[cleanIp] > 1;
 
                     return (
-                      <tr key={asset.id} className={`${zbxStatus === 'unmonitored' ? 'row-unmonitored' : ''} ${isDup ? 'row-duplicate-ip' : ''}`}>
+                      <tr 
+                        key={asset.id} 
+                        className={`clickable-asset-row ${zbxStatus === 'unmonitored' ? 'row-unmonitored' : ''} ${isDup ? 'row-duplicate-ip' : ''} ${selectedAssetIds.includes(asset.id) ? 'row-selected' : ''}`}
+                        onClick={(e) => {
+                          if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) return;
+                          if (onSelectAsset) onSelectAsset(asset.id);
+                        }}
+                      >
+                        <td className="checkbox-cell" onClick={(e) => e.stopPropagation()}>
+                          <input 
+                            type="checkbox" 
+                            className="asset-checkbox"
+                            checked={selectedAssetIds.includes(asset.id)}
+                            onChange={() => handleToggleSelect(asset.id)}
+                          />
+                        </td>
                         <td>
                           <div className="asset-name-cell">
                             <span className="asset-visible-name">{asset.name}</span>
@@ -1231,6 +1437,15 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
               <>
                 <thead>
                   <tr>
+                    <th className="checkbox-cell">
+                      <input 
+                        type="checkbox" 
+                        className="asset-checkbox"
+                        checked={displayedAssets.length > 0 && displayedAssets.every(a => selectedAssetIds.includes(a.id))}
+                        onChange={handleSelectAllDisplayed}
+                        title="Selecionar / Desmarcar todos os exibidos"
+                      />
+                    </th>
                     {renderSortHeader('Dispositivo', 'name')}
                     <th>Conexão no Guacamole</th>
                     {renderSortHeader('IP Destino', 'ip')}
@@ -1254,7 +1469,22 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                     const isDup = cleanIp && cleanIp !== '-' && duplicateIpMap[cleanIp] > 1;
 
                     return (
-                      <tr key={asset.id} className={isDup ? 'row-duplicate-ip' : ''}>
+                      <tr 
+                        key={asset.id} 
+                        className={`clickable-asset-row ${isDup ? 'row-duplicate-ip' : ''} ${selectedAssetIds.includes(asset.id) ? 'row-selected' : ''}`}
+                        onClick={(e) => {
+                          if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) return;
+                          if (onSelectAsset) onSelectAsset(asset.id);
+                        }}
+                      >
+                        <td className="checkbox-cell" onClick={(e) => e.stopPropagation()}>
+                          <input 
+                            type="checkbox" 
+                            className="asset-checkbox"
+                            checked={selectedAssetIds.includes(asset.id)}
+                            onChange={() => handleToggleSelect(asset.id)}
+                          />
+                        </td>
                         <td>
                           <div className="asset-name-cell">
                             <span className="asset-visible-name">{asset.name}</span>
