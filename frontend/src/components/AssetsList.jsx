@@ -246,8 +246,14 @@ const getIntegrationBadge = (asset, type) => {
     }
 
     // Checar divergência de modelo de sistema operacional
+    const normModel = (m) => {
+      if (!m) return '';
+      const s = m.trim().toLowerCase();
+      if (s === 'dmos' || s === 'datacom') return 'datacom';
+      return s;
+    };
     if (ox.model && asset.backup_model && 
-        ox.model.trim().toLowerCase() !== asset.backup_model.trim().toLowerCase()) {
+        normModel(ox.model) !== normModel(asset.backup_model)) {
       return {
         label: 'Oxidized',
         status: 'divergent',
@@ -1713,12 +1719,17 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                       <label className="form-label">Modelo de SO (Oxidized)</label>
                       <select
                         className="form-input"
-                        value={editForm.backup_model || 'RouterOS'}
+                        value={(() => {
+                          const m = (editForm.backup_model || '').toLowerCase();
+                          if (m === 'dmos' || m === 'datacom') return 'datacom';
+                          if (m === 'routeros') return 'RouterOS';
+                          return editForm.backup_model || 'RouterOS';
+                        })()}
                         onChange={(e) => setEditForm({ ...editForm, backup_model: e.target.value })}
                       >
                         <option value="RouterOS">MikroTik (RouterOS)</option>
                         <option value="ios">Cisco (IOS / IOS-XE)</option>
-                        <option value="dmos">Datacom (DmOS)</option>
+                        <option value="datacom">Datacom (DmOS)</option>
                         <option value="vrp">Huawei (VRP)</option>
                         <option value="fortios">Fortinet (FortiOS)</option>
                         <option value="edgecos">EdgeCore / EdgeOS</option>

@@ -285,8 +285,27 @@ class OxidizedService:
         for a in assets:
             ip = a.ip_address.strip()
             group = a.client_group or "default"
-            # O Oxidized exige o nome do modelo em minúsculo (routeros, cisco, dmos, huawei, etc.)
+            # O Oxidized exige o nome do modelo em minúsculo (routeros, cisco, datacom, huawei, etc.)
             raw_model = (a.backup_model or "routeros").strip().lower()
+            MODEL_MAP = {
+                "dmos": "datacom",
+                "datacom": "datacom",
+                "datacom_dmos": "datacom",
+                "routeros": "routeros",
+                "mikrotik": "routeros",
+                "cisco": "ios",
+                "ios": "ios",
+                "ios-xe": "ios",
+                "huawei": "vrp",
+                "vrp": "vrp",
+                "fortinet": "fortios",
+                "fortios": "fortios",
+                "edgecore": "edgecos",
+                "edgecos": "edgecos",
+                "juniper": "junos",
+                "junos": "junos",
+            }
+            model = MODEL_MAP.get(raw_model, raw_model)
             name = a.name.strip() if a.name else (a.hostname.strip() if a.hostname else f"node-{a.id}")
 
             # Busca credenciais e portas associadas se houver conexão remota cadastrada
@@ -306,7 +325,7 @@ class OxidizedService:
 
             node_entry = {
                 "name": name,
-                "model": raw_model,
+                "model": model,
                 "ip": ip,
                 "group": group,
                 "protocol": protocol,

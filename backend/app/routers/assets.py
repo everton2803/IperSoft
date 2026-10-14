@@ -751,188 +751,46 @@ async def get_asset_comparison(
         "updated_at": asset.updated_at
     }
 
-    # 2. Dados no Zabbix (consulta ao vivo no Zabbix Server)
+    # 2. Dados no Zabbix (leitura local do banco do IperSoft - sem chamada externa síncrona)
     zbx_config = db.query(IntegrationConfig).filter(IntegrationConfig.name == "zabbix").first()
-    zbx_live_host = None
-    if zbx_config and zbx_config.url and (zbx_config.token or (zbx_config.username and zbx_config.password)):
-        try:
-            live_hosts = await ZabbixService.fetch_hosts(
-                url=zbx_config.url,
-                token=zbx_config.token,
-                username=zbx_config.username,
-                password=zbx_config.password
-            )
-            target_ip = (asset.ip_address or "").strip().lower()
-            target_name = (asset.name or "").strip().lower()
-            target_host = (asset.hostname or "").strip().lower()
-            current_hid = str(asset.zabbix.hostid) if (asset.zabbix and asset.zabbix.hostid) else str(asset.external_id or "")
+    zbx_rec = asset.zabbix
+    real_hid = str(zbx_rec.hostid) if (zbx_rec and zbx_rec.hostid) else str(asset.external_id or "")
+    is_zbx_synced = bool(real_hid and real_hid != "None")
 
-            for h in live_hosts:
-                h_id = str(h.get("hostid") or "")
-                h_name = (h.get("name") or "").strip().lower()
-                h_tech = (h.get("hostname") or h.get("host") or "").strip().lower()
-                h_ip = (h.get("ip_address") or h.get("ip") or "").strip().lower()
+    zabbix_data = {
+        "is_configured": bool(zbx_config and zbx_config.url),
+        "is_synced": is_zbx_synced,
+        "hostid": real_hid if is_zbx_synced else None,
+        "name": asset.name,
+        "hostname": asset.hostname,
+        "ip_address": asset.ip_address,
+        "port": (zbx_rec.port if zbx_rec else None) or asset.port or "10050",
+        "snmp_community": (zbx_rec.snmp_community if zbx_rec else None) or asset.snmp_community or "ipermonitor",
+        "status": (zbx_rec.status if zbx_rec else None) or ("monitored" if asset.status == "active" else "unmonitored"),
+        "last_sync": zbx_rec.last_sync if zbx_rec else None
+    }
 
-                # Match inteligente por HostID, IP ou Nome
-                if (current_hid and h_id == current_hid) or \
-                   (target_ip and h_ip == target_ip) or \
-                   (target_host and (h_tech == target_host or h_name == target_host)) or \
-                   (target_name and (h_name == target_name or h_tech == target_name)):
-                    zbx_live_host = h
-                    break
-        except Exception as e:
-            logger.warning(f"Aviso ao consultar Zabbix ao vivo para comparação: {e}")
-
-    valid_hid = str(zbx_live_host.get("hostid") or zbx_live_host.get("external_id") or "") if zbx_live_host else ""
-    if zbx_live_host and valid_hid and valid_hid != "None":
-        real_hid = valid_hid
-        if not asset.zabbix:
-            asset.zabbix = AssetZabbix(asset_id=asset.id)
-        asset.zabbix.hostid = real_hid
-        asset.zabbix.port = str(zbx_live_host.get("port") or asset.zabbix.port or "10050")
-        if zbx_live_host.get("snmp_community"):
-            asset.zabbix.snmp_community = zbx_live_host.get("snmp_community")
-        asset.zabbix.status = "monitored" if str(zbx_live_host.get("status")) in ("0", "monitored") else "unmonitored"
-        asset.zabbix.last_sync = datetime.now(timezone.utc)
-        asset.external_id = real_hid
-        db.commit()
-        db.refresh(asset)
-
-        zabbix_data = {
-            "is_configured": bool(zbx_config and zbx_config.url),
-            "is_synced": True,
-            "hostid": real_hid,
-            "name": zbx_live_host.get("name"),
-            "hostname": zbx_live_host.get("hostname"),
-            "ip_address": zbx_live_host.get("ip_address"),
-            "port": zbx_live_host.get("port") or "10050",
-            "snmp_community": zbx_live_host.get("snmp_community") or (asset.zabbix.snmp_community if asset.zabbix else None),
-            "status": "monitored" if str(zbx_live_host.get("status")) in ("0", "monitored") else "unmonitored",
-            "last_sync": asset.zabbix.last_sync if asset.zabbix else None
-        }
-    else:
-        # Se não existe no Zabbix Server, limpa vínculo se houver e não exibe dados fantasmas
-        if asset.zabbix and asset.zabbix.hostid:
-            asset.zabbix.hostid = None
-            asset.external_id = None
-            db.commit()
-            db.refresh(asset)
-
-        zabbix_data = {
-            "is_configured": bool(zbx_config and zbx_config.url),
-            "is_synced": False,
-            "hostid": None,
-            "name": None,
-            "hostname": None,
-            "ip_address": None,
-            "port": None,
-            "snmp_community": None,
-            "status": None,
-            "last_sync": None
-        }
-
-    # 3. Dados no Guacamole (consulta ao vivo no Apache Guacamole)
+    # 3. Dados no Guacamole (leitura local do banco do IperSoft - sem chamada externa síncrona)
     guac_config = db.query(IntegrationConfig).filter(IntegrationConfig.name == "guacamole").first()
-    guac_live_conn = None
-    if guac_config and guac_config.url and guac_config.username and guac_config.password:
-        try:
-            live_conns = await GuacamoleService.fetch_connections_with_parameters(
-                url=guac_config.url,
-                username=guac_config.username,
-                password=guac_config.password
-            )
-            target_ip = (asset.ip_address or "").strip().lower()
-            target_name = (asset.name or "").strip().lower()
-            target_host = (asset.hostname or "").strip().lower()
-            current_cid = str(primary_guac.connection_id) if (primary_guac and primary_guac.connection_id and not str(primary_guac.connection_id).startswith("local-")) else str(asset.guacamole_connection_id or "")
-
-            for c in live_conns:
-                c_id = str(c.get("identifier") or "")
-                c_client_id = str(c.get("client_id") or "")
-                c_name = (c.get("name") or "").strip().lower()
-                c_host = (c.get("hostname") or "").strip().lower()
-
-                # Match inteligente por identifier, por IP ou por Nome
-                if (current_cid and (c_id == current_cid or c_client_id == current_cid)) or \
-                   (target_ip and c_host == target_ip) or \
-                   (target_host and c_host == target_host) or \
-                   (target_name and (c_name == target_name or target_name in c_name or c_name in target_name)):
-                    guac_live_conn = c
-                    break
-
-            if guac_live_conn:
-                real_id = str(guac_live_conn.get("identifier"))
-                real_client_id = str(guac_live_conn.get("client_id") or real_id)
-                if not primary_guac:
-                    primary_guac = AssetGuacamole(
-                        asset_id=asset.id,
-                        connection_id=real_client_id,
-                        connection_name=guac_live_conn.get("name") or asset.name,
-                        protocol=guac_live_conn.get("protocol") or "ssh",
-                        port=str(guac_live_conn.get("port") or "22"),
-                        hostname=guac_live_conn.get("hostname") or target_ip,
-                        username=guac_live_conn.get("username")
-                    )
-                    db.add(primary_guac)
-                    asset.guacamole_connection_id = real_client_id
-                    db.commit()
-                    db.refresh(asset)
-                else:
-                    changed = False
-                    # Atualiza o vínculo do connection_id com o Guacamole sem sobrescrever
-                    # a porta ou credenciais locais definidas pelo usuário no IperSoft!
-                    if primary_guac.connection_id != real_client_id:
-                        primary_guac.connection_id = real_client_id
-                        asset.guacamole_connection_id = real_client_id
-                        changed = True
-                    if not primary_guac.port:
-                        primary_guac.port = str(guac_live_conn.get("port") or "22")
-                        changed = True
-                    if changed:
-                        db.commit()
-                        db.refresh(asset)
-            else:
-                # Se NÃO foi encontrado no Guacamole ao vivo, mantém as credenciais locais no IperSoft
-                if primary_guac and not str(primary_guac.connection_id or "").startswith("local-"):
-                    primary_guac.connection_id = f"local-{asset.id}"
-                asset.guacamole_connection_id = None
-                db.commit()
-                db.refresh(asset)
-        except Exception as e:
-            logger.warning(f"Aviso ao consultar Guacamole ao vivo para comparação: {e}")
-
     ignore_guac = bool((asset.raw_data or {}).get("ignore_guacamole", False))
+    has_valid_conn = bool(primary_guac and primary_guac.connection_id and not str(primary_guac.connection_id).startswith("local-"))
+    real_cid = str(primary_guac.connection_id) if has_valid_conn else (str(asset.guacamole_connection_id) if asset.guacamole_connection_id and not str(asset.guacamole_connection_id).startswith("local-") else None)
+    is_guac_synced = bool(real_cid and not ignore_guac)
 
-    if guac_live_conn:
-        guacamole_data = {
-            "is_configured": bool(guac_config and guac_config.url),
-            "is_synced": True,
-            "ignore_guacamole": ignore_guac,
-            "folder_name": guac_live_conn.get("client_group") or "Raiz (ROOT)",
-            "connection_id": guac_live_conn.get("client_id") or str(guac_live_conn.get("identifier")),
-            "connection_name": guac_live_conn.get("name"),
-            "protocol": guac_live_conn.get("protocol") or "ssh",
-            "hostname": guac_live_conn.get("hostname"),
-            "port": str(guac_live_conn.get("port") or "22"),
-            "username": guac_live_conn.get("username"),
-            "has_password": bool(guac_live_conn.get("has_password")),
-            "last_sync": primary_guac.last_sync if primary_guac else None
-        }
-    else:
-        guacamole_data = {
-            "is_configured": bool(guac_config and guac_config.url),
-            "is_synced": False,
-            "ignore_guacamole": ignore_guac,
-            "folder_name": None,
-            "connection_id": None,
-            "connection_name": None,
-            "protocol": None,
-            "hostname": None,
-            "port": None,
-            "username": None,
-            "has_password": False,
-            "last_sync": None
-        }
+    guacamole_data = {
+        "is_configured": bool(guac_config and guac_config.url),
+        "is_synced": is_guac_synced,
+        "ignore_guacamole": ignore_guac,
+        "folder_name": c_group or "Raiz (ROOT)",
+        "connection_id": real_cid,
+        "connection_name": (primary_guac.connection_name if primary_guac else None) or asset.name,
+        "protocol": (primary_guac.protocol if primary_guac else None) or asset.guacamole_protocol or "ssh",
+        "hostname": (primary_guac.hostname if primary_guac else None) or asset.ip_address,
+        "port": str(primary_guac.port if primary_guac else ("22" if (asset.guacamole_protocol or "ssh") == "ssh" else ("23" if asset.guacamole_protocol == "telnet" else "3389"))),
+        "username": primary_guac.username if primary_guac else None,
+        "has_password": bool(primary_guac.password if primary_guac else False),
+        "last_sync": primary_guac.last_sync if primary_guac else None
+    }
 
     # 4. Dados no Oxidized
     ox_cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "oxidized", IntegrationConfig.is_active == True).first()
@@ -1569,14 +1427,61 @@ async def get_asset_guacamole_details(
     cid = asset.guacamole_connection_id
     if not cid and asset.guacamole:
         for g in asset.guacamole:
-            if g.connection_id:
-                cid = g.connection_id
+            if g.connection_id and not str(g.connection_id).startswith("local-"):
+                cid = str(g.connection_id)
                 break
+
+    if cid and str(cid).startswith("local-"):
+        cid = None
+
+    cfg = _get_guacamole_config(db)
+
+    # Se não temos cid definitivo, tenta localizar conexão compatível ao vivo no Guacamole
+    if not cid:
+        try:
+            live_conns = await GuacamoleService.fetch_connections_with_parameters(
+                url=cfg.url,
+                username=cfg.username,
+                password=cfg.password
+            )
+            target_ip = (asset.ip_address or "").strip().lower()
+            target_name = (asset.name or "").strip().lower()
+            target_host = (asset.hostname or "").strip().lower()
+
+            for c in live_conns:
+                c_id = str(c.get("identifier") or "")
+                c_client_id = str(c.get("client_id") or "")
+                c_name = (c.get("name") or "").strip().lower()
+                c_host = (c.get("hostname") or "").strip().lower()
+
+                if (target_ip and c_host == target_ip) or \
+                   (target_host and c_host == target_host) or \
+                   (target_name and (c_name == target_name or target_name in c_name or c_name in target_name)):
+                    cid = c.get("client_id") or c_id
+                    primary_guac = asset.guacamole[0] if asset.guacamole and len(asset.guacamole) > 0 else None
+                    if not primary_guac:
+                        primary_guac = AssetGuacamole(
+                            asset_id=asset.id,
+                            connection_id=cid,
+                            connection_name=c.get("name") or asset.name,
+                            protocol=c.get("protocol") or "ssh",
+                            port=str(c.get("port") or "22"),
+                            hostname=c.get("hostname") or target_ip,
+                            username=c.get("username")
+                        )
+                        db.add(primary_guac)
+                    else:
+                        primary_guac.connection_id = cid
+                    asset.guacamole_connection_id = cid
+                    db.commit()
+                    db.refresh(asset)
+                    break
+        except Exception as e:
+            logger.warning(f"Aviso ao buscar conexão compatível no Guacamole: {e}")
 
     if not cid:
         raise HTTPException(status_code=404, detail="Nenhuma conexão cadastrada no Guacamole para este ativo.")
 
-    cfg = _get_guacamole_config(db)
     try:
         details = await GuacamoleService.fetch_connection_details(
             cfg.url,
@@ -1584,6 +1489,10 @@ async def get_asset_guacamole_details(
             cfg.password,
             cid
         )
+        # Atualiza timestamp de last_sync no banco
+        if asset.guacamole and len(asset.guacamole) > 0:
+            asset.guacamole[0].last_sync = datetime.now(timezone.utc)
+            db.commit()
         return details
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Erro ao consultar Guacamole: {exc}")

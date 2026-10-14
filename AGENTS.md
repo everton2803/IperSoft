@@ -251,6 +251,7 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
    - Sempre utilize mensagens de commit padronizadas (ex: `feat:`, `fix:`, `docs:`) e envie atualizações via `git push origin main`.
 9. **Integração com Oxidized (`source: http`)**:
    - O plugin `source: http` do Oxidized herda da classe Ruby `JSONFile` e **somente aceita payloads JSON**. Configurações como `format: csv` ou `delimiter: ":"` causam quebra imediata (`undefined method 'empty?' for nil`).
-   - Os arquivos de modelo dentro do container do Oxidized utilizam nomes em minúsculas (ex: `routeros.rb`, `dmos.rb`, `cisco.rb`). Qualquer modelo enviado em maiúsculas gera `Oxidized::ModelNotFound`. O IperSoft sempre envia os modelos em `.lower()`.
+   - Os arquivos de modelo dentro do container do Oxidized utilizam nomes em minúsculas (ex: `routeros.rb`, `datacom.rb`, `cisco.rb`). Qualquer modelo enviado em maiúsculas ou inexistente gera `Oxidized::ModelNotFound`, fazendo com que o daemon do Oxidized descarte o equipamento da memória. O IperSoft mapeia automaticamente apelidos e variantes de SO (ex: `dmos` -> `datacom`, `mikrotik` -> `routeros`, `cisco` -> `ios`) para os modelos oficiais do Oxidized.
+   - No caso de equipamentos Datacom (DmOS), o modelo oficial e nativo do Oxidized é `datacom` (`datacom.rb`).
    - Na configuração do `/opt/oxidized/config`, a diretiva `resolve_dns: false` é mandatória para evitar falhas de `Resolv::ResolvError` decorrentes de nomes amigáveis de equipamentos. As chaves `map:` e `vars_map:` devem ser indentadas obrigatoriamente dentro de `http:`.
 

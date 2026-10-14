@@ -553,17 +553,21 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       const data = await authService.getAssetZabbixDetails(assetId);
       setZbxDetails(data);
     } catch (err) {
-      setFeedback({ type: 'error', message: `Erro ao buscar detalhes no Zabbix: ${err.message}` });
+      setZbxDetails(null);
+      // Se não for erro de cadastro inexistente (404), mostra o feedback
+      if (!err.message?.includes('não possui cadastro') && !err.message?.includes('404')) {
+        setFeedback({ type: 'error', message: `Erro ao buscar detalhes no Zabbix: ${err.message}` });
+      }
     } finally {
       setIsLoadingZbxDetails(false);
     }
   };
 
   useEffect(() => {
-    if (openSections.zabbix && !zbxDetails && comparison?.zabbix?.is_synced) {
+    if (openSections.zabbix && !zbxDetails && zbxActive) {
       fetchZabbixDetails();
     }
-  }, [openSections.zabbix]);
+  }, [openSections.zabbix, zbxActive]);
 
   // Linha 3: Dados no Guacamole
   const fetchGuacamoleDetails = async () => {
@@ -573,17 +577,21 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       const data = await authService.getAssetGuacamoleDetails(assetId);
       setGuacDetails(data);
     } catch (err) {
-      setFeedback({ type: 'error', message: `Erro ao buscar detalhes no Guacamole: ${err.message}` });
+      setGuacDetails(null);
+      // Se não for erro de cadastro inexistente (404), mostra o feedback
+      if (!err.message?.includes('Nenhuma conexão') && !err.message?.includes('404')) {
+        setFeedback({ type: 'error', message: `Erro ao buscar detalhes no Guacamole: ${err.message}` });
+      }
     } finally {
       setIsLoadingGuacDetails(false);
     }
   };
 
   useEffect(() => {
-    if (openSections.guacamole && !guacDetails && comparison?.guacamole?.is_synced) {
+    if (openSections.guacamole && !guacDetails && guacActive) {
       fetchGuacamoleDetails();
     }
-  }, [openSections.guacamole]);
+  }, [openSections.guacamole, guacActive]);
 
   // Linha 4: Dados no Oxidized
   const fetchOxidizedDetails = async () => {
@@ -1281,12 +1289,17 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                   <div className="form-group flex-2">
                     <label>Modelo no Oxidized</label>
                     <select
-                      value={formData.backup_model}
+                      value={(() => {
+                        const m = (formData.backup_model || '').toLowerCase();
+                        if (m === 'dmos' || m === 'datacom') return 'datacom';
+                        if (m === 'routeros') return 'RouterOS';
+                        return formData.backup_model || 'RouterOS';
+                      })()}
                       onChange={e => setFormData({ ...formData, backup_model: e.target.value })}
                     >
                       <option value="RouterOS">MikroTik (RouterOS)</option>
                       <option value="ios">Cisco (IOS / IOS-XE)</option>
-                      <option value="dmos">Datacom (DmOS)</option>
+                      <option value="datacom">Datacom (DmOS)</option>
                       <option value="vrp">Huawei (VRP)</option>
                       <option value="fortios">Fortinet (FortiOS)</option>
                       <option value="edgecos">EdgeCore / EdgeOS</option>
