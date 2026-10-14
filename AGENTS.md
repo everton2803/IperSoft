@@ -144,6 +144,11 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 - **Identifier Decodificado**: Guacamole usa identificadores base64 (ex: `MTIzAGMAcG9zdGdyZXNxbA==`). A função `extract_raw_identifier` extrai com segurança a ID numérica real antes de chamar endpoints de atualização.
 - **Portas Customizadas (ex: 2200)**: Assegura que tanto ao criar quanto ao sincronizar ou atualizar uma conexão, a porta informada pelo operador seja gravada no objeto `AssetGuacamole` e no dicionário `parameters["port"]` enviado à API do Guacamole.
 - **Preservação de Credenciais**: Quando uma conexão é atualizada, os parâmetros existentes não são apagados; senhas existentes são mantidas caso o usuário não tenha digitado uma nova.
+- **Expurgo e Remoção Automática de Conexões**:
+  - Quando a integração do Guacamole é desativada para um equipamento (`ignore_guacamole: true` na Linha 1 ou em lote), ou quando o equipamento é excluído do IperSoft, o sistema invoca `remove_asset_guacamole_connections()`, chamando `DELETE /api/session/data/{dataSource}/connections/{identifier}` no Guacamole Server e excluindo os vínculos locais (`AssetGuacamole` e `guacamole_connection_id`).
+  - No endpoint de sincronização completa (`/assets/{id}/sync-all`), se o equipamento estiver com o Guacamole desativado, o sistema garante a remoção de conexões residuais no Guacamole Server.
+  - No endpoint de vinculação/importação do Guacamole (`/integrations/guacamole/match`), conexões pertencentes a equipamentos marcados como ignorados no IperSoft são automaticamente expurgadas do Apache Guacamole Server, impedindo que conexões reapareçam.
+
 
 ### 5.2. `ZabbixService` (`app/services/zabbix.py`)
 - **JSON-RPC**: Chamadas padronizadas a `api_jsonrpc.php` com suporte a autenticação por Token ou `user.login`.

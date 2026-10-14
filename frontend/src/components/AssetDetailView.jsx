@@ -763,12 +763,16 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     setFeedback(null);
     try {
       await authService.updateAsset(assetId, { ignore_guacamole: shouldIgnore });
+      if (shouldIgnore) {
+        setGuacDetails(null);
+        setGuacLaunchData(null);
+      }
       setFeedback({ 
         type: 'success', 
-        message: isChecked ? 'Host ativado no Apache Guacamole.' : 'Host desativado/ignorado no Guacamole.' 
+        message: isChecked ? 'Host ativado no Apache Guacamole.' : 'Host desativado e conexão removida do Apache Guacamole com sucesso.' 
       });
       await loadData();
-      if (openSections.guacamole) fetchGuacamoleDetails();
+      if (openSections.guacamole && isChecked) fetchGuacamoleDetails();
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Falha ao alterar status no Guacamole.' });
     } finally {

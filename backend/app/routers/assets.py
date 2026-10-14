@@ -36,6 +36,75 @@ async def notify_oxidized_reload_if_active(db: Session, reason: str = "") -> boo
         logger.warning(f"Aviso ao notificar reload no Oxidized ({reason}): {ox_err}")
     return False
 
+
+async def remove_asset_guacamole_connections(
+    asset: Asset,
+    db: Session,
+    live_conns: Optional[List[Dict[str, Any]]] = None
+) -> List[str]:
+    """
+    Remove todas as conexões remotas correspondentes ao ativo no Apache Guacamole
+    e limpa os vínculos locais (AssetGuacamole e guacamole_connection_id).
+    """
+    cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "guacamole").first()
+    deleted_identifiers = []
+
+    if cfg and cfg.url and cfg.username and cfg.password:
+        try:
+            if live_conns is None:
+                live_conns = await GuacamoleService.fetch_connections_with_parameters(
+                    url=cfg.url,
+                    username=cfg.username,
+                    password=cfg.password
+                )
+
+            primary_guac = asset.guacamole[0] if asset.guacamole and len(asset.guacamole) > 0 else None
+            saved_cid = str(primary_guac.connection_id) if primary_guac else str(asset.guacamole_connection_id or "")
+            target_ip = (asset.ip_address or "").strip().lower()
+            target_name = (asset.name or "").strip().lower()
+            target_host = (asset.hostname or "").strip().lower()
+
+            for c in (live_conns or []):
+                ident = str(c.get("identifier") or "")
+                client_id = str(c.get("client_id") or "")
+                c_name = (c.get("name") or "").strip().lower()
+                c_host = (c.get("hostname") or "").strip().lower()
+
+                # Se corresponder por ID, por IP ou por Nome de conexão
+                is_match = False
+                if saved_cid and (ident == saved_cid or client_id == saved_cid):
+                    is_match = True
+                elif target_ip and c_host == target_ip and (target_name in c_name or c_name in target_name):
+                    is_match = True
+                elif target_name and (c_name == target_name):
+                    is_match = True
+                elif target_host and (c_name == target_host):
+                    is_match = True
+
+                if is_match and ident:
+                    try:
+                        await GuacamoleService.delete_connection_from_guacamole(
+                            url=cfg.url,
+                            username=cfg.username,
+                            password=cfg.password,
+                            identifier=ident
+                        )
+                        deleted_identifiers.append(ident)
+                        logger.info(f"Conexão Guacamole {ident} ({c.get('name')}) deletada com sucesso para ativo {asset.id} ({asset.name}).")
+                    except Exception as e:
+                        logger.warning(f"Aviso ao deletar conexão {ident} no Guacamole: {e}")
+
+        except Exception as exc:
+            logger.error(f"Erro ao consultar/deletar no Guacamole para o ativo {asset.id}: {exc}")
+
+    # Remove registros locais no banco
+    db.query(AssetGuacamole).filter(AssetGuacamole.asset_id == asset.id).delete()
+    asset.guacamole_connection_id = None
+    db.commit()
+    db.refresh(asset)
+    return deleted_identifiers
+
+
 class ZabbixDetail(BaseModel):
     id: int
     hostid: Optional[str] = None
@@ -438,12 +507,27 @@ async def bulk_update_integrations(
                     except Exception as err:
                         logger.warning(f"Erro ao alterar status Zabbix do host {h_id} em lote: {err}")
 
-    # 2. Apache Guacamole (Ativar / Desativar/Ignorar)
+    # 2. Apache Guacamole (Ativar / Desativar/Ignorar e expurgar conexões)
     if payload.guacamole_enabled is not None:
+        guac_conns_cache = None
+        if not payload.guacamole_enabled:
+            cfg_guac = db.query(IntegrationConfig).filter(IntegrationConfig.name == "guacamole").first()
+            if cfg_guac and cfg_guac.url and cfg_guac.username and cfg_guac.password:
+                try:
+                    guac_conns_cache = await GuacamoleService.fetch_connections_with_parameters(
+                        url=cfg_guac.url,
+                        username=cfg_guac.username,
+                        password=cfg_guac.password
+                    )
+                except Exception as err:
+                    logger.warning(f"Erro ao obter conexões do Guacamole para exclusão em lote: {err}")
+
         for a in assets:
             raw = dict(a.raw_data or {})
             raw["ignore_guacamole"] = not payload.guacamole_enabled
             a.raw_data = raw
+            if not payload.guacamole_enabled:
+                await remove_asset_guacamole_connections(a, db, live_conns=guac_conns_cache)
 
     # 3. Oxidized (Ativar backup / Desativar backup e expurgar do daemon)
     if payload.oxidized_enabled is not None:
@@ -671,6 +755,8 @@ async def update_asset(
         raw = dict(asset.raw_data or {})
         raw["ignore_guacamole"] = payload.ignore_guacamole
         asset.raw_data = raw
+        if payload.ignore_guacamole is True:
+            await remove_asset_guacamole_connections(asset, db)
 
     db.commit()
     db.refresh(asset)
@@ -703,6 +789,9 @@ async def delete_asset(
         raise HTTPException(status_code=404, detail="Ativo não encontrado.")
 
     was_backup_enabled = bool(asset.backup_enabled)
+    # Remove conexões no Apache Guacamole antes de excluir o ativo
+    await remove_asset_guacamole_connections(asset, db)
+
     db.delete(asset)
     db.commit()
 
@@ -984,6 +1073,13 @@ async def sync_asset_to_guacamole(
     if not asset:
         raise HTTPException(status_code=404, detail="Ativo não encontrado.")
 
+    # Se o usuário está sincronizando o Guacamole explicitamente, reativa a integração
+    raw_info = dict(asset.raw_data or {})
+    if raw_info.get("ignore_guacamole"):
+        raw_info["ignore_guacamole"] = False
+        asset.raw_data = raw_info
+        db.commit()
+
     cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "guacamole").first()
     if not cfg or not cfg.url or not cfg.username or not cfg.password:
         raise HTTPException(status_code=400, detail="Guacamole não configurado nas integrações.")
@@ -1096,60 +1192,7 @@ async def remove_asset_from_guacamole(
     if not asset:
         raise HTTPException(status_code=404, detail="Ativo não encontrado.")
 
-    cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "guacamole").first()
-    deleted_identifiers = []
-
-    if cfg and cfg.url and cfg.username and cfg.password:
-        try:
-            live_conns = await GuacamoleService.fetch_connections_with_parameters(
-                url=cfg.url,
-                username=cfg.username,
-                password=cfg.password
-            )
-
-            primary_guac = asset.guacamole[0] if asset.guacamole and len(asset.guacamole) > 0 else None
-            saved_cid = str(primary_guac.connection_id) if primary_guac else str(asset.guacamole_connection_id or "")
-            target_ip = (asset.ip_address or "").strip().lower()
-            target_name = (asset.name or "").strip().lower()
-            target_host = (asset.hostname or "").strip().lower()
-
-            for c in live_conns:
-                ident = str(c.get("identifier") or "")
-                client_id = str(c.get("client_id") or "")
-                c_name = (c.get("name") or "").strip().lower()
-                c_host = (c.get("hostname") or "").strip().lower()
-
-                # Se corresponder por ID, por IP ou por Nome de conexão
-                is_match = False
-                if saved_cid and (ident == saved_cid or client_id == saved_cid):
-                    is_match = True
-                elif target_ip and c_host == target_ip and (target_name in c_name or c_name in target_name):
-                    is_match = True
-                elif target_name and (c_name == target_name):
-                    is_match = True
-                elif target_host and (c_name == target_host):
-                    is_match = True
-
-                if is_match and ident:
-                    try:
-                        await GuacamoleService.delete_connection_from_guacamole(
-                            url=cfg.url,
-                            username=cfg.username,
-                            password=cfg.password,
-                            identifier=ident
-                        )
-                        deleted_identifiers.append(ident)
-                    except Exception as e:
-                        logger.warning(f"Aviso ao deletar conexão {ident} no Guacamole: {e}")
-
-        except Exception as exc:
-            logger.error(f"Erro ao consultar/deletar no Guacamole: {exc}")
-
-    # Remove registros locais
-    db.query(AssetGuacamole).filter(AssetGuacamole.asset_id == asset.id).delete()
-    asset.guacamole_connection_id = None
-    db.commit()
-    db.refresh(asset)
+    deleted_identifiers = await remove_asset_guacamole_connections(asset, db)
 
     msg = f"Conexão do Guacamole removida com sucesso para o equipamento '{asset.name}'."
     if deleted_identifiers:
@@ -1196,9 +1239,12 @@ async def sync_asset_to_all(
             detail = getattr(e, "detail", str(e))
             errors.append(f"Guacamole: {detail}")
     else:
+        # Se está desativado no Guacamole, garante remoção de conexões residuais no Guacamole Server
+        deleted_guac = await remove_asset_guacamole_connections(asset, db)
         results["guacamole"] = {
             "skipped": True,
-            "message": "Sincronização com Guacamole ignorada conforme configuração do equipamento."
+            "deleted_connections": deleted_guac,
+            "message": "Equipamento desativado no Guacamole. Conexão removida/verificada no Apache Guacamole."
         }
 
     if errors and len(errors) == (1 if is_guac_ignored else 2):

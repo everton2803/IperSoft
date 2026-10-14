@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
@@ -10,6 +11,8 @@ from app.models.integration import IntegrationConfig
 from app.models.asset import Asset, AssetGuacamole
 from app.routers.auth import get_current_user
 from app.services.guacamole import GuacamoleService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/integrations/guacamole", tags=["Integração Guacamole"])
 
@@ -185,6 +188,24 @@ async def match_existing_guacamole_connections(
                     break
 
         if matched_asset:
+            # Se o ativo estiver com Guacamole ignorado/desativado pelo operador no IperSoft:
+            if (matched_asset.raw_data or {}).get("ignore_guacamole"):
+                try:
+                    await GuacamoleService.delete_connection_from_guacamole(
+                        url=cfg.url,
+                        username=cfg.username,
+                        password=cfg.password,
+                        identifier=identifier
+                    )
+                    logger.info(f"Conexão {identifier} ({conn_name}) excluída do Guacamole pois o ativo {matched_asset.name} está desativado no Guacamole.")
+                except Exception as err:
+                    logger.warning(f"Erro ao remover conexão desativada {identifier} do Guacamole: {err}")
+                
+                # Garante limpeza de registros locais caso ainda existam
+                db.query(AssetGuacamole).filter(AssetGuacamole.asset_id == matched_asset.id).delete()
+                matched_asset.guacamole_connection_id = None
+                continue
+
             # Vincula ao ativo existente
             matched_asset.guacamole_connection_id = client_id
             matched_asset.guacamole_protocol = protocol
