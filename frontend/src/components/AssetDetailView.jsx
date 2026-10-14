@@ -30,7 +30,8 @@ import {
   Search,
   Maximize2,
   Minimize2,
-  Info
+  Info,
+  RotateCcw
 } from 'lucide-react';
 import { authService, diagnosticsService } from '../services/api';
 
@@ -342,6 +343,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   // Estados Oxidized
   const [isTriggeringOxBackup, setIsTriggeringOxBackup] = useState(false);
   const [isLoadingOxConfig, setIsLoadingOxConfig] = useState(false);
+  const [isReloadingOx, setIsReloadingOx] = useState(false);
   const [isTogglingOxStatus, setIsTogglingOxStatus] = useState(false);
   const [oxConfigModalOpen, setOxConfigModalOpen] = useState(false);
   const [oxConfigContent, setOxConfigContent] = useState('');
@@ -708,7 +710,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         sync_guacamole: true
       });
 
-      setFeedback({ type: 'success', message: 'Configurações do IperSoft salvas e sincronizadas com Guacamole!' });
+      const successMsg = formData.backup_enabled
+        ? 'Configurações salvas e sincronizadas (Guacamole & Oxidized)!'
+        : 'Configurações do IperSoft salvas e sincronizadas com Guacamole!';
+      setFeedback({ type: 'success', message: successMsg });
       await loadData();
       fetchGuacamoleDetails();
       fetchGuacamoleLaunchSession();
@@ -852,6 +857,21 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       setFeedback({ type: 'error', message: err.message || 'Falha ao solicitar backup no Oxidized.' });
     } finally {
       setIsTriggeringOxBackup(false);
+    }
+  };
+
+  // Forçar recarga da lista de nós no Oxidized sob demanda
+  const handleReloadOxidized = async () => {
+    setIsReloadingOx(true);
+    setFeedback(null);
+    try {
+      const res = await authService.reloadOxidizedNodes();
+      setFeedback({ type: 'success', message: res.message || 'Lista de nós recarregada no Oxidized com sucesso!' });
+      await fetchOxidizedDetails();
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Falha ao recarregar nós no Oxidized.' });
+    } finally {
+      setIsReloadingOx(false);
     }
   };
 
@@ -1688,6 +1708,17 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       >
                         <RefreshCw size={14} className={isTriggeringOxBackup ? 'spin-icon' : ''} />
                         {isTriggeringOxBackup ? 'Solicitando...' : 'Fazer Backup Agora'}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={handleReloadOxidized}
+                        disabled={isReloadingOx || !isAdmin}
+                        title="Força o Oxidized a recarregar as credenciais e nós a partir do IperSoft (/reload)"
+                      >
+                        {isReloadingOx ? <RefreshCw size={14} className="spin-icon" /> : <RotateCcw size={14} />}
+                        <span>{isReloadingOx ? 'Recarregando...' : 'Recarregar no Oxidized'}</span>
                       </button>
 
                       <button

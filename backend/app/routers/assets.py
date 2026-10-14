@@ -20,6 +20,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assets", tags=["Ativos de Rede"])
 
+
+async def notify_oxidized_reload_if_active(db: Session, reason: str = "") -> bool:
+    """Dispara recarregamento automático da lista de nós no Oxidized (/reload) se a integração estiver ativa."""
+    try:
+        ox_cfg = db.query(IntegrationConfig).filter(
+            IntegrationConfig.name == "oxidized",
+            IntegrationConfig.is_active == True
+        ).first()
+        if ox_cfg and ox_cfg.url:
+            await OxidizedService.reload_nodes(ox_cfg.url, ox_cfg.username, ox_cfg.password)
+            logger.info(f"Oxidized recarregado automaticamente: {reason}")
+            return True
+    except Exception as ox_err:
+        logger.warning(f"Aviso ao notificar reload no Oxidized ({reason}): {ox_err}")
+    return False
+
 class ZabbixDetail(BaseModel):
     id: int
     hostid: Optional[str] = None
@@ -440,17 +456,9 @@ async def bulk_update_integrations(
         db.commit()
 
         # Recarrega daemon do Oxidized para refletir inclusão ou expurgo imediato
-        cfg_ox = db.query(IntegrationConfig).filter(
-            IntegrationConfig.name == "oxidized",
-            IntegrationConfig.is_active == True
-        ).first()
-        if cfg_ox and cfg_ox.url:
-            try:
-                await OxidizedService.reload_nodes(cfg_ox.url, cfg_ox.username, cfg_ox.password)
-                ox_reloaded = True
-                logger.info(f"Oxidized notificado para reload após bulk update de backup_enabled={payload.oxidized_enabled}.")
-            except Exception as ox_err:
-                logger.warning(f"Aviso ao notificar reload no Oxidized após bulk update: {ox_err}")
+        ox_reloaded = await notify_oxidized_reload_if_active(
+            db, f"bulk update de backup_enabled={payload.oxidized_enabled}"
+        )
     else:
         db.commit()
 
@@ -473,6 +481,8 @@ async def update_asset(
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+
+    old_backup_enabled = asset.backup_enabled
 
     if payload.name is not None:
         asset.name = payload.name.strip()
@@ -648,7 +658,6 @@ async def update_asset(
                     g.tcp_latency_ms = None
                     g.tcp_message = None
 
-    old_backup_enabled = asset.backup_enabled
     if payload.backup_model is not None:
         asset.backup_model = payload.backup_model.strip() or "RouterOS"
         if asset.oxidized:
@@ -666,17 +675,16 @@ async def update_asset(
     db.commit()
     db.refresh(asset)
 
+    # Notificação automática ao Oxidized caso parâmetros do nó ou credenciais tenham sido alterados
+    needs_ox_reload = False
     if payload.backup_enabled is not None and old_backup_enabled != payload.backup_enabled:
-        try:
-            ox_cfg = db.query(IntegrationConfig).filter(
-                IntegrationConfig.name == "oxidized",
-                IntegrationConfig.is_active == True
-            ).first()
-            if ox_cfg and ox_cfg.url:
-                await OxidizedService.reload_nodes(ox_cfg.url, ox_cfg.username, ox_cfg.password)
-                logger.info(f"Oxidized recarregado após alteração de backup_enabled={payload.backup_enabled} no ativo {asset.id}.")
-        except Exception as ox_err:
-            logger.warning(f"Aviso ao notificar reload no Oxidized após update do ativo {asset.id}: {ox_err}")
+        needs_ox_reload = True
+    elif (asset.backup_enabled or old_backup_enabled):
+        if has_remote_updates or any(x is not None for x in [payload.backup_model, payload.ip_address, payload.name, payload.client_group]):
+            needs_ox_reload = True
+
+    if needs_ox_reload:
+        await notify_oxidized_reload_if_active(db, f"atualização no ativo {asset.id} ({asset.name})")
 
     return asset
 
@@ -700,16 +708,7 @@ async def delete_asset(
 
     # Se o equipamento fazia backup no Oxidized, notifica o Oxidized para recarregar e remover o nó da memória
     if was_backup_enabled:
-        try:
-            ox_cfg = db.query(IntegrationConfig).filter(
-                IntegrationConfig.name == "oxidized",
-                IntegrationConfig.is_active == True
-            ).first()
-            if ox_cfg and ox_cfg.url:
-                await OxidizedService.reload_nodes(ox_cfg.url, ox_cfg.username, ox_cfg.password)
-                logger.info(f"Oxidized notificado para expurgar nó do ativo {asset_id} após exclusão.")
-        except Exception as ox_err:
-            logger.warning(f"Aviso ao notificar reload no Oxidized após deletar ativo {asset_id}: {ox_err}")
+        await notify_oxidized_reload_if_active(db, f"exclusão do ativo {asset_id}")
 
     return None
 
@@ -1212,6 +1211,9 @@ async def sync_asset_to_guacamole(
 
         db.commit()
         db.refresh(asset)
+
+        if asset.backup_enabled:
+            await notify_oxidized_reload_if_active(db, f"sincronização de acesso remoto no ativo {asset.id} ({asset.name})")
 
         return {
             "success": True,
