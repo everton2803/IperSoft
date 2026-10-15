@@ -153,7 +153,7 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 ### 5.2. `ZabbixService` (`app/services/zabbix.py`)
 - **JSON-RPC**: Chamadas padronizadas a `api_jsonrpc.php` com suporte a autenticação por Token ou `user.login`.
 - **Triggers / Alarmes**: Busca de triggers ativas (`trigger.get` com `filter={"value": 1}`) e mapeamento de severidades (0 a 5: Não classificado a Desastre).
-- **Resolução Completa de Macros**: Em chamadas `trigger.get` (`fetch_all_problems` e `fetch_host_problems`), inclusão obrigatória de `expandDescription: 1`, `expandComment: 1` e extração de `name` do `selectLastEvent`. Garante que nomes de protótipos de LLD (ex: `{#IFNAME}`) e thresholds com macros (ex: `{$TEMP.CRIT}`, `{$PART.CRIT}`) cheguem ao frontend 100% resolvidos com valores reais (ex: `GigabitEthernet0/7/7`, `90%`).
+- **Resolução Completa de Macros e Operational Data (`opdata`)**: Em chamadas `trigger.get` (`fetch_all_problems` e `fetch_host_problems`), inclusão obrigatória de `expandDescription: 1`, `expandComment: 1` e extração de `name` do `selectLastEvent`. Garante que nomes de protótipos de LLD (ex: `{#IFNAME}`) e thresholds com macros (ex: `{$TEMP.CRIT}`, `{$PART.CRIT}`) cheguem ao frontend 100% resolvidos com valores reais. Para os **Dados Operacionais (`opdata`)**, o sistema consulta os eventos ativos via `problem.get` em lote (`eventids`), obtendo o valor dinâmico avaliado em tempo real pelo Zabbix (ex: `status: down (0)`, `espaço livre: 4.86 %`, `status: sem energia (1)`), com fallback para macros resolvidas da trigger.
 - **Itens e Histórico**: Coleta de métricas do host (`item.get`) e histórico numérico (`history.get` com tipos numéricos `0` float e `3` integer) ou de texto (`1`, `2`, `4`).
 
 ### 5.3. `OxidizedService` (`app/services/oxidized.py`)
@@ -209,12 +209,12 @@ O modal de detalhes do equipamento foi planejado para carregar dados sob demanda
 Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas do Zabbix Server:
 - Definida como a **view inicial principal** do sistema ao carregar e após o login (`activeNav = 'zabbix_alarms'`).
 - Consulta em tempo real de triggers ativas (`GET /api/v1/integrations/zabbix/problems`) com cruzamento automático do inventário do IperSoft por hostid, hostname e nome.
-- **Resolução Completa de Macros**: Utiliza `expandDescription: 1`, `expandComment: 1` e priorização de `lastEvent.name` no backend para expandir 100% das macros de LLD (`{#IFNAME}`, etc.) e macros de thresholds (`{$TEMP.CRIT}`, etc.).
+- **Resolução Completa de Macros e Operational Data (`opdata`)**: Utiliza `expandDescription: 1`, `expandComment: 1`, priorização de `lastEvent.name` e consulta em lote `problem.get` para preencher os **Dados Operacionais** calculados pelo Zabbix. Logo abaixo do nome da trigger, é exibida a badge de **Dado Operacional** (ex: `status: down (0)`, `espaço livre: 4.86 %`) e as tags secundárias foram removidas para manter a interface limpa e focada no diagnóstico rápido.
 - **Redirecionamento ao Equipamento**: Ao clicar no host/equipamento na lista, o usuário é redirecionado imediatamente para a tela de detalhes do equipamento (`AssetDetailView`) no IperSoft.
 - **Reconhecimento e Encerramento de Alarmes**: Checkboxes integrados na lista global e na Linha 5 dos detalhes do ativo:
   - Checkbox **Reconhecido**: aciona `event.acknowledge` no Zabbix (marcando ou desmarcando reconhecimento com atualização de estado em tempo real sem recarregar a página).
   - Checkbox **Encerrar**: aciona `event.acknowledge` com ação de fechamento manual do problema (`POST /api/v1/integrations/zabbix/close`), marcando como resolvido e sincronizando em tempo real com o Zabbix Server.
-- **Filtros e KPIs**: Cards de severidade clicáveis (Desastre, Alto, Médio, Aviso, Informação), barra de filtros alinhada horizontalmente com seletores lado a lado (Ordenar Por: Mais Recentes Primeiro, Reconhecimento, Severidade, Inventário) e pesquisa dinâmica por nome, IP, descrição ou tags.
+- **Filtros e KPIs**: Cards de severidade clicáveis (Desastre, Alto, Médio, Aviso, Informação), barra de filtros alinhada horizontalmente com seletores lado a lado (Ordenar Por: Mais Recentes Primeiro, Reconhecimento, Severidade, Inventário) e pesquisa dinâmica por nome, IP, descrição ou dados operacionais.
 
 ### 6.3. Regras de Cores e Estados dos Badges nas Linhas
 - **Verde**: Integração ativa e equipamento sincronizado/online.

@@ -390,6 +390,7 @@ async def get_zabbix_global_problems(
         item_data = {
             "triggerid": p["triggerid"],
             "description": p["description"],
+            "opdata": p.get("opdata", ""),
             "comments": p["comments"],
             "priority": p["priority"],
             "severity_label": p["severity_label"],
@@ -419,12 +420,13 @@ async def get_zabbix_global_problems(
         if search:
             s_lower = search.strip().lower()
             desc = (item_data["description"] or "").lower()
+            opdata_txt = (item_data["opdata"] or "").lower()
             h_tech = (item_data["host_technical"] or "").lower()
             h_n = (item_data["host_name"] or "").lower()
             a_n = (item_data["asset_name"] or "").lower()
             a_ip = (item_data["asset_ip"] or "").lower()
             a_grp = (item_data["asset_group"] or "").lower()
-            if not any(s_lower in field for field in (desc, h_tech, h_n, a_n, a_ip, a_grp)):
+            if not any(s_lower in field for field in (desc, opdata_txt, h_tech, h_n, a_n, a_ip, a_grp)):
                 continue
 
         enriched_problems.append(item_data)

@@ -7,7 +7,7 @@ import {
   Clock, 
   CheckCircle2, 
   Server, 
-  Tag, 
+  Activity, 
   Layers,
   ArrowUpRight,
   ArrowDown,
@@ -281,21 +281,21 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const desc = (p.description || '').toLowerCase();
+        const opdataStr = (p.opdata || '').toLowerCase();
         const hostTech = (p.host_technical || '').toLowerCase();
         const hostName = (p.host_name || '').toLowerCase();
         const assetName = (p.asset_name || '').toLowerCase();
         const assetIp = (p.asset_ip || '').toLowerCase();
         const group = (p.asset_group || '').toLowerCase();
-        const tagsStr = (p.tags || []).map(t => `${t.tag}:${t.value}`).join(' ').toLowerCase();
 
         if (
           !desc.includes(q) &&
+          !opdataStr.includes(q) &&
           !hostTech.includes(q) &&
           !hostName.includes(q) &&
           !assetName.includes(q) &&
           !assetIp.includes(q) &&
-          !group.includes(q) &&
-          !tagsStr.includes(q)
+          !group.includes(q)
         ) {
           return false;
         }
@@ -812,20 +812,23 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
                           {prob.description}
                         </span>
 
-                        {/* Tags e Itens vinculados */}
-                        <div className="zbx-trigger-meta-row">
-                          {prob.items && prob.items.length > 0 && prob.items[0].lastvalue !== null && (
-                            <span className="zbx-lastval-pill">
-                              Último valor: <strong>{prob.items[0].lastvalue} {prob.items[0].units}</strong>
+                        {/* Dados Operacionais da Trigger (Operational Data) */}
+                        {prob.opdata ? (
+                          <div className="zbx-trigger-meta-row">
+                            <span className="zbx-opdata-pill" title="Dado Operacional da Trigger (Zabbix Operational Data)">
+                              <Activity size={11} className="opdata-icon" />
+                              <span className="opdata-label">Dado Operacional:</span>
+                              <strong>{prob.opdata}</strong>
                             </span>
-                          )}
-
-                          {prob.tags && prob.tags.slice(0, 3).map((t, idx) => (
-                            <span key={idx} className="zbx-tag-pill">
-                              <Tag size={10} /> {t.tag}{t.value ? `: ${t.value}` : ''}
+                          </div>
+                        ) : (prob.items && prob.items.length > 0 && prob.items[0].lastvalue !== null && (
+                          <div className="zbx-trigger-meta-row">
+                            <span className="zbx-lastval-pill" title="Último valor lido pelo item da trigger">
+                              <span className="opdata-label">Último valor:</span>
+                              <strong>{prob.items[0].lastvalue} {prob.items[0].units}</strong>
                             </span>
-                          ))}
-                        </div>
+                          </div>
+                        ))}
                       </div>
                     </td>
 

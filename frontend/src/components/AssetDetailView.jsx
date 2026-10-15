@@ -1890,6 +1890,14 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
 
                             <div className="alarm-item-desc">{prob.description}</div>
 
+                            {prob.opdata && (
+                              <div className="alarm-item-opdata">
+                                <Activity size={11} className="opdata-icon" />
+                                <span className="opdata-label">Dado Operacional:</span>
+                                <strong>{prob.opdata}</strong>
+                              </div>
+                            )}
+
                             {/* Itens vinculados ao alarme */}
                             {prob.items && prob.items.length > 0 && (
                               <div className="alarm-item-actions">

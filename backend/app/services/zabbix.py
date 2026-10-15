@@ -470,7 +470,7 @@ class ZabbixService:
             "monitored": 1,
             "active": 1,
             "skipDependent": 1,
-            "output": ["triggerid", "description", "priority", "value", "lastchange", "comments"],
+            "output": ["triggerid", "description", "priority", "value", "lastchange", "comments", "opdata"],
             "expandDescription": 1,
             "expandComment": 1,
             "selectLastEvent": ["eventid", "acknowledged", "clock", "value", "name"],
@@ -482,6 +482,30 @@ class ZabbixService:
 
         raw_triggers = await cls.call_api(url, "trigger.get", params=params, auth=auth_token)
         problems = []
+
+        # Buscar operational data (opdata) expandido via problem.get em lote
+        eventids = [
+            str(trig["lastEvent"]["eventid"])
+            for trig in (raw_triggers or [])
+            if trig.get("lastEvent") and trig["lastEvent"].get("eventid") and str(trig.get("value")) == "1"
+        ]
+        opdata_map = {}
+        if eventids:
+            try:
+                probs_data = await cls.call_api(
+                    url,
+                    "problem.get",
+                    params={
+                        "eventids": eventids,
+                        "output": ["eventid", "opdata"]
+                    },
+                    auth=auth_token
+                )
+                for p in probs_data or []:
+                    eid = str(p.get("eventid"))
+                    opdata_map[eid] = (p.get("opdata") or "").strip()
+            except Exception as e:
+                logger.warning(f"Não foi possível obter opdata expandido do Zabbix via problem.get: {e}")
 
         severity_map = {
             "0": {"label": "Não Classificado", "level": "not_classified", "color": "#9e9e9e"},
@@ -519,6 +543,18 @@ class ZabbixService:
                     "lastclock": it.get("lastclock")
                 })
 
+            # Resolução de Operational Data (opdata)
+            # Prioriza o opdata já resolvido dinamicamente pelo problem.get do Zabbix
+            resolved_opdata = opdata_map.get(eventid) if eventid else ""
+            if not resolved_opdata:
+                # Fallback no opdata configurado na trigger
+                raw_opdata = (trig.get("opdata") or "").strip()
+                if raw_opdata:
+                    resolved_opdata = raw_opdata
+                    if items and "{ITEM.LASTVALUE" in resolved_opdata:
+                        first_val = f"{items[0].get('lastvalue') or ''} {items[0].get('units') or ''}".strip()
+                        resolved_opdata = resolved_opdata.replace("{ITEM.LASTVALUE1}", first_val).replace("{ITEM.LASTVALUE}", first_val)
+
             # Prioriza o nome expandido do evento disparado, com fallback na descrição expandida da trigger
             event_name = (last_event.get("name") or "").strip()
             trigger_desc = (trig.get("description") or "").strip()
@@ -527,6 +563,7 @@ class ZabbixService:
             problems.append({
                 "triggerid": str(trig.get("triggerid")),
                 "description": resolved_description,
+                "opdata": resolved_opdata or "",
                 "comments": trig.get("comments"),
                 "priority": int(p_val),
                 "severity_label": sev["label"],
@@ -566,7 +603,7 @@ class ZabbixService:
             "monitored": 1,
             "active": 1,
             "skipDependent": 1,
-            "output": ["triggerid", "description", "priority", "value", "lastchange", "comments"],
+            "output": ["triggerid", "description", "priority", "value", "lastchange", "comments", "opdata"],
             "expandDescription": 1,
             "expandComment": 1,
             "selectLastEvent": ["eventid", "acknowledged", "clock", "value", "name"],
@@ -580,6 +617,30 @@ class ZabbixService:
 
         raw_triggers = await cls.call_api(url, "trigger.get", params=params, auth=auth_token)
         problems = []
+
+        # Buscar operational data (opdata) expandido via problem.get em lote
+        eventids = [
+            str(trig["lastEvent"]["eventid"])
+            for trig in (raw_triggers or [])
+            if trig.get("lastEvent") and trig["lastEvent"].get("eventid") and str(trig.get("value")) == "1"
+        ]
+        opdata_map = {}
+        if eventids:
+            try:
+                probs_data = await cls.call_api(
+                    url,
+                    "problem.get",
+                    params={
+                        "eventids": eventids,
+                        "output": ["eventid", "opdata"]
+                    },
+                    auth=auth_token
+                )
+                for p in probs_data or []:
+                    eid = str(p.get("eventid"))
+                    opdata_map[eid] = (p.get("opdata") or "").strip()
+            except Exception as e:
+                logger.warning(f"Não foi possível obter opdata expandido do Zabbix via problem.get: {e}")
 
         severity_map = {
             "0": {"label": "Não Classificado", "level": "not_classified", "color": "#9e9e9e"},
@@ -625,6 +686,18 @@ class ZabbixService:
                     "lastclock": it.get("lastclock")
                 })
 
+            # Resolução de Operational Data (opdata)
+            # Prioriza o opdata já resolvido dinamicamente pelo problem.get do Zabbix
+            resolved_opdata = opdata_map.get(eventid) if eventid else ""
+            if not resolved_opdata:
+                # Fallback no opdata configurado na trigger
+                raw_opdata = (trig.get("opdata") or "").strip()
+                if raw_opdata:
+                    resolved_opdata = raw_opdata
+                    if items and "{ITEM.LASTVALUE" in resolved_opdata:
+                        first_val = f"{items[0].get('lastvalue') or ''} {items[0].get('units') or ''}".strip()
+                        resolved_opdata = resolved_opdata.replace("{ITEM.LASTVALUE1}", first_val).replace("{ITEM.LASTVALUE}", first_val)
+
             # Prioriza o nome expandido do evento disparado, com fallback na descrição expandida da trigger
             event_name = (last_event.get("name") or "").strip()
             trigger_desc = (trig.get("description") or "").strip()
@@ -633,6 +706,7 @@ class ZabbixService:
             problems.append({
                 "triggerid": str(trig.get("triggerid")),
                 "description": resolved_description,
+                "opdata": resolved_opdata or "",
                 "comments": trig.get("comments"),
                 "priority": int(p_val),
                 "severity_label": sev["label"],
