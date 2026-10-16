@@ -262,4 +262,24 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
    - Os arquivos de modelo dentro do container do Oxidized utilizam nomes em minúsculas (ex: `routeros.rb`, `datacom.rb`, `cisco.rb`). Qualquer modelo enviado em maiúsculas ou inexistente gera `Oxidized::ModelNotFound`, fazendo com que o daemon do Oxidized descarte o equipamento da memória. O IperSoft mapeia automaticamente apelidos e variantes de SO (ex: `dmos` -> `datacom`, `mikrotik` -> `routeros`, `cisco` -> `ios`) para os modelos oficiais do Oxidized.
    - No caso de equipamentos Datacom (DmOS), o modelo oficial e nativo do Oxidized é `datacom` (`datacom.rb`).
    - Na configuração do `/opt/oxidized/config`, a diretiva `resolve_dns: false` é mandatória para evitar falhas de `Resolv::ResolvError` decorrentes de nomes amigáveis de equipamentos. As chaves `map:` e `vars_map:` devem ser indentadas obrigatoriamente dentro de `http:`.
+   - **Mapeamento Obrigatório de `timeout` no `/opt/oxidized/config`**: Por padrão, o plugin `source: http` (baseado em `JSONFile`) do Oxidized **somente** processa os campos que estiverem explicitamente listados em `map:` e `vars_map:`. Qualquer atributo extra no JSON é ignorado pelo Ruby. Para que o timeout customizado por dispositivo do IperSoft tenha efeito no daemon do Oxidized e sobreponha o timeout global, declare `timeout: timeout` tanto em `map:` (para `node[:timeout]`) quanto em `vars_map:`:
+     ```yaml
+     source:
+       default: http
+       http:
+         url: http://<ip-ipersoft>:8000/api/v1/integrations/oxidized/nodes
+         map:
+           name: name
+           model: model
+           ip: ip
+           group: group
+           timeout: timeout
+         vars_map:
+           protocol: protocol
+           ssh_port: ssh_port
+           telnet_port: telnet_port
+           username: username
+           password: password
+           timeout: timeout
+     ```
 
