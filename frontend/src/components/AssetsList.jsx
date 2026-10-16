@@ -417,6 +417,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
     guacamole_password: '',
     backup_model: 'RouterOS',
     backup_enabled: true,
+    backup_timeout: 30,
     status: 'monitored',
     sync_zabbix: true
   });
@@ -613,6 +614,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
       guacamole_password: primaryGuac ? (primaryGuac.password || '') : '',
       backup_model: asset.backup_model || (asset.oxidized ? asset.oxidized.model : 'RouterOS'),
       backup_enabled: asset.backup_enabled !== false,
+      backup_timeout: asset.backup_timeout || 30,
       status: (asset.zabbix && asset.zabbix.status) || asset.status || 'monitored',
       sync_zabbix: true,
       sync_guacamole: true
@@ -1735,6 +1737,22 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                         <option value="edgecos">EdgeCore / EdgeOS</option>
                         <option value="junos">Juniper (JunOS)</option>
                       </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label" title="Tempo limite em segundos para o Oxidized efetuar a leitura completa das configurações">
+                        Timeout Oxidized (s)
+                      </label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="600"
+                        step="5"
+                        placeholder="30"
+                        className="form-input"
+                        value={editForm.backup_timeout !== undefined ? editForm.backup_timeout : 30}
+                        onChange={(e) => setEditForm({ ...editForm, backup_timeout: e.target.value ? parseInt(e.target.value, 10) : '' })}
+                        title="Tempo limite em segundos (padrão 30s). Aumente para equipamentos com configurações extensas."
+                      />
                     </div>
                     <div className="form-group" style={{ display: 'flex', alignItems: 'center', marginTop: '1.25rem' }}>
                       <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', cursor: 'pointer' }}>

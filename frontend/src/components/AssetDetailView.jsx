@@ -469,7 +469,8 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     remote_username: '',
     remote_password: '',
     backup_model: 'RouterOS',
-    backup_enabled: true
+    backup_enabled: true,
+    backup_timeout: 30
   });
 
   // Status de Ativação por Integração (acessíveis em todo o componente e useEffects)
@@ -508,7 +509,8 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         remote_username: ipData.remote_username || '',
         remote_password: ipData.remote_password || '',
         backup_model: ipData.backup_model || 'RouterOS',
-        backup_enabled: ipData.backup_enabled !== false
+        backup_enabled: ipData.backup_enabled !== false,
+        backup_timeout: ipData.backup_timeout || 30
       });
 
       if (ipData.enabled_tests) {
@@ -712,6 +714,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         guacamole_password: formData.remote_password,
         backup_model: formData.backup_model,
         backup_enabled: formData.backup_enabled,
+        backup_timeout: parseInt(formData.backup_timeout, 10) || 30,
         enabled_tests: enabledTests,
         ignore_guacamole: ignoreGuacamole,
         sync_zabbix: false,
@@ -1310,6 +1313,21 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       <option value="junos">Juniper (JunOS)</option>
                     </select>
                   </div>
+                  <div className="form-group flex-1">
+                    <label title="Tempo limite em segundos para o Oxidized efetuar a leitura completa das configurações">
+                      Timeout Oxidized (s)
+                    </label>
+                    <input
+                      type="number"
+                      min="5"
+                      max="600"
+                      step="5"
+                      placeholder="30"
+                      value={formData.backup_timeout !== undefined ? formData.backup_timeout : 30}
+                      onChange={e => setFormData({ ...formData, backup_timeout: e.target.value })}
+                      title="Tempo limite em segundos (padrão 30s). Aumente para equipamentos com configurações extensas."
+                    />
+                  </div>
                 </div>
 
                 {/* Seleção de Testes de Conectividade Aplicáveis */}
@@ -1709,6 +1727,12 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                         ) : (
                           <span className="text-muted">Pendente</span>
                         )}
+                      </span>
+                    </div>
+                    <div className="meta-box">
+                      <span className="meta-label">Timeout de Coleta:</span>
+                      <span className="meta-val">
+                        <code>{oxDetails.timeout || formData.backup_timeout || 30}s</code>
                       </span>
                     </div>
                   </div>

@@ -148,6 +148,7 @@ class OxidizedDetail(BaseModel):
     status: Optional[str] = None
     last_backup: Optional[datetime] = None
     backup_time_taken: Optional[float] = None
+    timeout: Optional[int] = 30
     last_sync: Optional[datetime] = None
 
     class Config:
@@ -173,6 +174,7 @@ class AssetResponse(BaseModel):
     client_group: Optional[str] = None
     backup_model: Optional[str] = "RouterOS"
     backup_enabled: Optional[bool] = True
+    backup_timeout: Optional[int] = 30
     port: Optional[str] = None
     snmp_community: Optional[str] = None
     host_groups: List[str] = []
@@ -201,6 +203,7 @@ class AssetUpdate(BaseModel):
     guacamole_password: Optional[str] = None
     backup_model: Optional[str] = None
     backup_enabled: Optional[bool] = None
+    backup_timeout: Optional[int] = None
     status: Optional[str] = None
     sync_zabbix: Optional[bool] = True
     sync_guacamole: Optional[bool] = False
@@ -750,6 +753,18 @@ async def update_asset(
         asset.backup_enabled = payload.backup_enabled
         if payload.backup_enabled is False and asset.oxidized:
             db.delete(asset.oxidized)
+    if payload.backup_timeout is not None:
+        try:
+            t_val = int(payload.backup_timeout)
+            if t_val > 0:
+                asset.backup_timeout = t_val
+                if asset.oxidized:
+                    asset.oxidized.timeout = t_val
+                    ox_vars = dict(asset.oxidized.vars or {})
+                    ox_vars["timeout"] = t_val
+                    asset.oxidized.vars = ox_vars
+        except (ValueError, TypeError):
+            pass
 
     if payload.ignore_guacamole is not None:
         raw = dict(asset.raw_data or {})
@@ -766,7 +781,7 @@ async def update_asset(
     if payload.backup_enabled is not None and old_backup_enabled != payload.backup_enabled:
         needs_ox_reload = True
     elif (asset.backup_enabled or old_backup_enabled):
-        if has_remote_updates or any(x is not None for x in [payload.backup_model, payload.ip_address, payload.name, payload.client_group]):
+        if has_remote_updates or any(x is not None for x in [payload.backup_model, payload.backup_timeout, payload.ip_address, payload.name, payload.client_group]):
             needs_ox_reload = True
 
     if needs_ox_reload:
@@ -831,6 +846,7 @@ async def get_asset_comparison(
         "status": asset.status,
         "backup_model": asset.backup_model or "RouterOS",
         "backup_enabled": asset.backup_enabled if asset.backup_enabled is not None else True,
+        "backup_timeout": asset.backup_timeout or 30,
         "remote_protocol": (primary_guac.protocol if primary_guac else asset.guacamole_protocol) or "ssh",
         "remote_port": (primary_guac.port if primary_guac else ("22" if (asset.guacamole_protocol or "ssh") == "ssh" else ("23" if asset.guacamole_protocol == "telnet" else "3389"))),
         "remote_username": primary_guac.username if primary_guac else None,
@@ -894,6 +910,8 @@ async def get_asset_comparison(
         "last_backup": ox_rec.last_backup if ox_rec else None,
         "backup_time_taken": ox_rec.backup_time_taken if ox_rec else None,
         "backup_enabled": asset.backup_enabled if asset.backup_enabled is not None else True,
+        "backup_timeout": asset.backup_timeout or 30,
+        "timeout": (ox_rec.timeout if (ox_rec and hasattr(ox_rec, 'timeout') and ox_rec.timeout) else None) or asset.backup_timeout or 30,
         "last_sync": ox_rec.last_sync if ox_rec else None
     }
 
@@ -1629,6 +1647,7 @@ async def get_asset_oxidized_details(
                 status=details.get("status") or "unknown",
                 last_backup=dt_val,
                 backup_time_taken=tt_val,
+                timeout=asset.backup_timeout or 30,
                 vars=details.get("raw", {}).get("vars", {}),
                 last_sync=func.now()
             )
@@ -1641,12 +1660,14 @@ async def get_asset_oxidized_details(
             if dt_val:
                 ox_rec.last_backup = dt_val
             ox_rec.backup_time_taken = tt_val
+            ox_rec.timeout = asset.backup_timeout or 30
             ox_rec.last_sync = func.now()
 
         asset.backup_model = details.get("model") or asset.backup_model
         asset.backup_enabled = True
         db.commit()
 
+        details["timeout"] = asset.backup_timeout or 30
         return details
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Erro ao consultar Oxidized: {exc}")

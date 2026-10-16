@@ -230,6 +230,7 @@ class OxidizedService:
                         status=node_status,
                         last_backup=parsed_dt,
                         backup_time_taken=time_taken,
+                        timeout=target_asset.backup_timeout or 30,
                         vars=node_vars,
                         last_sync=func.now()
                     )
@@ -243,6 +244,7 @@ class OxidizedService:
                     if parsed_dt:
                         ox_record.last_backup = parsed_dt
                     ox_record.backup_time_taken = time_taken
+                    ox_record.timeout = target_asset.backup_timeout or 30
                     ox_record.vars = node_vars
                     ox_record.last_sync = func.now()
 
@@ -323,6 +325,8 @@ class OxidizedService:
             except (ValueError, TypeError):
                 port_num = 23 if protocol == "telnet" else 22
 
+            timeout_val = a.backup_timeout if (a.backup_timeout and a.backup_timeout > 0) else 30
+
             node_entry = {
                 "name": name,
                 "model": model,
@@ -331,6 +335,10 @@ class OxidizedService:
                 "protocol": protocol,
                 "ssh_port": port_num,
                 "telnet_port": port_num,
+                "timeout": timeout_val,
+                "vars": {
+                    "timeout": timeout_val
+                }
             }
 
             if conn and conn.username:

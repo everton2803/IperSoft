@@ -83,6 +83,7 @@ Modelo principal do inventário:
 - `client_group`: Agrupamento de cliente / provedor / região.
 - `backup_model`: Modelo para backup no Oxidized (ex: `RouterOS`, `Cisco`).
 - `backup_enabled`: Booleano se deve ser feito backup.
+- `backup_timeout`: Tempo limite em segundos para o Oxidized efetuar a leitura completa das configurações (padrão 30s). Configurável por equipamento para atender dispositivos lentos ou com configurações extensas.
 - `raw_data`: JSON flexível com metadados adicionais (ex: `ignore_guacamole`).
 - **Relacionamentos**:
   - `zabbix` -> `AssetZabbix` (1:1 com cascade delete).
@@ -161,11 +162,12 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
   - **Prevenção de Colisões e Chaves Duplicadas**: A função `sync_nodes_with_database` utiliza dicionário em memória de registros existentes e dá prioridade absoluta a correspondência exata por nome (`node_name.lower()`), seguida por IP, garantindo que múltiplos nós com mesmo IP (ou NAT/VMs) nunca gerem `UniqueViolation` em `asset_oxidized`.
 - **Disparo Manual de Backup**: Suporte a gatilho manual de backup (`/node/next/{node}`).
 - **Recarregamento Automático e Expurgar Nós Excluídos (`/reload`)**:
-  - O daemon do Oxidized mantém nós na memória RAM. Ao excluir um equipamento no IperSoft, desativar seu backup (`backup_enabled = False`) ou **alterar suas credenciais de acesso remoto (porta, usuário, senha, protocolo, IP ou modelo de backup)**, o IperSoft executa automaticamente `notify_oxidized_reload_if_active()` chamando `GET /reload` no Oxidized. Isso garante que qualquer alteração feita no cadastro seja aplicada em tempo real no daemon sem intervenção manual.
+  - O daemon do Oxidized mantém nós na memória RAM. Ao excluir um equipamento no IperSoft, desativar seu backup (`backup_enabled = False`) ou **alterar suas credenciais de acesso remoto (porta, usuário, senha, protocolo, IP, modelo de backup ou timeout de coleta)**, o IperSoft executa automaticamente `notify_oxidized_reload_if_active()` chamando `GET /reload` no Oxidized. Isso garante que qualquer alteração feita no cadastro seja aplicada em tempo real no daemon sem intervenção manual.
   - Na sincronização periódica (`sync_nodes_with_database`), caso o nó pertença a um ativo cujo backup está desativado no IperSoft (`backup_enabled == False`), o IperSoft respeita estritamente a escolha do operador, não reativando o backup e expurgando o nó do daemon.
   - Há botões dedicados de recarga manual sob demanda na tela de Integrações (**Recarregar Nós no Oxidized**) e diretamente no modal de detalhes do ativo na Linha 4 (**Recarregar no Oxidized**).
 - **Fornecimento Dinâmico de Inventário (`source: http`)**:
   - Endpoint `GET /api/v1/integrations/oxidized/nodes`: Entrega a lista de nós participantes do backup (`backup_enabled == True`) em formato JSON para consumo dinâmico pelo driver nativo `source: http` do Oxidized.
+  - **Suporte a Timeout Ajustável por Dispositivo**: O payload exporta `"timeout": X` tanto como atributo de primeiro nível quanto dentro de `"vars": {"timeout": X}` (com padrão de 30s se não customizado). Isso permite aumentar o tempo limite para leitura de configurações pesadas (ex: switches e roteadores de borda/core) sem afetar o timeout geral de dispositivos mais rápidos.
   - **Normalização de Modelos em Minúsculas**: No Oxidized (Linux/Ruby), os arquivos de modelo de sistema operacional são estritamente case-sensitive e em minúsculas (`routeros.rb`, `dmos.rb`, `cisco.rb`). O backend converte automaticamente os modelos cadastrados no banco para minúsculas (`.lower()`).
   - **Filtragem de Protocolos Incompatíveis**: Conexões com protocolo não suportado pelo Oxidized (como `rdp` para máquinas Windows) são automaticamente ignoradas na exportação de nós.
   - **Portas Customizadas e Credenciais**: Mapeia automaticamente portas não padrão (ex: `2200`, `2233`) e credenciais de acesso remoto a partir dos vínculos com `AssetGuacamole`.
@@ -187,6 +189,7 @@ O modal de detalhes do equipamento foi planejado para carregar dados sob demanda
 1. **Linha 1 — Dados IperSoft & Diagnósticos**:
    - Informações canônicas (Nome, Hostname, IP, Cliente/Grupo).
    - **Ativação Centralizada de Integrações**: Checkboxes para habilitar/desabilitar Zabbix, Guacamole e Oxidized diretamente no inventário master, com feedback visual imediato e sem bloquear reativações quando a linha estiver desabilitada.
+   - **Parâmetros Oxidized**: Seleção de Modelo de SO e campo numérico de **Timeout Oxidized (s)** (padrão 30s).
    - Badges rápidos de conectividade no cabeçalho da linha (Ping, SNMP, Acesso Remoto).
    - Ao abrir: Permite rodar testes manuais imediatos (ICMP, SNMP, TCP) e ver latências.
 2. **Linha 2 — Dados no Zabbix**:
@@ -197,7 +200,7 @@ O modal de detalhes do equipamento foi planejado para carregar dados sob demanda
    - Exibe Pasta/Grupo da conexão, IP, Protocolo, **Porta Customizada** (ex: 2200), Usuário e presença de Senha.
    - Permite editar e sincronizar credenciais e porta diretamente com o Guacamole.
 4. **Linha 4 — Dados no Oxidized**:
-   - Carrega status de backup, nome do nó, modelo configurado (`RouterOS`, `Cisco`, etc.), grupo e data/hora do último backup com tempo de execução.
+   - Carrega status de backup, nome do nó, modelo configurado (`RouterOS`, `Cisco`, etc.), grupo, **Timeout de Coleta configurado** e data/hora do último backup com tempo de execução.
 5. **Linha 5 — Status Zabbix (Alarmes e Itens)**:
    - Alarmes/Triggers ativos do host com badge de severidade, checkbox de reconhecimento direto (`event.acknowledge`) e checkbox de encerramento/resolução manual do alarme (`event.acknowledge` com action de close).
    - Lista completa de itens monitorados pelo Zabbix.

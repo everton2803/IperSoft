@@ -15,10 +15,20 @@ from app.utils.security import hash_password
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create tables
+from sqlalchemy import text
+
+# Create tables and ensure incremental columns
 try:
     Base.metadata.create_all(bind=engine)
     logger.info("Tabelas do banco de dados verificadas/criadas com sucesso.")
+
+    # Migrações incrementais seguras (DDL idempotente)
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS backup_timeout INTEGER DEFAULT 30;"))
+        conn.execute(text("UPDATE assets SET backup_timeout = 30 WHERE backup_timeout IS NULL;"))
+        conn.execute(text("ALTER TABLE asset_oxidized ADD COLUMN IF NOT EXISTS timeout INTEGER DEFAULT 30;"))
+        conn.commit()
+    logger.info("Migrações de colunas de backup_timeout verificadas com sucesso.")
     
     # Auto-seed initial admin if no users exist
     db = SessionLocal()

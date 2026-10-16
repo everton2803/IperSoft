@@ -26,6 +26,7 @@ class Asset(Base):
     guacamole_protocol = Column(String(50), nullable=True)
     backup_model = Column(String(50), default="RouterOS", nullable=True) # Modelo no Oxidized (RouterOS, Cisco, etc.)
     backup_enabled = Column(Boolean, default=True, nullable=False) # Se participa do backup do Oxidized
+    backup_timeout = Column(Integer, default=30, nullable=True) # Timeout em segundos para o Oxidized ler a config (padrão 30s)
     raw_data = Column(JSON, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -134,6 +135,7 @@ class AssetOxidized(Base):
     status = Column(String(30), nullable=True) # 'success', 'fail', 'no_connection', 'never'
     last_backup = Column(DateTime(timezone=True), nullable=True)
     backup_time_taken = Column(Float, nullable=True)
+    timeout = Column(Integer, default=30, nullable=True) # Timeout customizado do nó
     vars = Column(JSON, default=dict, nullable=True)
     last_sync = Column(DateTime(timezone=True), nullable=True)
 
