@@ -698,16 +698,40 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     return () => clearInterval(interval);
   }, [logsAutoRefresh, activeTab, logsTimeRange, logsLevel, logsSearch]);
 
-  // Carregar histórico de um item específico
-  const handleSelectItem = async (item, period = itemHistoryPeriod) => {
-    setSelectedItem(item);
+  // Carregar histórico de um item específico (gráfico ou timeline)
+  const handleSelectItem = async (rawItem, period = itemHistoryPeriod, shouldScroll = false) => {
+    // Busca dados complementares em zbxItems se disponível
+    const matched = zbxItems?.find(x => String(x.itemid) === String(rawItem.itemid));
+    const vType = Number(matched?.value_type ?? rawItem.value_type ?? 0);
+    const isNum = (rawItem.is_numeric !== undefined)
+      ? Boolean(rawItem.is_numeric)
+      : (matched?.is_numeric !== undefined ? Boolean(matched.is_numeric) : (vType === 0 || vType === 3));
+
+    const itemToSet = {
+      ...rawItem,
+      ...(matched || {}),
+      value_type: vType,
+      is_numeric: isNum
+    };
+
+    setSelectedItem(itemToSet);
     setIsLoadingItemHistory(true);
+
+    if (shouldScroll) {
+      setTimeout(() => {
+        const el = document.getElementById('zbx-chart-section');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+    }
+
     try {
       const histData = await authService.getAssetZabbixItemHistory(
         assetId,
-        item.itemid,
+        itemToSet.itemid,
         period,
-        item.value_type ?? 0
+        vType
       );
       setItemHistory(histData.history || []);
     } catch (err) {
@@ -1433,7 +1457,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                                       key={it.itemid}
                                       type="button"
                                       className={`btn-alarm-view-item ${selectedItem?.itemid === it.itemid ? 'active' : ''}`}
-                                      onClick={() => handleSelectItem(it)}
+                                      onClick={() => handleSelectItem(it, itemHistoryPeriod, true)}
                                       title="Ver histórico e gráfico deste item para validar alarme"
                                     >
                                       <TrendingUp size={12} />
@@ -1525,7 +1549,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
 
                 {/* PAINEL INFERIOR: GRÁFICO OU TIMELINE DO ITEM SELECIONADO */}
                 {selectedItem && (
-                  <div className="zbx-history-chart-wrapper">
+                  <div className="zbx-history-chart-wrapper" id="zbx-chart-section">
                     <div className="chart-wrapper-header">
                       <div className="chart-title-group">
                         <TrendingUp size={16} color="var(--color-primary)" />
@@ -1552,7 +1576,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                         <button
                           type="button"
                           className="btn-acc-refresh"
-                          onClick={() => handleSelectItem(selectedItem)}
+                          onClick={() => handleSelectItem(selectedItem, itemHistoryPeriod)}
                           disabled={isLoadingItemHistory}
                           title="Recarregar dados"
                         >
@@ -1567,7 +1591,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                           <RefreshCw size={24} className="spin-icon" color="var(--color-primary)" />
                           <span>Carregando série histórica de dados no Zabbix...</span>
                         </div>
-                      ) : selectedItem.is_numeric ? (
+                      ) : (selectedItem.is_numeric ?? (Number(selectedItem.value_type) === 0 || Number(selectedItem.value_type) === 3)) ? (
                         <ZabbixNumericChart 
                           history={itemHistory} 
                           units={selectedItem.units || ''} 

@@ -533,11 +533,13 @@ class ZabbixService:
 
             items = []
             for it in trig.get("items", []):
+                v_type = int(it.get("value_type", 0))
                 items.append({
                     "itemid": str(it.get("itemid")),
                     "name": it.get("name"),
                     "key": it.get("key_"),
-                    "value_type": int(it.get("value_type", 0)),
+                    "value_type": v_type,
+                    "is_numeric": v_type in (0, 3),
                     "units": it.get("units") or "",
                     "lastvalue": it.get("lastvalue"),
                     "lastclock": it.get("lastclock")
@@ -676,11 +678,13 @@ class ZabbixService:
 
             items = []
             for it in trig.get("items", []):
+                v_type = int(it.get("value_type", 0))
                 items.append({
                     "itemid": str(it.get("itemid")),
                     "name": it.get("name"),
                     "key": it.get("key_"),
-                    "value_type": int(it.get("value_type", 0)),
+                    "value_type": v_type,
+                    "is_numeric": v_type in (0, 3),
                     "units": it.get("units") or "",
                     "lastvalue": it.get("lastvalue"),
                     "lastclock": it.get("lastclock")
