@@ -384,6 +384,47 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     }
   };
 
+  // Filtro multi-termo instantâneo no cliente (Estilo Bitwarden / Raindrop.io)
+  const filteredLogs = useMemo(() => {
+    if (!logsSearch || !logsSearch.trim()) return deviceLogs;
+    const tokens = logsSearch.toLowerCase().split(/\s+/).filter(Boolean);
+    return deviceLogs.filter(log => {
+      const fullText = `${log.timestamp || ''} ${log.level || ''} ${log.message || ''} ${log.hostname || ''} ${log.remote_ip || ''}`.toLowerCase();
+      // Todas as sequências digitadas devem estar presentes na linha (condição E)
+      return tokens.every(token => fullText.includes(token));
+    });
+  }, [deviceLogs, logsSearch]);
+
+  const renderHighlightedMessage = (message, search) => {
+    if (!search || !search.trim()) return message;
+    const tokens = search.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return message;
+
+    const escapedTokens = tokens.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const regex = new RegExp(`(${escapedTokens.join('|')})`, 'gi');
+    const parts = message.split(regex);
+
+    return parts.map((part, i) => {
+      const isMatch = tokens.some(t => t.toLowerCase() === part.toLowerCase());
+      return isMatch ? (
+        <mark
+          key={i}
+          style={{
+            background: 'rgba(255, 235, 59, 0.35)',
+            color: '#fff',
+            padding: '1px 3px',
+            borderRadius: '2px',
+            fontWeight: '600'
+          }}
+        >
+          {part}
+        </mark>
+      ) : (
+        part
+      );
+    });
+  };
+
   const handleToggleAcknowledge = async (prob) => {
     if (!prob.eventid) {
       setFeedback({ type: 'error', message: 'Este alarme não possui identificador de evento registrado no Zabbix.' });
@@ -1725,7 +1766,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
               <Search size={14} color="var(--text-muted)" />
               <input
                 type="text"
-                placeholder="Pesquisar nos logs (ex: BGP, down, error, GPON, interface)..."
+                placeholder="Pesquisar sequências nos logs (ex: rad, auth, down, gpon)..."
                 value={logsSearch}
                 onChange={(e) => setLogsSearch(e.target.value)}
                 onKeyDown={(e) => {
@@ -1757,7 +1798,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 </button>
               )}
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {deviceLogs.length} registro{deviceLogs.length === 1 ? '' : 's'}
+                {logsSearch ? `${filteredLogs.length} de ${deviceLogs.length}` : `${deviceLogs.length}`} registro{filteredLogs.length === 1 ? '' : 's'}
               </span>
             </div>
 
@@ -1773,9 +1814,14 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                   <p style={{ margin: '0 0 4px 0' }}>Nenhum log registrado para este dispositivo no período selecionado.</p>
                   <small>Filtro aplicado: IP <code>{formData.ip_address}</code> {formData.hostname ? `ou Hostname "${formData.hostname}"` : ''} ({logsTimeRange})</small>
                 </div>
+              ) : filteredLogs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                  <p style={{ margin: '0 0 4px 0' }}>Nenhum log encontrado para a sequência pesquisada: <strong>"{logsSearch}"</strong></p>
+                  <small>Pressione Enter para consultar o servidor ou tente outros caracteres.</small>
+                </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  {deviceLogs.map((log, idx) => {
+                  {filteredLogs.map((log, idx) => {
                     const lvl = (log.level || 'info').toLowerCase();
                     const isCrit = lvl.includes('crit') || lvl.includes('err') || log.severity <= 3;
                     const isWarn = lvl.includes('warn') || log.severity === 4;
@@ -1816,9 +1862,9 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                           {lvl}
                         </span>
 
-                        {/* Message */}
+                        {/* Message com Destaque dos Termos Pesquisados */}
                         <span style={{ color: '#e0e0e0', wordBreak: 'break-word', flex: 1 }}>
-                          {log.message}
+                          {renderHighlightedMessage(log.message, logsSearch)}
                         </span>
 
                         {/* Copiar Log */}

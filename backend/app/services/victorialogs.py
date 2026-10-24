@@ -121,11 +121,11 @@ class VictoriaLogsService:
         clean_range = time_range if time_range in valid_ranges else "5m"
         query_parts = [origin_clause, f"_time:{clean_range}"]
 
-        # Filtro de texto opcional
+        # Filtro de texto multi-termo (Estilo Bitwarden/Raindrop: tokens por espaço, case-insensitive substring)
         if search and search.strip():
-            # Escapa aspas para LogsQL
-            sanitized_search = search.strip().replace('"', '\\"')
-            query_parts.append(f'"{sanitized_search}"')
+            tokens = [t.replace('"', '').replace('\\', '').strip() for t in search.strip().split() if t.strip()]
+            for token in tokens:
+                query_parts.append(f'_msg:~"(?i){token}"')
 
         # Filtro de severidade/nível opcional
         if level and level.strip():
