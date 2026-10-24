@@ -1614,7 +1614,7 @@ async def get_asset_oxidized_details(
 @router.get("/{asset_id}/logs")
 async def get_asset_logs(
     asset_id: int,
-    time_range: str = Query("24h", description="15m, 1h, 6h, 12h, 24h, 2d, 7d"),
+    time_range: str = Query("5m", description="5m, 15m, 1h, 6h, 12h, 24h, 2d, 7d"),
     limit: int = Query(100, ge=1, le=500),
     search: Optional[str] = Query(None, description="Busca textual na mensagem de log"),
     level: Optional[str] = Query(None, description="crit, warn, info"),

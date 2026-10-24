@@ -358,7 +358,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   // Estados VictoriaLogs (Syslog)
   const [deviceLogs, setDeviceLogs] = useState([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
-  const [logsTimeRange, setLogsTimeRange] = useState('24h');
+  const [logsTimeRange, setLogsTimeRange] = useState('5m');
   const [logsSearch, setLogsSearch] = useState('');
   const [logsLevel, setLogsLevel] = useState('');
   const [logsAutoRefresh, setLogsAutoRefresh] = useState(false);
@@ -1608,13 +1608,23 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     setLogsTimeRange(e.target.value);
                     fetchDeviceLogs(e.target.value, logsLevel, logsSearch);
                   }}
-                  style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-main)', borderRadius: '6px', padding: '4px 8px', fontSize: '0.8rem' }}
+                  style={{
+                    backgroundColor: '#1e293b',
+                    border: '1px solid #334155',
+                    color: '#f8fafc',
+                    borderRadius: '6px',
+                    padding: '4px 8px',
+                    fontSize: '0.8rem',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
                 >
-                  <option value="15m">Últimos 15 min</option>
-                  <option value="1h">Última 1 hora</option>
-                  <option value="6h">Últimas 6 horas</option>
-                  <option value="24h">Últimas 24 horas</option>
-                  <option value="7d">Últimos 7 dias</option>
+                  <option value="5m" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimos 5 min</option>
+                  <option value="15m" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimos 15 min</option>
+                  <option value="1h" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Última 1 hora</option>
+                  <option value="6h" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimas 6 horas</option>
+                  <option value="24h" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimas 24 horas</option>
+                  <option value="7d" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimos 7 dias</option>
                 </select>
 
                 {/* Filtro de Severidade */}

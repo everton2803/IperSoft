@@ -804,7 +804,7 @@ export const authService = {
     return data;
   },
 
-  async getAssetLogs(assetId, { timeRange = '24h', limit = 100, search = '', level = '' } = {}) {
+  async getAssetLogs(assetId, { timeRange = '5m', limit = 100, search = '', level = '' } = {}) {
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 

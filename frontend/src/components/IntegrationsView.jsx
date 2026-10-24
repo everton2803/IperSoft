@@ -979,77 +979,107 @@ export const IntegrationsView = ({ isAdmin }) => {
           </div>
         </div>
 
-        {/* =========================================================================
-            CARD 4: VICTORIALOGS (SYSLOG CENTRAL)
-            ========================================================================= */}
-        <div className="integration-column-card">
+        {/* 4. VICTORIALOGS (SYSLOG CENTRAL) CARD */}
+        <div className="integration-main-card">
           <div className="integration-card-header">
-            <div className="integration-title-group">
-              <div className="integration-icon-wrapper" style={{ background: 'rgba(76, 175, 80, 0.12)', color: '#4caf50' }}>
-                <FileText size={20} />
+            <div className="integration-header-left">
+              <div className="integration-icon-container" style={{ background: 'rgba(76, 175, 80, 0.1)', borderColor: 'rgba(76, 175, 80, 0.25)' }}>
+                <FileText size={22} color="#4caf50" />
               </div>
               <div>
-                <h3 className="integration-title">VictoriaLogs</h3>
-                <span className="integration-subtitle">Syslog UDP/TCP 514 (Retenção 30d)</span>
+                <div className="integration-title-row">
+                  <h2 className="integration-main-title">VictoriaLogs</h2>
+                  <span className={`connection-badge ${vlogsIsConnected ? 'badge-connected' : 'badge-pending'}`}>
+                    {vlogsIsConnected ? (
+                      <>
+                        <span className="dot-online" style={{ marginRight: 4 }}></span>
+                        Conectado
+                      </>
+                    ) : (
+                      'Não Conectado'
+                    )}
+                  </span>
+                </div>
+                <p className="integration-main-sub">
+                  Coletor e buscador central de Syslog em portas UDP e TCP <strong>514</strong> com retenção de 30 dias na VPS BrDrive.
+                </p>
               </div>
             </div>
-            <span className={`status-pill ${vlogsIsConnected ? 'status-pill-ok' : 'status-pill-disabled'}`}>
-              {vlogsIsConnected ? 'Ativo' : 'Desconectado'}
-            </span>
           </div>
 
           <div className="integration-status-strip">
-            <div className="status-item">
-              <span className="status-label">Endereço Direto:</span>
-              <span className="status-value"><code>{vlogsUrl || '10.10.1.2:9428'}</code></span>
+            <div className="status-strip-item">
+              <Clock size={13} color="var(--color-primary)" />
+              <span>Volume recente: <strong>{vlogsStats?.total_1h ? `${vlogsStats.total_1h.toLocaleString('pt-BR')} msgs (1h)` : 'Ativo'}</strong></span>
             </div>
-            <div className="status-item">
-              <span className="status-label">Logs (Última 1h):</span>
-              <span className="status-value">{vlogsStats?.total_1h ? `${vlogsStats.total_1h.toLocaleString('pt-BR')} msgs` : 'Ativo'}</span>
+            <div className="status-strip-item">
+              <span className="mini-badge" style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81c784' }}>Syslog 514</span>
             </div>
           </div>
 
-          <div className="integration-card-body">
-            <div className="integration-summary-box">
-              <p>
-                Armazenamento central de logs Syslog coletados em portas UDP e TCP 514 na VPS BrDrive.
-                Integrado ao IperSoft para correlacionar quedas de rede e alarmes com o registro dos equipamentos.
-              </p>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-                <span className="badge-tag-canonical" style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81c784' }}>
-                  LogsQL
-                </span>
-                <span className="badge-tag-canonical">
-                  Syslog RFC3164/5424
+          {isAdmin && (
+            <div className="integration-primary-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={handleTestVictoriaLogs}
+                disabled={vlogsTesting || vlogsLoading}
+                title="Testa a comunicação direta com o container VictoriaLogs"
+              >
+                {vlogsTesting ? (
+                  <>
+                    <Loader2 size={15} className="spin-icon" />
+                    <span>Testando Conexão...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={15} />
+                    <span>Testar Conexão com VictoriaLogs</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {vlogsStats && (
+            <div className="match-summary-card">
+              <div className="match-summary-header">
+                <span className="match-summary-title">Métricas de Coleta:</span>
+                <span className="match-summary-badge" style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81c784' }}>
+                  {vlogsStats.total_24h ? `${vlogsStats.total_24h.toLocaleString('pt-BR')} msgs (24h)` : 'Online'}
                 </span>
               </div>
+              <p className="match-summary-desc">
+                Serviço de Syslog ativo. Logs consultados em tempo real na tela do equipamento via LogsQL nativo.
+              </p>
             </div>
+          )}
 
-            {/* Botão de Toggle das Configurações */}
+          {/* Seção retrátil de configurações */}
+          <div className="integration-settings-collapse">
             <button
               type="button"
-              className="btn-toggle-settings"
+              className="btn-collapse-settings"
               onClick={() => setShowVlogsSettings(!showVlogsSettings)}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Settings size={14} />
-                <span>Configurações de Conexão</span>
-              </div>
-              {showVlogsSettings ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <Settings size={14} />
+              <span>Configurações de Conexão</span>
+              {showVlogsSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
             </button>
 
-            {/* Formulário Retrátil */}
             {showVlogsSettings && (
-              <form onSubmit={handleSaveVictoriaLogs} className="integration-settings-form">
+              <form onSubmit={handleSaveVictoriaLogs} className="integration-form" style={{ marginTop: '0.85rem' }}>
                 <div className="form-group">
-                  <label className="form-label">URL da API do VictoriaLogs</label>
+                  <label className="form-label">URL da API VictoriaLogs</label>
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="http://10.10.1.2:9428"
+                    placeholder="ex: http://10.10.1.2:9428"
                     value={vlogsUrl}
                     onChange={(e) => setVlogsUrl(e.target.value)}
                     disabled={!isAdmin || vlogsLoading}
+                    required
                   />
                   <small className="form-help">
                     Endereço interno do container VictoriaLogs na porta 9428 (sem passar pelo Traefik).
@@ -1064,7 +1094,7 @@ export const IntegrationsView = ({ isAdmin }) => {
                     disabled={vlogsTesting || vlogsLoading}
                   >
                     {vlogsTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
-                    <span>Testar Conexão</span>
+                    <span>Testar</span>
                   </button>
                   {isAdmin && (
                     <button

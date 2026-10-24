@@ -4755,6 +4755,29 @@
   border-color: var(--border-medium);
 }
 
+/* Correção de Legibilidade em Seletores (Select / Option Dark Mode) */
+select, 
+select option {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+.select-filter-compact {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid #334155 !important;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.select-filter-compact option {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
 
 
 

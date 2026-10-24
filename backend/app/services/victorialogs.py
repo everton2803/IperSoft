@@ -95,7 +95,7 @@ class VictoriaLogsService:
         ip: Optional[str] = None,
         hostname: Optional[str] = None,
         search: Optional[str] = None,
-        time_range: str = "24h",
+        time_range: str = "5m",
         limit: int = 100,
         level: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -117,8 +117,8 @@ class VictoriaLogsService:
             origin_clause = f"({origin_clause})"
 
         # Filtro de tempo
-        valid_ranges = {"15m", "30m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"}
-        clean_range = time_range if time_range in valid_ranges else "24h"
+        valid_ranges = {"5m", "15m", "30m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"}
+        clean_range = time_range if time_range in valid_ranges else "5m"
         query_parts = [origin_clause, f"_time:{clean_range}"]
 
         # Filtro de texto opcional
