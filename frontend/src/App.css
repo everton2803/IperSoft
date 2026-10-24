@@ -4778,6 +4778,250 @@ select option {
   color: #f8fafc !important;
 }
 
+/* =========================================================================
+   LINHA DO TEMPO DOS ALARMES EM BLOCOS (ZabbixAlarmsView)
+   ========================================================================= */
+
+.view-mode-toggle-group {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+}
+
+.btn-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-view-toggle:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.btn-view-toggle.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* Faixa Ribbon de Resumo Temporal */
+.timeline-ribbon-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.timeline-ribbon-items {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.timeline-ribbon-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  user-select: none;
+  transition: all var(--transition-fast);
+}
+
+.timeline-ribbon-pill.has-alarms {
+  cursor: default;
+  color: var(--text-main);
+}
+
+.timeline-ribbon-pill.has-alarms:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.ribbon-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ribbon-pill-title,
+.ribbon-pill-label {
+  font-weight: 500;
+}
+
+.ribbon-pill-count {
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.timeline-ribbon-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.btn-timeline-action,
+.btn-text-action {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.btn-timeline-action:hover,
+.btn-text-action:hover {
+  background: rgba(0, 188, 212, 0.12);
+  border-color: var(--color-primary);
+}
+
+/* Blocos de Tempo (Cards da Linha do Tempo) */
+.zabbix-timeline-blocks-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.timeline-block-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  transition: border-color var(--transition-fast);
+}
+
+.timeline-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.15rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+
+.timeline-block-header:hover {
+  filter: brightness(1.08);
+}
+
+.timeline-block-header-left,
+.timeline-block-left {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.btn-collapse-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.timeline-block-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.timeline-block-titles {
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-block-title {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.01em;
+}
+
+.timeline-block-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 7px;
+  border-radius: 4px;
+  color: #fff;
+}
+
+.timeline-block-desc {
+  margin: 2px 0 0 0;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
+.timeline-block-header-right,
+.timeline-block-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.timeline-block-counter {
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid;
+  background: var(--bg-surface-elevated);
+}
+
+.timeline-table-wrapper {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+}
+
 
 
 

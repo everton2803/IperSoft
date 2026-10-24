@@ -12,9 +12,96 @@ import {
   ArrowUpRight,
   ArrowDown,
   ArrowUp,
-  ArrowUpDown
+  ArrowUpDown,
+  Flame,
+  Zap,
+  Calendar,
+  ChevronDown,
+  ChevronRight,
+  List,
+  History
 } from 'lucide-react';
 import { authService } from '../services/api';
+
+const TIME_BLOCKS = [
+  {
+    id: '10m',
+    title: 'Últimos 10 minutos',
+    badge: 'Crítico / Imediato',
+    color: '#ef4444',
+    bgLight: 'rgba(239, 68, 68, 0.08)',
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    minSeconds: 0,
+    maxSeconds: 600,
+    description: 'Disparados nos últimos 10 minutos — possível incidente em andamento'
+  },
+  {
+    id: '30m',
+    title: '10 a 30 minutos atrás',
+    badge: 'Recente',
+    color: '#f97316',
+    bgLight: 'rgba(249, 115, 22, 0.08)',
+    borderColor: 'rgba(249, 115, 22, 0.35)',
+    minSeconds: 600,
+    maxSeconds: 1800,
+    description: 'Disparados entre 10 e 30 minutos atrás'
+  },
+  {
+    id: '1h',
+    title: '30 min a 1 hora atrás',
+    badge: 'Última 1h',
+    color: '#f59e0b',
+    bgLight: 'rgba(245, 158, 11, 0.08)',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    minSeconds: 1800,
+    maxSeconds: 3600,
+    description: 'Disparados entre 30 minutos e 1 hora atrás'
+  },
+  {
+    id: '3h',
+    title: '1 a 3 horas atrás',
+    badge: '1h - 3h',
+    color: '#06b6d4',
+    bgLight: 'rgba(6, 182, 212, 0.08)',
+    borderColor: 'rgba(6, 182, 212, 0.3)',
+    minSeconds: 3600,
+    maxSeconds: 10800,
+    description: 'Disparados entre 1 e 3 horas atrás'
+  },
+  {
+    id: '24h',
+    title: 'Hoje (3 a 24 horas)',
+    badge: 'Últimas 24h',
+    color: '#3b82f6',
+    bgLight: 'rgba(59, 130, 246, 0.08)',
+    borderColor: 'rgba(59, 130, 246, 0.25)',
+    minSeconds: 10800,
+    maxSeconds: 86400,
+    description: 'Disparados entre 3 e 24 horas atrás'
+  },
+  {
+    id: '7d',
+    title: 'Esta Semana (1 a 7 dias)',
+    badge: 'Últimos 7 dias',
+    color: '#a855f7',
+    bgLight: 'rgba(168, 85, 247, 0.08)',
+    borderColor: 'rgba(168, 85, 247, 0.25)',
+    minSeconds: 86400,
+    maxSeconds: 604800,
+    description: 'Disparados entre 1 e 7 dias atrás'
+  },
+  {
+    id: 'older',
+    title: 'Mais antigos (> 7 dias)',
+    badge: 'Crônicos / Históricos',
+    color: '#64748b',
+    bgLight: 'rgba(100, 116, 139, 0.08)',
+    borderColor: 'rgba(100, 116, 139, 0.25)',
+    minSeconds: 604800,
+    maxSeconds: Infinity,
+    description: 'Disparados há mais de 1 semana'
+  }
+];
 
 export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
   const [data, setData] = useState({
@@ -38,6 +125,10 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
   const [ackFilter, setAckFilter] = useState('all'); // 'all' | 'unacknowledged' | 'acknowledged'
   const [matchedFilter, setMatchedFilter] = useState('all'); // 'all' | 'matched' | 'unmatched'
   
+  // Modo de visualização: Linha do Tempo em blocos vs Tabela Contínua
+  const [viewMode, setViewMode] = useState('timeline'); // 'timeline' | 'flat'
+  const [collapsedBlocks, setCollapsedBlocks] = useState({});
+
   // Ordenação (padrão: mais recentes primeiro)
   const [sortField, setSortField] = useState('duration'); // 'duration' | 'priority' | 'asset_name' | 'description' | 'acknowledged'
   const [sortDirection, setSortDirection] = useState('desc'); // 'desc' (mais recente) | 'asc' (mais antigo)
@@ -324,6 +415,294 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
     });
   }, [data.problems, severityFilter, ackFilter, matchedFilter, searchQuery, sortField, sortDirection]);
 
+  // Agrupamento temporal para a visualização em Linha do Tempo
+  const { timelineGroups, blockCounts } = useMemo(() => {
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const groups = TIME_BLOCKS.map(block => ({
+      ...block,
+      problems: []
+    }));
+
+    const counts = {};
+    TIME_BLOCKS.forEach(b => { counts[b.id] = 0; });
+
+    (displayedProblems || []).forEach(prob => {
+      const ageSeconds = Math.max(0, nowUnix - Number(prob.lastchange || 0));
+      const group = groups.find(b => ageSeconds >= b.minSeconds && ageSeconds < b.maxSeconds) || groups[groups.length - 1];
+      group.problems.push(prob);
+      counts[group.id] = (counts[group.id] || 0) + 1;
+    });
+
+    return { timelineGroups: groups, blockCounts: counts };
+  }, [displayedProblems]);
+
+  const activeTimelineGroups = useMemo(() => {
+    return timelineGroups.filter(g => g.problems.length > 0);
+  }, [timelineGroups]);
+
+  const toggleCollapseBlock = (blockId) => {
+    setCollapsedBlocks(prev => ({
+      ...prev,
+      [blockId]: !prev[blockId]
+    }));
+  };
+
+  const handleCollapseAll = () => {
+    const collapsed = {};
+    TIME_BLOCKS.forEach(b => { collapsed[b.id] = true; });
+    setCollapsedBlocks(collapsed);
+  };
+
+  const handleExpandAll = () => {
+    setCollapsedBlocks({});
+  };
+
+  const getBlockIcon = (blockId) => {
+    switch (blockId) {
+      case '10m': return <Flame size={18} color="#ef4444" />;
+      case '30m': return <Zap size={18} color="#f97316" />;
+      case '1h': return <Clock size={18} color="#f59e0b" />;
+      case '3h': return <Clock size={18} color="#06b6d4" />;
+      case '24h': return <Calendar size={18} color="#3b82f6" />;
+      case '7d': return <Calendar size={18} color="#a855f7" />;
+      default: return <History size={18} color="#64748b" />;
+    }
+  };
+
+  // Cabeçalho unificado da tabela de alarmes
+  const renderTableHeader = () => (
+    <thead>
+      <tr>
+        <th 
+          style={{ width: '135px', cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => handleHeaderSort('acknowledged')}
+          title="Clique para ordenar por status de reconhecimento"
+        >
+          <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <span>Reconhecido</span>
+            {renderSortIcon('acknowledged')}
+          </div>
+        </th>
+
+        <th style={{ width: '120px', textAlign: 'center', userSelect: 'none' }}>
+          <span>Encerrar</span>
+        </th>
+
+        <th 
+          style={{ width: '125px', cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => handleHeaderSort('priority')}
+          title="Clique para ordenar por nível de severidade"
+        >
+          <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <span>Severidade</span>
+            {renderSortIcon('priority')}
+          </div>
+        </th>
+
+        <th 
+          style={{ minWidth: '220px', cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => handleHeaderSort('asset_name')}
+          title="Clique para ordenar por nome do equipamento"
+        >
+          <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <span>Equipamento / Host</span>
+            {renderSortIcon('asset_name')}
+          </div>
+        </th>
+
+        <th 
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => handleHeaderSort('description')}
+          title="Clique para ordenar pela descrição do alarme"
+        >
+          <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <span>Problema (Trigger)</span>
+            {renderSortIcon('description')}
+          </div>
+        </th>
+
+        <th 
+          style={{ width: '150px', cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => handleHeaderSort('duration')}
+          title="Clique para alternar entre mais antigos (maior duração) e mais recentes"
+        >
+          <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <span>Tempo Ativo / Duração</span>
+            {renderSortIcon('duration')}
+          </div>
+        </th>
+
+        <th style={{ width: '120px', textAlign: 'right' }}>Ação</th>
+      </tr>
+    </thead>
+  );
+
+  // Linha individual de alarme
+  const renderAlarmRow = (prob) => {
+    const targetKey = prob.eventid || prob.triggerid;
+    const isAckPending = acknowledgingEvents[targetKey];
+    const isClosePending = closingEvents[targetKey];
+    const canNavigate = Boolean(prob.asset_id && onSelectAsset);
+
+    return (
+      <tr 
+        key={prob.triggerid}
+        className={`zabbix-alarm-row ${prob.is_closed ? 'row-closed' : (prob.acknowledged ? 'row-acknowledged' : 'row-unacknowledged')}`}
+        onClick={() => {
+          if (canNavigate) {
+            onSelectAsset(prob.asset_id);
+          }
+        }}
+        style={{ cursor: canNavigate ? 'pointer' : 'default' }}
+        title={canNavigate ? `Clique para abrir o equipamento "${prob.asset_name}" no inventário` : undefined}
+      >
+        {/* CHECKBOX RECONHECIMENTO */}
+        <td onClick={(e) => e.stopPropagation()}>
+          <label 
+            className="alarm-ack-toggle-label"
+            title={prob.acknowledged ? "Desmarcar reconhecimento no Zabbix" : "Marcar como reconhecido no Zabbix"}
+          >
+            <input
+              type="checkbox"
+              checked={Boolean(prob.acknowledged)}
+              disabled={Boolean(isAckPending || prob.is_closed)}
+              onChange={(e) => handleToggleAcknowledge(prob, e)}
+              className="diag-custom-checkbox"
+            />
+            <span className={prob.acknowledged ? 'ack-status-pill pill-ack' : 'ack-status-pill pill-unack'}>
+              {isAckPending ? 'Salvando...' : (prob.acknowledged ? 'Reconhecido' : 'Não Reconhecido')}
+            </span>
+          </label>
+        </td>
+
+        {/* CHECKBOX ENCERRAR */}
+        <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+          <label 
+            className="alarm-close-toggle-label"
+            title={prob.is_closed ? "Alarme já encerrado no Zabbix" : "Clique para encerrar este alarme no Zabbix"}
+          >
+            <input
+              type="checkbox"
+              checked={Boolean(prob.is_closed)}
+              disabled={Boolean(isClosePending || prob.is_closed)}
+              onChange={(e) => handleCloseProblem(prob, e)}
+              className="diag-custom-checkbox"
+            />
+            <span className={prob.is_closed ? 'ack-status-pill pill-closed' : 'ack-status-pill pill-open'}>
+              {isClosePending ? 'Encerrando...' : (prob.is_closed ? 'Encerrado' : 'Encerrar')}
+            </span>
+          </label>
+        </td>
+
+        {/* SEVERIDADE */}
+        <td>
+          <span 
+            className="alarm-sev-badge" 
+            style={{ backgroundColor: prob.severity_color }}
+          >
+            {prob.severity_label}
+          </span>
+        </td>
+
+        {/* EQUIPAMENTO */}
+        <td>
+          <div className="asset-name-cell">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span className={`asset-visible-name ${canNavigate ? 'name-link' : ''}`}>
+                {prob.asset_name}
+              </span>
+              {canNavigate && (
+                <ArrowUpRight size={13} className="link-arrow-icon" />
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '2px' }}>
+              {prob.asset_ip ? (
+                <code style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {prob.asset_ip}
+                </code>
+              ) : (
+                <code style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {prob.host_technical}
+                </code>
+              )}
+
+              {prob.asset_group && (
+                <span className="client-group-badge-sub">
+                  {prob.asset_group}
+                </span>
+              )}
+
+              {!prob.is_matched && (
+                <span className="host-unmatched-badge" title="Host encontrado no Zabbix mas sem vínculo direto no inventário">
+                  Apenas no Zabbix
+                </span>
+              )}
+            </div>
+          </div>
+        </td>
+
+        {/* PROBLEMA (TRIGGER) */}
+        <td>
+          <div className="zbx-trigger-content">
+            <span className="zbx-trigger-desc">
+              {prob.description}
+            </span>
+
+            {/* Dados Operacionais da Trigger (Operational Data) */}
+            {prob.opdata ? (
+              <div className="zbx-trigger-meta-row">
+                <span className="zbx-opdata-pill" title="Dado Operacional da Trigger (Zabbix Operational Data)">
+                  <Activity size={11} className="opdata-icon" />
+                  <span className="opdata-label">Dado Operacional:</span>
+                  <strong>{prob.opdata}</strong>
+                </span>
+              </div>
+            ) : (prob.items && prob.items.length > 0 && prob.items[0].lastvalue !== null && (
+              <div className="zbx-trigger-meta-row">
+                <span className="zbx-lastval-pill" title="Último valor lido pelo item da trigger">
+                  <span className="opdata-label">Último valor:</span>
+                  <strong>{prob.items[0].lastvalue} {prob.items[0].units}</strong>
+                </span>
+              </div>
+            ))}
+          </div>
+        </td>
+
+        {/* DURAÇÃO / DISPARADO EM */}
+        <td>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span className="zbx-time-ago" title={formatFullDate(prob.lastchange)}>
+              <Clock size={11} style={{ marginRight: '4px' }} />
+              {formatTimeAgo(prob.lastchange)}
+            </span>
+            <small style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {new Date(prob.lastchange * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </small>
+          </div>
+        </td>
+
+        {/* AÇÕES */}
+        <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+          {canNavigate ? (
+            <button
+              type="button"
+              className="btn-open-detail"
+              onClick={() => onSelectAsset(prob.asset_id)}
+              title="Abrir tela de detalhes e diagnósticos deste equipamento"
+              style={{ padding: '0.35rem 0.65rem' }}
+            >
+              <Server size={13} />
+              <span>Ver Ativo</span>
+            </button>
+          ) : (
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+          )}
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="alarms-view-container">
       {/* Top Header */}
@@ -343,6 +722,28 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
         </div>
 
         <div className="assets-header-actions">
+          {/* Seletor de Modo de Visualização */}
+          <div className="view-mode-toggle-group">
+            <button
+              type="button"
+              className={`btn-view-toggle ${viewMode === 'timeline' ? 'active' : ''}`}
+              onClick={() => setViewMode('timeline')}
+              title="Visualizar alarmes organizados em blocos de tempo para identificar incidentes correlacionados"
+            >
+              <History size={14} />
+              <span>Linha do Tempo</span>
+            </button>
+            <button
+              type="button"
+              className={`btn-view-toggle ${viewMode === 'flat' ? 'active' : ''}`}
+              onClick={() => setViewMode('flat')}
+              title="Visualizar como lista contínua única"
+            >
+              <List size={14} />
+              <span>Tabela Contínua</span>
+            </button>
+          </div>
+
           <button
             className="btn-secondary"
             onClick={() => loadProblems(true)}
@@ -611,264 +1012,159 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
         </div>
       </div>
 
-      {/* Alarms Table */}
-      <div className="assets-table-container">
-        <table className="assets-table zabbix-alarms-table">
-          <thead>
-            <tr>
-              <th 
-                style={{ width: '135px', cursor: 'pointer', userSelect: 'none' }}
-                onClick={() => handleHeaderSort('acknowledged')}
-                title="Clique para ordenar por status de reconhecimento"
-              >
-                <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <span>Reconhecido</span>
-                  {renderSortIcon('acknowledged')}
-                </div>
-              </th>
-
-              <th style={{ width: '120px', textAlign: 'center', userSelect: 'none' }}>
-                <span>Encerrar</span>
-              </th>
-
-              <th 
-                style={{ width: '125px', cursor: 'pointer', userSelect: 'none' }}
-                onClick={() => handleHeaderSort('priority')}
-                title="Clique para ordenar por nível de severidade"
-              >
-                <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <span>Severidade</span>
-                  {renderSortIcon('priority')}
-                </div>
-              </th>
-
-              <th 
-                style={{ minWidth: '220px', cursor: 'pointer', userSelect: 'none' }}
-                onClick={() => handleHeaderSort('asset_name')}
-                title="Clique para ordenar por nome do equipamento"
-              >
-                <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <span>Equipamento / Host</span>
-                  {renderSortIcon('asset_name')}
-                </div>
-              </th>
-
-              <th 
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-                onClick={() => handleHeaderSort('description')}
-                title="Clique para ordenar pela descrição do alarme"
-              >
-                <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <span>Problema (Trigger)</span>
-                  {renderSortIcon('description')}
-                </div>
-              </th>
-
-              <th 
-                style={{ width: '150px', cursor: 'pointer', userSelect: 'none' }}
-                onClick={() => handleHeaderSort('duration')}
-                title="Clique para alternar entre mais antigos (maior duração) e mais recentes"
-              >
-                <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <span>Tempo Ativo / Duração</span>
-                  {renderSortIcon('duration')}
-                </div>
-              </th>
-
-              <th style={{ width: '120px', textAlign: 'right' }}>Ação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr>
-                <td colSpan="7" style={{ textAlign: 'center', padding: '3.5rem' }}>
-                  <RefreshCw size={26} className="spin-icon" style={{ color: 'var(--color-primary)', margin: '0 auto 0.5rem' }} />
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Carregando alarmes em tempo real do Zabbix...</p>
-                </td>
-              </tr>
-            ) : displayedProblems.length === 0 ? (
-              <tr>
-                <td colSpan="7" style={{ textAlign: 'center', padding: '4rem' }}>
-                  <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: '0 auto 0.75rem' }} />
-                  <h3 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.25rem' }}>
-                    Nenhuma trigger em estado de problema!
-                  </h3>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    {searchQuery || severityFilter !== 'all' || ackFilter !== 'all'
-                      ? 'Nenhum alarme corresponde aos filtros selecionados.'
-                      : 'Todos os equipamentos monitorados pelo Zabbix Server estão operando normalmente sem problemas ativos.'}
-                  </p>
-                </td>
-              </tr>
-            ) : (
-              displayedProblems.map((prob) => {
-                const targetKey = prob.eventid || prob.triggerid;
-                const isAckPending = acknowledgingEvents[targetKey];
-                const isClosePending = closingEvents[targetKey];
-                const canNavigate = Boolean(prob.asset_id && onSelectAsset);
-
-                return (
-                  <tr 
-                    key={prob.triggerid}
-                    className={`zabbix-alarm-row ${prob.is_closed ? 'row-closed' : (prob.acknowledged ? 'row-acknowledged' : 'row-unacknowledged')}`}
-                    onClick={() => {
-                      if (canNavigate) {
-                        onSelectAsset(prob.asset_id);
-                      }
+      {/* Timeline Ribbon (Visão rápida de todos os blocos) */}
+      {viewMode === 'timeline' && (
+        <div className="timeline-ribbon-bar">
+          <div className="timeline-ribbon-items">
+            {TIME_BLOCKS.map(block => {
+              const count = blockCounts[block.id] || 0;
+              const hasItems = count > 0;
+              return (
+                <div 
+                  key={block.id}
+                  className={`timeline-ribbon-pill ${hasItems ? 'has-alarms' : 'empty'}`}
+                  style={{
+                    borderColor: hasItems ? block.borderColor : 'var(--border-subtle)',
+                    background: hasItems ? block.bgLight : 'transparent'
+                  }}
+                  title={`${block.title}: ${count} ${count === 1 ? 'alarme' : 'alarmes'}`}
+                >
+                  <span className="ribbon-pill-dot" style={{ backgroundColor: block.color }} />
+                  <span className="ribbon-pill-label">{block.badge}</span>
+                  <span 
+                    className="ribbon-pill-count"
+                    style={{
+                      backgroundColor: hasItems ? block.color : 'var(--bg-card)',
+                      color: hasItems ? '#ffffff' : 'var(--text-muted)'
                     }}
-                    style={{ cursor: canNavigate ? 'pointer' : 'default' }}
-                    title={canNavigate ? `Clique para abrir o equipamento "${prob.asset_name}" no inventário` : undefined}
                   >
-                    {/* CHECKBOX RECONHECIMENTO */}
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <label 
-                        className="alarm-ack-toggle-label"
-                        title={prob.acknowledged ? "Desmarcar reconhecimento no Zabbix" : "Marcar como reconhecido no Zabbix"}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={Boolean(prob.acknowledged)}
-                          disabled={Boolean(isAckPending || prob.is_closed)}
-                          onChange={(e) => handleToggleAcknowledge(prob, e)}
-                          className="diag-custom-checkbox"
-                        />
-                        <span className={prob.acknowledged ? 'ack-status-pill pill-ack' : 'ack-status-pill pill-unack'}>
-                          {isAckPending ? 'Salvando...' : (prob.acknowledged ? 'Reconhecido' : 'Não Reconhecido')}
-                        </span>
-                      </label>
-                    </td>
+                    {count}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
 
-                    {/* CHECKBOX ENCERRAR */}
-                    <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
-                      <label 
-                        className="alarm-close-toggle-label"
-                        title={prob.is_closed ? "Alarme já encerrado no Zabbix" : "Clique para encerrar este alarme no Zabbix"}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={Boolean(prob.is_closed)}
-                          disabled={Boolean(isClosePending || prob.is_closed)}
-                          onChange={(e) => handleCloseProblem(prob, e)}
-                          className="diag-custom-checkbox"
-                        />
-                        <span className={prob.is_closed ? 'ack-status-pill pill-closed' : 'ack-status-pill pill-open'}>
-                          {isClosePending ? 'Encerrando...' : (prob.is_closed ? 'Encerrado' : 'Encerrar')}
-                        </span>
-                      </label>
-                    </td>
+          <div className="timeline-ribbon-actions">
+            <button 
+              type="button" 
+              className="btn-timeline-action"
+              onClick={handleExpandAll}
+              title="Expandir todos os blocos"
+            >
+              Expandir Todos
+            </button>
+            <button 
+              type="button" 
+              className="btn-timeline-action"
+              onClick={handleCollapseAll}
+              title="Recolher todos os blocos"
+            >
+              Recolher Todos
+            </button>
+          </div>
+        </div>
+      )}
 
-                    {/* SEVERIDADE */}
-                    <td>
-                      <span 
-                        className="alarm-sev-badge" 
-                        style={{ backgroundColor: prob.severity_color }}
-                      >
-                        {prob.severity_label}
-                      </span>
-                    </td>
+      {/* Exibição dos Alarmes */}
+      {isLoading ? (
+        <div className="assets-table-container" style={{ padding: '3.5rem', textAlign: 'center' }}>
+          <RefreshCw size={26} className="spin-icon" style={{ color: 'var(--color-primary)', margin: '0 auto 0.5rem' }} />
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Carregando alarmes em tempo real do Zabbix...</p>
+        </div>
+      ) : displayedProblems.length === 0 ? (
+        <div className="assets-table-container" style={{ padding: '4rem', textAlign: 'center' }}>
+          <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: '0 auto 0.75rem' }} />
+          <h3 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.25rem' }}>
+            Nenhuma trigger em estado de problema!
+          </h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+            {searchQuery || severityFilter !== 'all' || ackFilter !== 'all'
+              ? 'Nenhum alarme corresponde aos filtros selecionados.'
+              : 'Todos os equipamentos monitorados pelo Zabbix Server estão operando normalmente sem problemas ativos.'}
+          </p>
+        </div>
+      ) : viewMode === 'timeline' ? (
+        /* Modo 1: Linha do Tempo em Blocos Temporais */
+        <div className="zabbix-timeline-blocks-container">
+          {activeTimelineGroups.map((group) => {
+            const isCollapsed = Boolean(collapsedBlocks[group.id]);
+            return (
+              <div 
+                key={group.id} 
+                className={`timeline-block-card ${isCollapsed ? 'is-collapsed' : ''}`}
+                style={{ borderColor: group.borderColor }}
+              >
+                {/* Cabeçalho do Bloco */}
+                <div 
+                  className="timeline-block-header"
+                  style={{ backgroundColor: group.bgLight }}
+                  onClick={() => toggleCollapseBlock(group.id)}
+                  title={isCollapsed ? `Clique para expandir ${group.title}` : `Clique para recolher ${group.title}`}
+                >
+                  <div className="timeline-block-header-left">
+                    <button 
+                      type="button" 
+                      className="btn-collapse-toggle"
+                      aria-label={isCollapsed ? 'Expandir' : 'Recolher'}
+                    >
+                      {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                    
+                    <div className="timeline-block-icon">
+                      {getBlockIcon(group.id)}
+                    </div>
 
-                    {/* EQUIPAMENTO */}
-                    <td>
-                      <div className="asset-name-cell">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          <span className={`asset-visible-name ${canNavigate ? 'name-link' : ''}`}>
-                            {prob.asset_name}
-                          </span>
-                          {canNavigate && (
-                            <ArrowUpRight size={13} className="link-arrow-icon" />
-                          )}
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '2px' }}>
-                          {prob.asset_ip ? (
-                            <code style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                              {prob.asset_ip}
-                            </code>
-                          ) : (
-                            <code style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                              {prob.host_technical}
-                            </code>
-                          )}
-
-                          {prob.asset_group && (
-                            <span className="client-group-badge-sub">
-                              {prob.asset_group}
-                            </span>
-                          )}
-
-                          {!prob.is_matched && (
-                            <span className="host-unmatched-badge" title="Host encontrado no Zabbix mas sem vínculo direto no inventário">
-                              Apenas no Zabbix
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* PROBLEMA (TRIGGER) */}
-                    <td>
-                      <div className="zbx-trigger-content">
-                        <span className="zbx-trigger-desc">
-                          {prob.description}
-                        </span>
-
-                        {/* Dados Operacionais da Trigger (Operational Data) */}
-                        {prob.opdata ? (
-                          <div className="zbx-trigger-meta-row">
-                            <span className="zbx-opdata-pill" title="Dado Operacional da Trigger (Zabbix Operational Data)">
-                              <Activity size={11} className="opdata-icon" />
-                              <span className="opdata-label">Dado Operacional:</span>
-                              <strong>{prob.opdata}</strong>
-                            </span>
-                          </div>
-                        ) : (prob.items && prob.items.length > 0 && prob.items[0].lastvalue !== null && (
-                          <div className="zbx-trigger-meta-row">
-                            <span className="zbx-lastval-pill" title="Último valor lido pelo item da trigger">
-                              <span className="opdata-label">Último valor:</span>
-                              <strong>{prob.items[0].lastvalue} {prob.items[0].units}</strong>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </td>
-
-                    {/* DURAÇÃO / DISPARADO EM */}
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span className="zbx-time-ago" title={formatFullDate(prob.lastchange)}>
-                          <Clock size={11} style={{ marginRight: '4px' }} />
-                          {formatTimeAgo(prob.lastchange)}
-                        </span>
-                        <small style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          {new Date(prob.lastchange * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                        </small>
-                      </div>
-                    </td>
-
-                    {/* AÇÕES */}
-                    <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
-                      {canNavigate ? (
-                        <button
-                          type="button"
-                          className="btn-open-detail"
-                          onClick={() => onSelectAsset(prob.asset_id)}
-                          title="Abrir tela de detalhes e diagnósticos deste equipamento"
-                          style={{ padding: '0.35rem 0.65rem' }}
+                    <div className="timeline-block-titles">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span className="timeline-block-title">{group.title}</span>
+                        <span 
+                          className="timeline-block-badge" 
+                          style={{ backgroundColor: group.color }}
                         >
-                          <Server size={13} />
-                          <span>Ver Ativo</span>
-                        </button>
-                      ) : (
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                          {group.badge}
+                        </span>
+                      </div>
+                      <span className="timeline-block-desc">{group.description}</span>
+                    </div>
+                  </div>
+
+                  <div className="timeline-block-header-right">
+                    <span 
+                      className="timeline-block-counter"
+                      style={{ borderColor: group.color, color: group.color }}
+                    >
+                      <strong>{group.problems.length}</strong> {group.problems.length === 1 ? 'alarme' : 'alarmes correlacionados'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Tabela do Bloco */}
+                {!isCollapsed && (
+                  <div className="timeline-table-wrapper">
+                    <table className="assets-table zabbix-alarms-table">
+                      {renderTableHeader()}
+                      <tbody>
+                        {group.problems.map(renderAlarmRow)}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Modo 2: Tabela Contínua Tradicional */
+        <div className="assets-table-container">
+          <table className="assets-table zabbix-alarms-table">
+            {renderTableHeader()}
+            <tbody>
+              {displayedProblems.map(renderAlarmRow)}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };

@@ -221,6 +221,12 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
   - Checkbox **Reconhecido**: aciona `event.acknowledge` no Zabbix (marcando ou desmarcando reconhecimento com atualização de estado em tempo real sem recarregar a página).
   - Checkbox **Encerrar**: aciona `event.acknowledge` com ação de fechamento manual do problema (`POST /api/v1/integrations/zabbix/close`), marcando como resolvido e sincronizando em tempo real com o Zabbix Server.
 - **Filtros e KPIs**: Cards de severidade clicáveis (Desastre, Alto, Médio, Aviso, Informação), barra de filtros alinhada horizontalmente com seletores lado a lado (Ordenar Por: Mais Recentes Primeiro, Reconhecimento, Severidade, Inventário) e pesquisa dinâmica por nome, IP, descrição ou dados operacionais.
+- **Linha do Tempo em Blocos Temporais (`viewMode: 'timeline'`)**:
+  - Exibe os incidentes agrupados em blocos de tempo para identificação rápida de correlação e causa raiz (ex: rompimento de fibra ou falta de energia afetando múltiplos nós simultaneamente).
+  - Blocos temporais: `< 10 min` (Crítico/Imediato), `10 a 30 min` (Recente), `30 min a 1h`, `1h a 3h`, `Hoje (3 a 24h)`, `Esta Semana (1 a 7 dias)` e `Mais antigos (> 7 dias)`.
+  - Cada bloco exibe cabeçalho temático com badge, contador de alarmes, descrição de contexto, e botão de recolher/expandir individual ou em lote.
+  - Barra superior de resumo rápido (*Timeline Ribbon*) com contadores consolidados por bloco e botões Expandir/Recolher Todos.
+  - Alternador de visualização no topo permitindo alternar instantaneamente entre a **Linha do Tempo** e a **Tabela Contínua** (`'flat'`).
 
 ### 6.3. Regras de Cores e Estados dos Badges nas Linhas
 - **Verde**: Integração ativa e equipamento sincronizado/online.
