@@ -14,6 +14,7 @@ from app.routers.auth import get_current_user
 from app.services.zabbix import ZabbixService
 from app.services.guacamole import GuacamoleService
 from app.services.oxidized import OxidizedService, parse_oxidized_datetime
+from app.services.victorialogs import VictoriaLogsService
 import time
 
 logger = logging.getLogger(__name__)
@@ -205,14 +206,11 @@ class AssetUpdate(BaseModel):
     backup_enabled: Optional[bool] = None
     backup_timeout: Optional[int] = None
     status: Optional[str] = None
-    sync_zabbix: Optional[bool] = True
-    sync_guacamole: Optional[bool] = False
     enabled_tests: Optional[Dict[str, bool]] = None
     ignore_guacamole: Optional[bool] = None
 
 class StatusToggleRequest(BaseModel):
     status: str # "monitored" | "unmonitored"
-    sync_zabbix: Optional[bool] = True
 
 class BulkIntegrationsRequest(BaseModel):
     asset_ids: List[int]
@@ -398,63 +396,22 @@ async def toggle_asset_status(
     if asset.zabbix:
         asset.zabbix.status = new_status
 
-    zabbix_updated = False
-    warning_msg = None
-
-    hostid_to_sync = None
-    if asset.zabbix and asset.zabbix.hostid and str(asset.zabbix.hostid).strip().lower() != "none":
-        hostid_to_sync = str(asset.zabbix.hostid).strip()
-    elif asset.external_id and str(asset.external_id).strip().lower() != "none":
-        hostid_to_sync = str(asset.external_id).strip()
-
-    if payload.sync_zabbix:
-        cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "zabbix").first()
-        if cfg and cfg.url:
-            try:
-                # Se não temos hostid, tenta resolver no Zabbix pelo hostname ou IP
-                if not hostid_to_sync:
-                    auth_token = cfg.token
-                    if not auth_token and cfg.username and cfg.password:
-                        auth_token = await ZabbixService.authenticate_user(cfg.url, cfg.username, cfg.password)
-                    if auth_token:
-                        search_params = {"filter": {"host": [asset.hostname]}, "output": ["hostid", "host"]}
-                        hosts_found = await ZabbixService.call_api(cfg.url, "host.get", search_params, auth=auth_token)
-                        if hosts_found:
-                            hostid_to_sync = str(hosts_found[0]["hostid"])
-                            asset.external_id = hostid_to_sync
-                            if asset.zabbix:
-                                asset.zabbix.hostid = hostid_to_sync
-
-                if hostid_to_sync:
-                    status_code = 0 if new_status == "monitored" else 1
-                    await ZabbixService.update_host_status(
-                        cfg.url,
-                        hostid_to_sync,
-                        status_code,
-                        token=cfg.token,
-                        username=cfg.username,
-                        password=cfg.password
-                    )
-                    zabbix_updated = True
-            except Exception as exc:
-                logger.warning(f"Erro ao sincronizar status com Zabbix: {exc}")
-                warning_msg = f"Status atualizado localmente, mas houve erro no Zabbix: {exc}"
+    if new_status == "unmonitored":
+        db.query(NetworkDiagnostic).filter(
+            NetworkDiagnostic.asset_id == asset.id
+        ).delete(synchronize_session=False)
 
     db.commit()
     db.refresh(asset)
 
     status_pt = "Ativo (Monitorado)" if new_status == "monitored" else "Inativo (Desativado)"
-    message = f"Host alterado para {status_pt}."
-    if zabbix_updated:
-        message += " Sincronizado também no Zabbix Server."
-    elif warning_msg:
-        message += f" ({warning_msg})"
+    message = f"Host alterado para {status_pt} no IperSoft. Para refletir no Zabbix Server, utilize a sincronização manual."
 
     return {
         "success": True,
         "asset": asset,
         "message": message,
-        "zabbix_synced": zabbix_updated
+        "zabbix_synced": False
     }
 
 
@@ -466,7 +423,8 @@ async def bulk_update_integrations(
 ):
     """
     Atualiza status de integrações (Zabbix, Guacamole, Oxidized) em lote
-    para múltiplos equipamentos selecionados.
+    no banco de dados local do IperSoft para múltiplos equipamentos selecionados.
+    Nenhuma alteração automática é enviada para as integrações externas.
     """
     if not payload.asset_ids:
         raise HTTPException(status_code=400, detail="Nenhum ativo informado para atualização em lote.")
@@ -476,85 +434,46 @@ async def bulk_update_integrations(
         raise HTTPException(status_code=404, detail="Nenhum ativo encontrado para os IDs informados.")
 
     updated_count = len(assets)
-    zbx_synced_count = 0
-    ox_reloaded = False
 
-    # 1. Zabbix (Ativar / Desativar monitoramento)
+    # 1. Zabbix (Ativar / Desativar monitoramento localmente no IperSoft)
     if payload.zabbix_enabled is not None:
         new_status = "monitored" if payload.zabbix_enabled else "unmonitored"
-        status_code = 0 if payload.zabbix_enabled else 1
-        cfg_zbx = db.query(IntegrationConfig).filter(
-            IntegrationConfig.name == "zabbix",
-            IntegrationConfig.is_active == True
-        ).first()
-
         for a in assets:
             a.status = new_status
             if a.zabbix:
                 a.zabbix.status = new_status
+        if not payload.zabbix_enabled:
+            db.query(NetworkDiagnostic).filter(
+                NetworkDiagnostic.asset_id.in_(payload.asset_ids)
+            ).delete(synchronize_session=False)
 
-        if cfg_zbx and cfg_zbx.url:
-            for a in assets:
-                h_id = a.zabbix.hostid if (a.zabbix and a.zabbix.hostid) else a.external_id
-                if h_id and str(h_id).strip().lower() != "none":
-                    try:
-                        await ZabbixService.update_host_status(
-                            cfg_zbx.url,
-                            str(h_id),
-                            status_code,
-                            token=cfg_zbx.token,
-                            username=cfg_zbx.username,
-                            password=cfg_zbx.password
-                        )
-                        zbx_synced_count += 1
-                    except Exception as err:
-                        logger.warning(f"Erro ao alterar status Zabbix do host {h_id} em lote: {err}")
-
-    # 2. Apache Guacamole (Ativar / Desativar/Ignorar e expurgar conexões)
+    # 2. Apache Guacamole (Ativar / Desativar localmente no IperSoft)
     if payload.guacamole_enabled is not None:
-        guac_conns_cache = None
-        if not payload.guacamole_enabled:
-            cfg_guac = db.query(IntegrationConfig).filter(IntegrationConfig.name == "guacamole").first()
-            if cfg_guac and cfg_guac.url and cfg_guac.username and cfg_guac.password:
-                try:
-                    guac_conns_cache = await GuacamoleService.fetch_connections_with_parameters(
-                        url=cfg_guac.url,
-                        username=cfg_guac.username,
-                        password=cfg_guac.password
-                    )
-                except Exception as err:
-                    logger.warning(f"Erro ao obter conexões do Guacamole para exclusão em lote: {err}")
-
         for a in assets:
             raw = dict(a.raw_data or {})
             raw["ignore_guacamole"] = not payload.guacamole_enabled
             a.raw_data = raw
-            if not payload.guacamole_enabled:
-                await remove_asset_guacamole_connections(a, db, live_conns=guac_conns_cache)
+        if not payload.guacamole_enabled:
+            db.query(NetworkDiagnostic).filter(
+                NetworkDiagnostic.asset_id.in_(payload.asset_ids),
+                NetworkDiagnostic.test_type.in_(["ssh", "telnet", "rdp", "vnc"])
+            ).delete(synchronize_session=False)
 
-    # 3. Oxidized (Ativar backup / Desativar backup e expurgar do daemon)
+    # 3. Oxidized (Ativar / Desativar backup localmente no IperSoft)
     if payload.oxidized_enabled is not None:
         for a in assets:
             a.backup_enabled = payload.oxidized_enabled
-            if not payload.oxidized_enabled:
-                if a.oxidized:
-                    db.delete(a.oxidized)
+            if not payload.oxidized_enabled and a.oxidized:
+                db.delete(a.oxidized)
 
-        db.commit()
-
-        # Recarrega daemon do Oxidized para refletir inclusão ou expurgo imediato
-        ox_reloaded = await notify_oxidized_reload_if_active(
-            db, f"bulk update de backup_enabled={payload.oxidized_enabled}"
-        )
-    else:
-        db.commit()
+    db.commit()
 
     return {
         "success": True,
         "updated_count": updated_count,
-        "zabbix_synced_count": zbx_synced_count,
-        "oxidized_reloaded": ox_reloaded,
-        "message": f"{updated_count} equipamentos atualizados em lote com sucesso."
+        "zabbix_synced_count": 0,
+        "oxidized_reloaded": False,
+        "message": f"{updated_count} equipamentos atualizados no IperSoft com sucesso. Utilize a sincronização manual quando desejar enviar às integrações."
     }
 
 
@@ -568,8 +487,6 @@ async def update_asset(
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Ativo não encontrado.")
-
-    old_backup_enabled = asset.backup_enabled
 
     if payload.name is not None:
         asset.name = payload.name.strip()
@@ -603,7 +520,7 @@ async def update_asset(
         if asset.zabbix:
             asset.zabbix.snmp_community = asset.snmp_community
 
-    # Atualização de parâmetros de Acesso Remoto (Guacamole / SSH / Telnet / RDP)
+    # Atualização de parâmetros de Acesso Remoto (apenas banco local do IperSoft)
     has_remote_updates = any(
         x is not None for x in [
             payload.guacamole_connection_id,
@@ -656,59 +573,25 @@ async def update_asset(
             if payload.guacamole_password is not None and payload.guacamole_password != "":
                 guac_entry.password = payload.guacamole_password
 
-        # Sincronização automática no Guacamole quando solicitado
-        if payload.sync_guacamole:
-            cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "guacamole").first()
-            if cfg and cfg.url and cfg.username and cfg.password:
-                try:
-                    c_group = asset.client_group or (asset.host_groups[0] if (asset.host_groups and len(asset.host_groups) > 0) else None)
-                    raw_id = guac_entry.connection_id or asset.guacamole_connection_id
-                    identifier = raw_id if (raw_id and not str(raw_id).startswith("local-")) else None
-                    conn_data = {
-                        "identifier": identifier,
-                        "name": asset.name,
-                        "protocol": proto,
-                        "hostname": asset.ip_address or asset.hostname,
-                        "port": port_val,
-                        "client_group": c_group,
-                        "username": guac_entry.username,
-                        "password": guac_entry.password
-                    }
-                    guac_res = await GuacamoleService.push_connection_to_guacamole(
-                        url=cfg.url,
-                        username=cfg.username,
-                        password=cfg.password,
-                        conn_data=conn_data
-                    )
-                    client_id = guac_res.get("client_id")
-                    if client_id:
-                        guac_entry.connection_id = client_id
-                        asset.guacamole_connection_id = client_id
-                    guac_entry.last_sync = func.now()
-                except Exception as g_err:
-                    logger.warning(f"Erro ao sincronizar com Guacamole durante atualização do ativo {asset.id}: {g_err}")
+        # Remove registros de diagnóstico de portas ou protocolos anteriores deste ativo
+        db.query(NetworkDiagnostic).filter(
+            NetworkDiagnostic.asset_id == asset.id,
+            NetworkDiagnostic.test_type.in_(["ssh", "telnet", "rdp", "vnc"]),
+            or_(
+                NetworkDiagnostic.test_type != proto,
+                NetworkDiagnostic.target_port != port_val
+            )
+        ).delete(synchronize_session=False)
 
     if payload.status is not None:
         new_status = payload.status.lower()
-        hostid = asset.zabbix.hostid if (asset.zabbix and asset.zabbix.hostid) else asset.external_id
-        if new_status != asset.status and payload.sync_zabbix and hostid:
-            cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "zabbix").first()
-            if cfg and cfg.url:
-                try:
-                    status_code = 0 if new_status == "monitored" else 1
-                    await ZabbixService.update_host_status(
-                        cfg.url,
-                        hostid,
-                        status_code,
-                        token=cfg.token,
-                        username=cfg.username,
-                        password=cfg.password
-                    )
-                except Exception as exc:
-                    logger.warning(f"Erro ao sincronizar status com Zabbix: {exc}")
         asset.status = new_status
         if asset.zabbix:
             asset.zabbix.status = new_status
+        if new_status == "unmonitored":
+            db.query(NetworkDiagnostic).filter(
+                NetworkDiagnostic.asset_id == asset.id
+            ).delete(synchronize_session=False)
 
     if payload.enabled_tests is not None:
         raw = dict(asset.raw_data or {})
@@ -770,22 +653,14 @@ async def update_asset(
         raw = dict(asset.raw_data or {})
         raw["ignore_guacamole"] = payload.ignore_guacamole
         asset.raw_data = raw
-        if payload.ignore_guacamole is True:
-            await remove_asset_guacamole_connections(asset, db)
+        if payload.ignore_guacamole:
+            db.query(NetworkDiagnostic).filter(
+                NetworkDiagnostic.asset_id == asset.id,
+                NetworkDiagnostic.test_type.in_(["ssh", "telnet", "rdp", "vnc"])
+            ).delete(synchronize_session=False)
 
     db.commit()
     db.refresh(asset)
-
-    # Notificação automática ao Oxidized caso parâmetros do nó ou credenciais tenham sido alterados
-    needs_ox_reload = False
-    if payload.backup_enabled is not None and old_backup_enabled != payload.backup_enabled:
-        needs_ox_reload = True
-    elif (asset.backup_enabled or old_backup_enabled):
-        if has_remote_updates or any(x is not None for x in [payload.backup_model, payload.backup_timeout, payload.ip_address, payload.name, payload.client_group]):
-            needs_ox_reload = True
-
-    if needs_ox_reload:
-        await notify_oxidized_reload_if_active(db, f"atualização no ativo {asset.id} ({asset.name})")
 
     return asset
 
@@ -803,16 +678,8 @@ async def delete_asset(
     if not asset:
         raise HTTPException(status_code=404, detail="Ativo não encontrado.")
 
-    was_backup_enabled = bool(asset.backup_enabled)
-    # Remove conexões no Apache Guacamole antes de excluir o ativo
-    await remove_asset_guacamole_connections(asset, db)
-
     db.delete(asset)
     db.commit()
-
-    # Se o equipamento fazia backup no Oxidized, notifica o Oxidized para recarregar e remover o nó da memória
-    if was_backup_enabled:
-        await notify_oxidized_reload_if_active(db, f"exclusão do ativo {asset_id}")
 
     return None
 
@@ -1184,9 +1051,6 @@ async def sync_asset_to_guacamole(
         db.commit()
         db.refresh(asset)
 
-        if asset.backup_enabled:
-            await notify_oxidized_reload_if_active(db, f"sincronização de acesso remoto no ativo {asset.id} ({asset.name})")
-
         return {
             "success": True,
             "message": result.get("message", "Sincronizado com Guacamole com sucesso."),
@@ -1223,6 +1087,77 @@ async def remove_asset_from_guacamole(
     }
 
 
+@router.post("/{asset_id}/sync-oxidized")
+async def sync_asset_to_oxidized(
+    asset_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Sincroniza os parâmetros deste ativo com o Oxidized e aciona o recarregamento dos nós (/reload).
+    """
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+
+    cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "oxidized").first()
+    if not cfg or not cfg.url:
+        raise HTTPException(status_code=400, detail="Oxidized não configurado nas integrações.")
+
+    node_name = asset.hostname or asset.name
+    model = (asset.backup_model or "RouterOS").strip()
+    c_group = asset.client_group or "default"
+    timeout_val = asset.backup_timeout or 30
+
+    if not asset.oxidized:
+        asset.oxidized = AssetOxidized(
+            asset_id=asset.id,
+            node_name=node_name,
+            model=model,
+            group=c_group,
+            timeout=timeout_val,
+            status="never",
+            last_sync=func.now()
+        )
+        db.add(asset.oxidized)
+    else:
+        asset.oxidized.node_name = node_name
+        asset.oxidized.model = model
+        asset.oxidized.group = c_group
+        asset.oxidized.timeout = timeout_val
+        asset.oxidized.last_sync = func.now()
+
+    db.commit()
+    db.refresh(asset)
+
+    reload_success = False
+    reload_err = None
+    try:
+        await OxidizedService.reload_nodes(cfg.url, cfg.username, cfg.password)
+        reload_success = True
+    except Exception as exc:
+        reload_err = str(exc)
+        logger.warning(f"Aviso ao recarregar nós no Oxidized para o ativo {asset.id}: {exc}")
+
+    if not reload_success and reload_err:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Parâmetros atualizados no IperSoft, mas falha ao recarregar daemon do Oxidized: {reload_err}"
+        )
+
+    return {
+        "success": True,
+        "message": f"Ativo '{asset.name}' sincronizado com o Oxidized com sucesso!",
+        "oxidized": {
+            "node_name": asset.oxidized.node_name,
+            "model": asset.oxidized.model,
+            "group": asset.oxidized.group,
+            "timeout": asset.oxidized.timeout,
+            "last_sync": asset.oxidized.last_sync
+        }
+    }
+
+
 @router.post("/{asset_id}/sync-all")
 async def sync_asset_to_all(
     asset_id: int,
@@ -1230,7 +1165,7 @@ async def sync_asset_to_all(
     db: Session = Depends(get_db)
 ):
     """
-    Sincroniza o ativo simultaneamente com o Zabbix e com o Guacamole (se não for ignorado).
+    Sincroniza o ativo com o Zabbix, Guacamole e Oxidized.
     """
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
@@ -1251,22 +1186,25 @@ async def sync_asset_to_all(
     is_guac_ignored = bool((asset.raw_data or {}).get("ignore_guacamole", False))
     if not is_guac_ignored:
         try:
-            guac_res = await sync_asset_to_guacamole(asset_id, current_user, db)
+            guac_res = await sync_asset_to_guacamole(asset_id, None, current_user, db)
             results["guacamole"] = guac_res
         except Exception as e:
             detail = getattr(e, "detail", str(e))
             errors.append(f"Guacamole: {detail}")
     else:
-        # Se está desativado no Guacamole, garante remoção de conexões residuais no Guacamole Server
-        deleted_guac = await remove_asset_guacamole_connections(asset, db)
         results["guacamole"] = {
             "skipped": True,
-            "deleted_connections": deleted_guac,
-            "message": "Equipamento desativado no Guacamole. Conexão removida/verificada no Apache Guacamole."
+            "message": "Equipamento desativado no Guacamole."
         }
 
-    if errors and len(errors) == (1 if is_guac_ignored else 2):
-        raise HTTPException(status_code=400, detail="; ".join(errors))
+    # Oxidized Sync (se backup_enabled estiver ativo)
+    if asset.backup_enabled:
+        try:
+            ox_res = await sync_asset_to_oxidized(asset_id, current_user, db)
+            results["oxidized"] = ox_res
+        except Exception as e:
+            detail = getattr(e, "detail", str(e))
+            errors.append(f"Oxidized: {detail}")
 
     message = "Sincronização concluída com sucesso!"
     if errors:
@@ -1671,4 +1609,45 @@ async def get_asset_oxidized_details(
         return details
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Erro ao consultar Oxidized: {exc}")
+
+
+@router.get("/{asset_id}/logs")
+async def get_asset_logs(
+    asset_id: int,
+    time_range: str = Query("24h", description="15m, 1h, 6h, 12h, 24h, 2d, 7d"),
+    limit: int = Query(100, ge=1, le=500),
+    search: Optional[str] = Query(None, description="Busca textual na mensagem de log"),
+    level: Optional[str] = Query(None, description="crit, warn, info"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Consulta os logs de Syslog do equipamento no VictoriaLogs utilizando o IP e/ou Hostname.
+    """
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+
+    cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "victorialogs").first()
+    url = cfg.url if cfg and cfg.url else "http://10.10.1.2:9428"
+
+    logs = await VictoriaLogsService.query_logs(
+        url=url,
+        ip=asset.ip_address,
+        hostname=asset.hostname or asset.name,
+        search=search,
+        time_range=time_range,
+        limit=limit,
+        level=level
+    )
+
+    return {
+        "asset_id": asset.id,
+        "asset_name": asset.name,
+        "asset_ip": asset.ip_address,
+        "time_range": time_range,
+        "total": len(logs),
+        "logs": logs
+    }
+
 

@@ -159,77 +159,118 @@ async def preview_zabbix_hosts(
         )
 
 
-@router.post("/sync")
-async def sync_zabbix_hosts(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas administradores podem iniciar a sincronização de ativos."
-        )
-
+async def sync_zabbix_hosts_with_db(db: Session) -> dict:
+    """
+    Importa e vincula hosts do Zabbix Server para o banco de dados do IperSoft.
+    Pode ser invocada tanto manualmente via endpoint REST quanto pelo agendador horário (1h).
+    """
     cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "zabbix").first()
-    if not cfg:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Zabbix não configurado."
-        )
+    if not cfg or not cfg.url:
+        raise ValueError("Zabbix não configurado.")
 
-    try:
-        hosts = await ZabbixService.fetch_hosts(
-            cfg.url,
-            token=cfg.token,
-            username=cfg.username,
-            password=cfg.password
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Falha ao buscar hosts no Zabbix: {exc}"
-        )
+    hosts = await ZabbixService.fetch_hosts(
+        cfg.url,
+        token=cfg.token,
+        username=cfg.username,
+        password=cfg.password
+    )
 
+    all_assets = db.query(Asset).all()
     created_count = 0
     updated_count = 0
 
     for h in hosts:
-        # Busca ativo existente por external_id ou hostname
-        existing = db.query(Asset).filter(
-            (Asset.source == "zabbix") & 
-            ((Asset.external_id == h["external_id"]) | (Asset.hostname == h["hostname"]))
-        ).first()
+        h_ext_id = str(h.get("external_id") or h.get("hostid") or "").strip()
+        h_hostname = (h.get("hostname") or "").strip()
+        h_name = (h.get("name") or "").strip()
+        h_ip = (h.get("ip_address") or "").strip()
+        h_groups = h.get("host_groups") or []
+        first_group = h_groups[0] if len(h_groups) > 0 else None
+
+        existing = None
+
+        # 1. Prioridade: Match por hostid (external_id ou AssetZabbix.hostid)
+        if h_ext_id:
+            for a in all_assets:
+                z_hid = str(a.zabbix.hostid).strip() if (a.zabbix and a.zabbix.hostid) else ""
+                a_ext = str(a.external_id or "").strip()
+                if z_hid == h_ext_id or a_ext == h_ext_id:
+                    existing = a
+                    break
+
+        # 2. Match exato por hostname ou name (case-insensitive)
+        if not existing:
+            for a in all_assets:
+                a_host = (a.hostname or "").strip().lower()
+                a_name = (a.name or "").strip().lower()
+                if (h_hostname and h_hostname.lower() in (a_host, a_name)) or \
+                   (h_name and h_name.lower() in (a_host, a_name)):
+                    existing = a
+                    break
+
+        # 3. Match por endereço IP (caso ainda não tenha outro hostid diferente vinculado)
+        if not existing and h_ip and h_ip not in ("-", "127.0.0.1", "0.0.0.0", "localhost"):
+            ip_candidates = [
+                a for a in all_assets
+                if (a.ip_address or "").strip() == h_ip
+                and not (a.zabbix and a.zabbix.hostid and str(a.zabbix.hostid).strip() != h_ext_id)
+            ]
+            if len(ip_candidates) == 1:
+                existing = ip_candidates[0]
 
         if existing:
-            existing.name = h["name"]
-            existing.hostname = h["hostname"]
-            existing.ip_address = h["ip_address"]
-            existing.dns = h["dns"]
-            existing.port = h["port"]
-            existing.snmp_community = h["snmp_community"]
-            existing.host_groups = h["host_groups"]
-            existing.templates = h["templates"]
+            if not existing.name and h_name:
+                existing.name = h_name
+            if not existing.hostname and h_hostname:
+                existing.hostname = h_hostname
+            if h_ip and (not existing.ip_address or existing.ip_address == "-"):
+                existing.ip_address = h_ip
+            if h.get("dns") and not existing.dns:
+                existing.dns = h["dns"]
+            if h.get("port"):
+                existing.port = h["port"]
+            if h.get("snmp_community"):
+                existing.snmp_community = h["snmp_community"]
+            if h_groups:
+                existing.host_groups = h_groups
+                if not existing.client_group and first_group:
+                    existing.client_group = first_group
+            if h.get("templates"):
+                existing.templates = h["templates"]
             existing.status = h["status"]
-            existing.raw_data = h["raw_data"]
+            existing.external_id = h_ext_id
+            if existing.source == "guacamole":
+                existing.source = "unified"
+
+            # Preserva metadados locais do IperSoft (ex: ignore_guacamole, enabled_tests) dentro de raw_data
+            merged_raw = dict(h.get("raw_data") or {})
+            old_raw = dict(existing.raw_data or {})
+            for preserved_key in ("ignore_guacamole", "enabled_tests"):
+                if preserved_key in old_raw:
+                    merged_raw[preserved_key] = old_raw[preserved_key]
+            existing.raw_data = merged_raw
+
             updated_count += 1
             target_asset = existing
         else:
             new_asset = Asset(
-                name=h["name"],
-                hostname=h["hostname"],
-                ip_address=h["ip_address"],
-                dns=h["dns"],
-                port=h["port"],
-                snmp_community=h["snmp_community"],
-                host_groups=h["host_groups"],
-                templates=h["templates"],
+                name=h_name or h_hostname,
+                hostname=h_hostname or h_name,
+                ip_address=h_ip or None,
+                dns=h.get("dns"),
+                port=h.get("port"),
+                snmp_community=h.get("snmp_community"),
+                client_group=first_group,
+                host_groups=h_groups,
+                templates=h.get("templates") or [],
                 status=h["status"],
                 source="zabbix",
-                external_id=h["external_id"],
-                raw_data=h["raw_data"]
+                external_id=h_ext_id,
+                raw_data=h.get("raw_data") or {}
             )
             db.add(new_asset)
             db.flush()
+            all_assets.append(new_asset)
             created_count += 1
             target_asset = new_asset
 
@@ -238,21 +279,21 @@ async def sync_zabbix_hosts(
         if not zbx_entry:
             zbx_entry = AssetZabbix(
                 asset_id=target_asset.id,
-                hostid=h["external_id"],
-                port=h["port"],
-                snmp_community=h["snmp_community"],
-                host_groups=h["host_groups"],
-                templates=h["templates"],
+                hostid=h_ext_id,
+                port=h.get("port"),
+                snmp_community=h.get("snmp_community"),
+                host_groups=h_groups,
+                templates=h.get("templates") or [],
                 status=h["status"],
                 last_sync=func.now()
             )
             db.add(zbx_entry)
         else:
-            zbx_entry.hostid = h["external_id"]
-            zbx_entry.port = h["port"]
-            zbx_entry.snmp_community = h["snmp_community"]
-            zbx_entry.host_groups = h["host_groups"]
-            zbx_entry.templates = h["templates"]
+            zbx_entry.hostid = h_ext_id
+            zbx_entry.port = h.get("port")
+            zbx_entry.snmp_community = h.get("snmp_community")
+            zbx_entry.host_groups = h_groups
+            zbx_entry.templates = h.get("templates") or []
             zbx_entry.status = h["status"]
             zbx_entry.last_sync = func.now()
 
@@ -264,8 +305,33 @@ async def sync_zabbix_hosts(
         "total_zabbix": len(hosts),
         "created": created_count,
         "updated": updated_count,
-        "message": f"Sincronização concluída: {created_count} novo(s), {updated_count} atualizado(s)."
+        "message": f"Sincronização Zabbix concluída: {created_count} novo(s) importado(s), {updated_count} vinculado(s)/atualizado(s)."
     }
+
+
+@router.post("/sync")
+async def sync_zabbix_hosts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas administradores podem iniciar a sincronização de ativos."
+        )
+
+    try:
+        return await sync_zabbix_hosts_with_db(db)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc)
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Falha ao sincronizar hosts do Zabbix: {exc}"
+        )
 
 
 class ZabbixAcknowledgeRequest(BaseModel):

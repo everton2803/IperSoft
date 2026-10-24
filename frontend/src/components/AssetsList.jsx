@@ -370,8 +370,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
     };
     const integName = integNames[integration] || integration;
 
-    const confirmMsg = `Deseja realmente ${actionLabel.toLowerCase()} a integração ${integName} para os ${count} equipamentos selecionados?` +
-      (integration === 'oxidized' && !enable ? ' O backup será desativado e os nós serão expurgados da memória do Oxidized imediatamente.' : '');
+    const confirmMsg = `Deseja realmente ${actionLabel.toLowerCase()} a integração ${integName} no IperSoft para os ${count} equipamentos selecionados?`;
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -388,10 +387,10 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
       await authService.bulkUpdateIntegrations(payload);
       setFeedbackMsg({
         type: 'success',
-        text: `${count} equipamentos atualizados: ${integName} ${enable ? 'ativado' : 'desativado'} com sucesso!`
+        text: `${count} equipamentos atualizados no IperSoft: ${integName} ${enable ? 'ativado' : 'desativado'} com sucesso!`
       });
       setSelectedAssetIds([]);
-      await loadAssets();
+      await loadData();
     } catch (err) {
       setFeedbackMsg({
         type: 'error',
@@ -418,8 +417,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
     backup_model: 'RouterOS',
     backup_enabled: true,
     backup_timeout: 30,
-    status: 'monitored',
-    sync_zabbix: true
+    status: 'monitored'
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -584,12 +582,12 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
     const nextStatus = currentStatus === 'monitored' ? 'unmonitored' : 'monitored';
     const actionLabel = nextStatus === 'unmonitored' ? 'desativar' : 'reativar';
     
-    if (!window.confirm(`Deseja ${actionLabel} o monitoramento do ativo "${asset.name}" no IperSoft e no Zabbix Server?`)) {
+    if (!window.confirm(`Deseja ${actionLabel} o monitoramento do ativo "${asset.name}" no IperSoft?`)) {
       return;
     }
 
     try {
-      const res = await authService.toggleAssetStatus(asset.id, nextStatus, true);
+      const res = await authService.toggleAssetStatus(asset.id, nextStatus);
       setFeedbackMsg({ type: 'success', text: res.message });
       loadData();
     } catch (err) {
@@ -615,9 +613,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
       backup_model: asset.backup_model || (asset.oxidized ? asset.oxidized.model : 'RouterOS'),
       backup_enabled: asset.backup_enabled !== false,
       backup_timeout: asset.backup_timeout || 30,
-      status: (asset.zabbix && asset.zabbix.status) || asset.status || 'monitored',
-      sync_zabbix: true,
-      sync_guacamole: true
+      status: (asset.zabbix && asset.zabbix.status) || asset.status || 'monitored'
     });
   };
 
@@ -628,7 +624,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
     setIsSaving(true);
     try {
       await authService.updateAsset(editingAsset.id, editForm);
-      setFeedbackMsg({ type: 'success', text: `Ativo "${editForm.name}" atualizado com sucesso.` });
+      setFeedbackMsg({ type: 'success', text: `Ativo "${editForm.name}" salvo no IperSoft. Para sincronizar com Zabbix, Guacamole ou Oxidized, utilize as sincronizações individuais.` });
       setEditingAsset(null);
       loadData();
     } catch (err) {
@@ -747,8 +743,8 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
         </div>
       </div>
 
-      {/* VIEW MODE SELECTOR (Unified / Zabbix / Guacamole) */}
-      <div className="view-mode-bar">
+      {/* UNIFIED TOOLBAR: VIEW MODE TABS + SEARCH + GROUP + STATUS */}
+      <div className="assets-filters-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
         <div className="view-mode-tabs">
           <button
             type="button"
@@ -756,7 +752,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
             onClick={() => setViewMode('unified')}
           >
             <Layers size={15} />
-            <span>Visão Unificada</span>
+            <span>Unificada</span>
             <span className="tab-count">{stats.total}</span>
           </button>
 
@@ -766,7 +762,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
             onClick={() => setViewMode('zabbix')}
           >
             <Server size={15} />
-            <span>Monitoramento Zabbix</span>
+            <span>Zabbix</span>
             <span className="tab-count">{stats.with_zabbix}</span>
           </button>
 
@@ -776,147 +772,63 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
             onClick={() => setViewMode('guacamole')}
           >
             <Terminal size={15} />
-            <span>Acesso Remoto Guacamole</span>
+            <span>Guacamole</span>
             <span className="tab-count">{stats.with_guacamole}</span>
           </button>
-        </div>
 
-        {/* Presence Quick Filter Chips */}
-        <div className="presence-filter-bar">
           <button
             type="button"
-            className={`presence-filter-chip ${presenceFilter === 'all' && !showOnlyDuplicates ? 'active' : ''}`}
-            onClick={() => {
-              setShowOnlyDuplicates(false);
-              setPresenceFilter('all');
-            }}
+            className={`view-mode-tab ${viewMode === 'oxidized' ? 'active' : ''}`}
+            onClick={() => setViewMode('oxidized')}
           >
-            Todos ({stats.total})
-          </button>
-          <button
-            type="button"
-            className={`presence-filter-chip ${presenceFilter === 'both' ? 'active' : ''}`}
-            onClick={() => {
-              setShowOnlyDuplicates(false);
-              setPresenceFilter('both');
-            }}
-            title="Presente em ambos os sistemas"
-          >
-            <Check size={12} color="var(--color-success)" />
-            Ambos ({stats.with_both})
-          </button>
-          <button
-            type="button"
-            className={`presence-filter-chip ${presenceFilter === 'missing_guacamole' ? 'active' : ''}`}
-            onClick={() => {
-              setShowOnlyDuplicates(false);
-              setPresenceFilter('missing_guacamole');
-            }}
-            title="Falta cadastrar terminal no Guacamole"
-          >
-            <AlertTriangle size={12} color="var(--color-primary)" />
-            Sem Guacamole ({stats.missing_guacamole})
-          </button>
-          <button
-            type="button"
-            className={`presence-filter-chip ${presenceFilter === 'missing_zabbix' ? 'active' : ''}`}
-            onClick={() => {
-              setShowOnlyDuplicates(false);
-              setPresenceFilter('missing_zabbix');
-            }}
-            title="Falta monitorar no Zabbix"
-          >
-            <AlertTriangle size={12} color="var(--text-muted)" />
-            Sem Zabbix ({stats.missing_zabbix})
-          </button>
-          <button
-            type="button"
-            className={`presence-filter-chip duplicate-filter-chip ${showOnlyDuplicates ? 'active' : ''}`}
-            onClick={handleToggleDuplicatesFilter}
-            title={showOnlyDuplicates ? "Clique para exibir todos os equipamentos" : "Clique para filtrar equipamentos com IP duplicado e agrupá-los por IP"}
-          >
-            <Copy size={12} color="#f59e0b" />
-            IPs Duplicados ({duplicateAssetsCount})
-          </button>
-        </div>
-      </div>
-
-      {/* Filter toolbar: Search + Group Dropdown + Status Toggle */}
-      <div className="assets-filters-bar">
-        {/* Status Mode Tabs */}
-        <div className="status-filter-tabs">
-          <button
-            type="button"
-            className={`status-filter-tab ${statusFilter === 'monitored' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('monitored')}
-          >
-            <span className="dot-online" style={{ marginRight: 5 }}></span>
-            <span>Ativos ({stats.monitored})</span>
-          </button>
-          <button
-            type="button"
-            className={`status-filter-tab ${statusFilter === 'unmonitored' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('unmonitored')}
-          >
-            <span>Inativos ({stats.unmonitored})</span>
-          </button>
-          <button
-            type="button"
-            className={`status-filter-tab ${statusFilter === 'all' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('all')}
-          >
-            <span>Todos Status</span>
+            <HardDrive size={15} />
+            <span>Oxidized</span>
           </button>
         </div>
 
-        {/* Search */}
-        <form onSubmit={handleSearchSubmit} className="search-box-form">
-          <div className="input-wrapper search-wrapper">
-            <Search size={15} className="input-icon" />
-            <input
-              type="text"
-              className="form-input search-input"
-              placeholder="Buscar por nome, host, IP ou community..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center', flex: '1', justifyContent: 'flex-end' }}>
+          {/* Search */}
+          <form onSubmit={handleSearchSubmit} className="search-box-form" style={{ minWidth: '250px', flex: '1', maxWidth: '360px' }}>
+            <div className="input-wrapper search-wrapper">
+              <Search size={15} className="input-icon" />
+              <input
+                type="text"
+                className="form-input search-input"
+                placeholder="Buscar por nome, host, IP ou community..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </form>
+
+          {/* Group select */}
+          <div className="group-filter-box">
+            <Filter size={14} className="filter-icon" />
+            <select
+              className="form-input group-select"
+              value={selectedGroup}
+              onChange={(e) => setSelectedGroup(e.target.value)}
+            >
+              <option value="">Todos os Grupos ({stats.groups_count})</option>
+              {(stats.groups_list || []).map((g, idx) => (
+                <option key={idx} value={g}>{g}</option>
+              ))}
+            </select>
           </div>
-        </form>
 
-        {/* Group select */}
-        <div className="group-filter-box">
-          <Filter size={14} className="filter-icon" />
-          <select
-            className="form-input group-select"
-            value={selectedGroup}
-            onChange={(e) => setSelectedGroup(e.target.value)}
-          >
-            <option value="">Todos os Grupos ({stats.groups_count})</option>
-            {(stats.groups_list || []).map((g, idx) => (
-              <option key={idx} value={g}>{g}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Quick Sort Controls */}
-        <div className="quick-sort-group">
-          <button
-            type="button"
-            className={`sort-action-btn ${sortField === 'ip' ? 'active' : ''}`}
-            onClick={() => handleSort('ip')}
-            title="Ordenar a lista por endereço IP"
-          >
-            <ArrowUpDown size={13} />
-            <span>IP {sortField === 'ip' ? (sortDirection === 'asc' ? '↑ (0-9)' : '↓ (9-0)') : ''}</span>
-          </button>
-          <button
-            type="button"
-            className={`sort-action-btn ${sortField === 'name' ? 'active' : ''}`}
-            onClick={() => handleSort('name')}
-            title="Ordenar a lista por Nome alfabético"
-          >
-            <span>Nome {sortField === 'name' ? (sortDirection === 'asc' ? 'A-Z' : 'Z-A') : ''}</span>
-          </button>
+          {/* Status select */}
+          <div className="group-filter-box">
+            <select
+              className="form-input group-select"
+              style={{ paddingLeft: '0.75rem' }}
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">Todos os Status ({stats.total})</option>
+              <option value="monitored">Ativos / Monitorados ({stats.monitored})</option>
+              <option value="unmonitored">Inativos / Desativados ({stats.unmonitored})</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -1239,6 +1151,19 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                         {/* AÇÕES */}
                         <td style={{ textAlign: 'right' }}>
                           <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                            {hasGuac && getGuacamoleLaunchUrl(asset) && (
+                              <a
+                                href={getGuacamoleLaunchUrl(asset)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="guac-action-icon"
+                                title="Abrir terminal remoto Guacamole em nova aba"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Terminal size={13} />
+                              </a>
+                            )}
+
                             <button
                               type="button"
                               className="btn-open-detail"
@@ -1246,7 +1171,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                               title="Abrir tela de detalhes e sincronização do equipamento"
                             >
                               <Edit2 size={13} />
-                              <span>Ver Detalhes</span>
+                              <span>Detalhes</span>
                             </button>
 
                             <button
@@ -1409,7 +1334,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                             type="button"
                             className={`status-toggle-btn ${zbxStatus === 'monitored' ? 'is-active' : 'is-inactive'}`}
                             onClick={() => handleToggleStatus(asset)}
-                            title={zbxStatus === 'monitored' ? 'Clique para desativar no Zabbix' : 'Clique para reativar no Zabbix'}
+                            title={zbxStatus === 'monitored' ? 'Clique para desativar no IperSoft' : 'Clique para reativar no IperSoft'}
                           >
                             <span className="toggle-dot"></span>
                             <span>{zbxStatus === 'monitored' ? 'Ativo' : 'Desativado'}</span>
@@ -1426,11 +1351,12 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                             <Activity size={13} className={retestingId === asset.id ? 'spin-icon' : ''} color="var(--color-primary)" />
                           </button>
                           <button
-                            className="btn-delete-user"
-                            onClick={() => handleOpenEdit(asset)}
-                            title="Editar parâmetros Zabbix"
+                            className="btn-open-detail"
+                            onClick={() => onSelectAsset && onSelectAsset(asset.id)}
+                            title="Abrir detalhes e parâmetros Zabbix"
                           >
-                            <Edit2 size={14} />
+                            <Edit2 size={13} />
+                            <span>Detalhes</span>
                           </button>
                         </td>
                       </tr>
@@ -1609,25 +1535,132 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                             >
                               <Activity size={13} className={retestingId === asset.id ? 'spin-icon' : ''} color="var(--color-primary)" />
                             </button>
-                            {hasGuac && guacUrl && (
-                              <a
-                                href={guacUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="guac-action-icon"
-                                title="Abrir terminal Guacamole em nova aba"
-                              >
-                                <Terminal size={13} />
-                              </a>
-                            )}
                             <button
-                              className="btn-delete-user"
-                              onClick={() => handleOpenEdit(asset)}
-                              title="Editar ativo"
+                              className="btn-open-detail"
+                              onClick={() => onSelectAsset && onSelectAsset(asset.id)}
+                              title="Abrir detalhes e credenciais do ativo"
                             >
-                              <Edit2 size={14} />
+                              <Edit2 size={13} />
+                              <span>Detalhes</span>
                             </button>
                           </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </>
+            )}
+
+            {/* 4. ABA OXIDIZED (BACKUP DE CONFIGURAÇÕES) */}
+            {viewMode === 'oxidized' && (
+              <>
+                <thead>
+                  <tr>
+                    <th className="checkbox-cell">
+                      <input 
+                        type="checkbox" 
+                        className="asset-checkbox"
+                        checked={displayedAssets.length > 0 && displayedAssets.every(a => selectedAssetIds.includes(a.id))}
+                        onChange={handleSelectAllDisplayed}
+                        title="Selecionar / Desmarcar todos os exibidos"
+                      />
+                    </th>
+                    {renderSortHeader('Equipamento', 'name')}
+                    {renderSortHeader('IP Destino', 'ip')}
+                    <th>Modelo de SO</th>
+                    <th>Grupo / Cliente</th>
+                    <th>Timeout (s)</th>
+                    <th>Status do Último Backup</th>
+                    <th>Última Coleta</th>
+                    <th style={{ textAlign: 'right' }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedAssets.map((asset) => {
+                    const ox = asset.oxidized;
+                    const oxStatus = ox?.status;
+                    const cleanIp = asset.ip_address?.trim();
+                    const isDup = cleanIp && cleanIp !== '-' && duplicateIpMap[cleanIp] > 1;
+
+                    return (
+                      <tr 
+                        key={asset.id} 
+                        className={`clickable-asset-row ${isDup ? 'row-duplicate-ip' : ''} ${selectedAssetIds.includes(asset.id) ? 'row-selected' : ''}`}
+                        onClick={(e) => {
+                          if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) return;
+                          if (onSelectAsset) onSelectAsset(asset.id);
+                        }}
+                      >
+                        <td className="checkbox-cell" onClick={(e) => e.stopPropagation()}>
+                          <input 
+                            type="checkbox" 
+                            className="asset-checkbox"
+                            checked={selectedAssetIds.includes(asset.id)}
+                            onChange={() => handleToggleSelect(asset.id)}
+                          />
+                        </td>
+                        <td>
+                          <div className="asset-name-cell">
+                            <span className="asset-visible-name">{asset.name}</span>
+                            <span className="asset-hostname">{asset.hostname}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                            <code style={{ fontSize: '0.82rem', fontWeight: 600 }}>{asset.ip_address || '-'}</code>
+                            {isDup && (
+                              <span 
+                                className="duplicate-ip-tag" 
+                                title={`Endereço IP compartilhado por ${duplicateIpMap[cleanIp]} equipamentos`}
+                              >
+                                <Copy size={10} /> Duplicado ({duplicateIpMap[cleanIp]}x)
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <span className="mini-badge" style={{ textTransform: 'uppercase', color: '#a855f7' }}>
+                            {ox?.model || asset.backup_model || 'RouterOS'}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="group-pill-badge">{ox?.group || asset.client_group || 'default'}</span>
+                        </td>
+                        <td>
+                          <span className="port-tag">{asset.backup_timeout || 30}s</span>
+                        </td>
+                        <td>
+                          {asset.backup_enabled === false ? (
+                            <span className="status-pill-none">Backup Desabilitado</span>
+                          ) : oxStatus === 'success' ? (
+                            <span className="status-pill-ok">
+                              <CheckCircle2 size={11} /> Sucesso {ox?.backup_time_taken ? `(${ox.backup_time_taken.toFixed(1)}s)` : ''}
+                            </span>
+                          ) : oxStatus === 'fail' || oxStatus === 'no_connection' ? (
+                            <span className="status-pill-fail">
+                              <XCircle size={11} /> Falha ({oxStatus})
+                            </span>
+                          ) : (
+                            <span className="status-pill-timeout">
+                              <Clock size={11} /> Aguardando / Pendente
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                            {ox?.last_backup ? new Date(ox.last_backup).toLocaleString('pt-BR') : '-'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            className="btn-open-detail"
+                            onClick={() => onSelectAsset && onSelectAsset(asset.id)}
+                            title="Abrir detalhes e backup do ativo"
+                          >
+                            <FileCode size={13} />
+                            <span>Ver Backup / Detalhes</span>
+                          </button>
                         </td>
                       </tr>
                     );
@@ -1638,311 +1671,6 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
           </table>
         )}
       </div>
-
-      {/* ========================================================================= */}
-      {/* EDIT ASSET MODAL COM SEÇÕES MODULARES */}
-      {/* ========================================================================= */}
-      {editingAsset && (
-        <div className="modal-overlay" onClick={() => setEditingAsset(null)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
-            <div className="modal-header">
-              <div className="modal-title-box">
-                <Edit2 size={17} className="modal-title-icon" />
-                <h2 className="modal-title">Editar Ativo de Rede</h2>
-              </div>
-              <button className="btn-close-modal" onClick={() => setEditingAsset(null)}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEdit} className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-              {/* SEÇÃO 1: IDENTIFICAÇÃO CANÔNICA */}
-              <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  1. Identificação Geral do Equipamento
-                </span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
-                  <div className="form-group">
-                    <label className="form-label">Nome Visível</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={editForm.name}
-                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                      required
-                    />
-                  </div>
-
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label className="form-label">Hostname / Host Técnico</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editForm.hostname}
-                        onChange={(e) => setEditForm({ ...editForm, hostname: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Endereço IP Principal</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editForm.ip_address}
-                        onChange={(e) => setEditForm({ ...editForm, ip_address: e.target.value })}
-                        placeholder="192.168.1.1"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Empresa / Grupo do Cliente (Host Group & Pasta Guacamole)</label>
-                    <input
-                      type="text"
-                      list="modal-client-groups-list"
-                      className="form-input"
-                      value={editForm.client_group}
-                      onChange={(e) => setEditForm({ ...editForm, client_group: e.target.value })}
-                      placeholder="Ex: athila, atm, diretrix..."
-                    />
-                    <datalist id="modal-client-groups-list">
-                      {(stats.groups_list || []).map((grp) => (
-                        <option key={grp} value={grp} />
-                      ))}
-                    </datalist>
-                    <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '3px' }}>
-                      Define o grupo correspondente no Zabbix e a pasta organizacional no Guacamole.
-                    </small>
-                  </div>
-
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label className="form-label">Modelo de SO (Oxidized)</label>
-                      <select
-                        className="form-input"
-                        value={(() => {
-                          const m = (editForm.backup_model || '').toLowerCase();
-                          if (m === 'dmos' || m === 'datacom') return 'datacom';
-                          if (m === 'routeros') return 'RouterOS';
-                          return editForm.backup_model || 'RouterOS';
-                        })()}
-                        onChange={(e) => setEditForm({ ...editForm, backup_model: e.target.value })}
-                      >
-                        <option value="RouterOS">MikroTik (RouterOS)</option>
-                        <option value="ios">Cisco (IOS / IOS-XE)</option>
-                        <option value="datacom">Datacom (DmOS)</option>
-                        <option value="vrp">Huawei (VRP)</option>
-                        <option value="fortios">Fortinet (FortiOS)</option>
-                        <option value="edgecos">EdgeCore / EdgeOS</option>
-                        <option value="junos">Juniper (JunOS)</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label" title="Tempo limite em segundos para o Oxidized efetuar a leitura completa das configurações">
-                        Timeout Oxidized (s)
-                      </label>
-                      <input
-                        type="number"
-                        min="5"
-                        max="600"
-                        step="5"
-                        placeholder="30"
-                        className="form-input"
-                        value={editForm.backup_timeout !== undefined ? editForm.backup_timeout : 30}
-                        onChange={(e) => setEditForm({ ...editForm, backup_timeout: e.target.value ? parseInt(e.target.value, 10) : '' })}
-                        title="Tempo limite em segundos (padrão 30s). Aumente para equipamentos com configurações extensas."
-                      />
-                    </div>
-                    <div className="form-group" style={{ display: 'flex', alignItems: 'center', marginTop: '1.25rem' }}>
-                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={editForm.backup_enabled !== false}
-                          onChange={(e) => setEditForm({ ...editForm, backup_enabled: e.target.checked })}
-                        />
-                        <span>Habilitar backup no Oxidized</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* SEÇÃO 2: DADOS DE MONITORAMENTO (ZABBIX) */}
-              <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-success)', textTransform: 'uppercase' }}>
-                  2. Parâmetros Zabbix Server
-                </span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label className="form-label">SNMP Community</label>
-                        <button
-                          type="button"
-                          onClick={() => setEditForm({ ...editForm, snmp_community: 'ipermonitor' })}
-                          style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: '0.7rem', cursor: 'pointer' }}
-                        >
-                          Usar 'ipermonitor'
-                        </button>
-                      </div>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editForm.snmp_community}
-                        onChange={(e) => setEditForm({ ...editForm, snmp_community: e.target.value })}
-                        placeholder="ipermonitor"
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label className="form-label">Porta do Agente / SNMP</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editForm.port}
-                        onChange={(e) => setEditForm({ ...editForm, port: e.target.value })}
-                        placeholder="161 ou 10050"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label className="form-label">Status no Zabbix</label>
-                      <select
-                        className="form-input"
-                        value={editForm.status}
-                        onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-                      >
-                        <option value="monitored">Em Monitoramento (Ativo)</option>
-                        <option value="unmonitored">Desativado (Inativo)</option>
-                      </select>
-                    </div>
-
-                    <div className="form-group" style={{ display: 'flex', alignItems: 'center', marginTop: '1.25rem' }}>
-                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={editForm.sync_zabbix}
-                          onChange={(e) => setEditForm({ ...editForm, sync_zabbix: e.target.checked })}
-                        />
-                        <span>Sincronizar alteração no Zabbix Server</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* SEÇÃO 3: ACESSO REMOTO (GUACAMOLE) */}
-              <div>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase' }}>
-                  3. Parâmetros Apache Guacamole
-                </span>
-                <div className="form-grid" style={{ marginTop: '0.5rem' }}>
-                  <div className="form-group">
-                    <label className="form-label">ID Conexão Guacamole</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={editForm.guacamole_connection_id || ''}
-                      onChange={(e) => setEditForm({ ...editForm, guacamole_connection_id: e.target.value })}
-                      placeholder="Identificador ou Hash"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Protocolo de Terminal</label>
-                    <select
-                      className="form-input"
-                      value={editForm.guacamole_protocol || 'ssh'}
-                      onChange={(e) => {
-                        const proto = e.target.value;
-                        const defP = proto === 'ssh' ? '22' : (proto === 'telnet' ? '23' : '3389');
-                        const isDef = editForm.guacamole_port === '22' || editForm.guacamole_port === '23' || editForm.guacamole_port === '3389';
-                        setEditForm({ 
-                          ...editForm, 
-                          guacamole_protocol: proto,
-                          guacamole_port: isDef ? defP : editForm.guacamole_port
-                        });
-                      }}
-                    >
-                      <option value="ssh">SSH</option>
-                      <option value="telnet">Telnet</option>
-                      <option value="rdp">RDP</option>
-                      <option value="vnc">VNC</option>
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Porta Remota (SSH/Telnet/RDP)</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={editForm.guacamole_port || ''}
-                      onChange={(e) => setEditForm({ ...editForm, guacamole_port: e.target.value })}
-                      placeholder="22"
-                    />
-                  </div>
-                </div>
-
-                <div className="form-grid" style={{ marginTop: '0.75rem' }}>
-                  <div className="form-group">
-                    <label className="form-label">Usuário de Acesso Remoto</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={editForm.guacamole_username || ''}
-                      onChange={(e) => setEditForm({ ...editForm, guacamole_username: e.target.value })}
-                      placeholder="ex: iper ou root"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Senha de Acesso Remoto</label>
-                    <input
-                      type="password"
-                      className="form-input"
-                      value={editForm.guacamole_password || ''}
-                      onChange={(e) => setEditForm({ ...editForm, guacamole_password: e.target.value })}
-                      placeholder="Senha cadastrada no Guacamole"
-                    />
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '0.75rem' }}>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={editForm.sync_guacamole !== false}
-                      onChange={(e) => setEditForm({ ...editForm, sync_guacamole: e.target.checked })}
-                    />
-                    Sincronizar alterações com o Apache Guacamole
-                  </label>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.75rem' }}>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setEditingAsset(null)}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  style={{ width: 'auto' }}
-                  disabled={isSaving}
-                >
-                  {isSaving ? 'Salvando...' : 'Salvar Alterações'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

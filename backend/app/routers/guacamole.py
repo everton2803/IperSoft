@@ -118,41 +118,26 @@ async def test_guacamole_connection(
         )
 
 
-@router.post("/match")
-async def match_existing_guacamole_connections(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas administradores podem executar o vínculo de conexões."
-        )
-
+async def sync_guacamole_connections_with_db(db: Session) -> dict:
+    """
+    Importa e vincula conexões existentes no Apache Guacamole para o banco de dados do IperSoft.
+    Não altera nem exclui nada no Apache Guacamole.
+    Pode ser invocada manualmente via endpoint REST ou pelo agendador horário (1h).
+    """
     cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "guacamole").first()
     if not cfg or not cfg.url or not cfg.username or not cfg.password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Configuração do Guacamole incompleta. Salve a URL, usuário e senha primeiro."
-        )
+        raise ValueError("Configuração do Guacamole incompleta. Salve a URL, usuário e senha primeiro.")
 
-    try:
-        guac_conns = await GuacamoleService.fetch_connections_with_parameters(
-            cfg.url, 
-            cfg.username, 
-            cfg.password
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Falha ao consultar o Apache Guacamole: {exc}"
-        )
+    guac_conns = await GuacamoleService.fetch_connections_with_parameters(
+        cfg.url,
+        cfg.username,
+        cfg.password
+    )
 
     matched_count = 0
     created_new_count = 0
     matched_details = []
 
-    # Carregar todos os ativos da base
     all_assets = db.query(Asset).all()
 
     for conn in guac_conns:
@@ -164,14 +149,32 @@ async def match_existing_guacamole_connections(
         port = str(conn.get("port") or default_port).strip()
         guac_user = conn.get("username")
         guac_pass = conn.get("password")
+        folder_group = (conn.get("client_group") or "").strip() or None
 
         client_id = conn.get("client_id") or identifier
         clean_ip = target_ip.split(":")[0].strip() if ":" in target_ip else target_ip
 
         matched_asset = None
 
-        # 1. Tentar match exato por IP ou hostname
-        if clean_ip:
+        # 1. Prioridade: Match por connection_id já vinculado
+        for a in all_assets:
+            if a.guacamole_connection_id and str(a.guacamole_connection_id) in (client_id, identifier):
+                matched_asset = a
+                break
+            if a.guacamole and any(str(g.connection_id) in (client_id, identifier) for g in a.guacamole):
+                matched_asset = a
+                break
+
+        # 2. Match exato pelo nome ou hostname técnico
+        if not matched_asset and conn_name:
+            for a in all_assets:
+                if (a.name and a.name.lower() == conn_name.lower()) or \
+                   (a.hostname and a.hostname.lower() == conn_name.lower()):
+                    matched_asset = a
+                    break
+
+        # 3. Match por IP ou DNS (quando válido)
+        if not matched_asset and clean_ip and clean_ip not in ("-", "127.0.0.1", "0.0.0.0", "localhost"):
             for a in all_assets:
                 if a.ip_address and a.ip_address.strip() in (target_ip, clean_ip):
                     matched_asset = a
@@ -180,43 +183,27 @@ async def match_existing_guacamole_connections(
                     matched_asset = a
                     break
 
-        # 2. Se não achou por IP, tentar pelo nome ou hostname técnico
-        if not matched_asset and conn_name:
-            for a in all_assets:
-                if a.name.lower() == conn_name.lower() or a.hostname.lower() == conn_name.lower():
-                    matched_asset = a
-                    break
-
         if matched_asset:
-            # Se o ativo estiver com Guacamole ignorado/desativado pelo operador no IperSoft:
+            # Se o ativo estiver marcado como ignorado no Guacamole pelo operador, respeitar localmente sem alterar o Guacamole Server
             if (matched_asset.raw_data or {}).get("ignore_guacamole"):
-                try:
-                    await GuacamoleService.delete_connection_from_guacamole(
-                        url=cfg.url,
-                        username=cfg.username,
-                        password=cfg.password,
-                        identifier=identifier
-                    )
-                    logger.info(f"Conexão {identifier} ({conn_name}) excluída do Guacamole pois o ativo {matched_asset.name} está desativado no Guacamole.")
-                except Exception as err:
-                    logger.warning(f"Erro ao remover conexão desativada {identifier} do Guacamole: {err}")
-                
-                # Garante limpeza de registros locais caso ainda existam
-                db.query(AssetGuacamole).filter(AssetGuacamole.asset_id == matched_asset.id).delete()
-                matched_asset.guacamole_connection_id = None
                 continue
 
             # Vincula ao ativo existente
             matched_asset.guacamole_connection_id = client_id
             matched_asset.guacamole_protocol = protocol
+            if folder_group and not matched_asset.client_group:
+                matched_asset.client_group = folder_group
+            if clean_ip and (not matched_asset.ip_address or matched_asset.ip_address == "-"):
+                matched_asset.ip_address = clean_ip
+            if matched_asset.source == "zabbix":
+                matched_asset.source = "unified"
 
-            # Atualiza ou cria na tabela modular asset_guacamole
-            guac_entry = db.query(AssetGuacamole).filter(
-                AssetGuacamole.asset_id == matched_asset.id,
-                AssetGuacamole.connection_id == client_id
-            ).first()
+            # Atualiza ou cria na tabela modular asset_guacamole (removendo eventuais duplicatas)
+            guac_entries = db.query(AssetGuacamole).filter(
+                AssetGuacamole.asset_id == matched_asset.id
+            ).order_by(AssetGuacamole.id.asc()).all()
 
-            if not guac_entry:
+            if not guac_entries:
                 guac_entry = AssetGuacamole(
                     asset_id=matched_asset.id,
                     connection_id=client_id,
@@ -230,12 +217,21 @@ async def match_existing_guacamole_connections(
                 )
                 db.add(guac_entry)
             else:
+                guac_entry = guac_entries[0]
+                for dup_g in guac_entries[1:]:
+                    db.delete(dup_g)
+
+                guac_entry.connection_id = client_id
                 guac_entry.connection_name = conn_name or guac_entry.connection_name
                 guac_entry.protocol = protocol
-                guac_entry.port = port
+                # Preserva porta customizada local se no Guacamole ainda estiver a porta padrão
+                if not guac_entry.port or guac_entry.port in ("22", "23", "3389", "5900") or port != default_port:
+                    guac_entry.port = port
                 guac_entry.hostname = clean_ip or target_ip
-                guac_entry.username = guac_user
-                guac_entry.password = guac_pass
+                if guac_user is not None:
+                    guac_entry.username = guac_user
+                if guac_pass:
+                    guac_entry.password = guac_pass
                 guac_entry.last_sync = func.now()
 
             matched_count += 1
@@ -252,7 +248,7 @@ async def match_existing_guacamole_connections(
                 "has_password": bool(guac_pass)
             })
         else:
-            # Cadastra novo Ativo no IperSoft vindo exclusivamente do Guacamole
+            # Cadastra novo Ativo no IperSoft vindo do Guacamole
             new_name = conn_name if conn_name else (clean_ip if clean_ip else f"Guac-{identifier}")
             new_hostname = clean_ip if clean_ip else new_name
 
@@ -260,14 +256,16 @@ async def match_existing_guacamole_connections(
                 name=new_name,
                 hostname=new_hostname,
                 ip_address=clean_ip if clean_ip else None,
+                client_group=folder_group,
+                host_groups=[folder_group] if folder_group else [],
                 port=port,
                 source="guacamole",
-                status="active",
+                status="monitored",
                 guacamole_connection_id=client_id,
                 guacamole_protocol=protocol
             )
             db.add(new_asset)
-            db.flush() # obtém new_asset.id
+            db.flush()
 
             guac_entry = AssetGuacamole(
                 asset_id=new_asset.id,
@@ -309,3 +307,28 @@ async def match_existing_guacamole_connections(
         "message": f"{matched_count} conexões vinculadas a ativos existentes e {created_new_count} novos equipamentos importados do Guacamole com sucesso.",
         "matched_details": matched_details
     }
+
+
+@router.post("/match")
+async def match_existing_guacamole_connections(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas administradores podem executar o vínculo de conexões."
+        )
+
+    try:
+        return await sync_guacamole_connections_with_db(db)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc)
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Falha ao consultar o Apache Guacamole: {exc}"
+        )

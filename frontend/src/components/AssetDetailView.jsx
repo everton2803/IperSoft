@@ -31,7 +31,8 @@ import {
   Maximize2,
   Minimize2,
   Info,
-  RotateCcw
+  RotateCcw,
+  FileText
 } from 'lucide-react';
 import { authService, diagnosticsService } from '../services/api';
 
@@ -314,26 +315,15 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   const [showGuacPassword, setShowGuacPassword] = useState(false);
   const [guacBaseUrl, setGuacBaseUrl] = useState('');
 
-  // 1. Estados de Seções do Accordion (Multi-open independente!)
-  const [openSections, setOpenSections] = useState({
-    ipersoft: true,
-    zabbix: false,
-    guacamole: false,
-    oxidized: false,
-    zabbix_status: false,
-    remote: false
-  });
-
-  const toggleSection = (key, isDisabled = false) => {
-    if (isDisabled) return;
-    setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
-  };
+  // 1. Aba Ativa na Tela de Detalhes ('operation' | 'config' | 'integrations')
+  const [activeTab, setActiveTab] = useState('operation');
 
   // 2. Estados de Ações e Sincronizações
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSyncingZbx, setIsSyncingZbx] = useState(false);
   const [isSyncingGuac, setIsSyncingGuac] = useState(false);
+  const [isSyncingOx, setIsSyncingOx] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [isRemovingGuac, setIsRemovingGuac] = useState(false);
   const [isTogglingZbxStatus, setIsTogglingZbxStatus] = useState(false);
@@ -364,6 +354,35 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   const [isLoadingZbxProblems, setIsLoadingZbxProblems] = useState(false);
   const [acknowledgingEvents, setAcknowledgingEvents] = useState({});
   const [closingEvents, setClosingEvents] = useState({});
+
+  // Estados VictoriaLogs (Syslog)
+  const [deviceLogs, setDeviceLogs] = useState([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [logsTimeRange, setLogsTimeRange] = useState('24h');
+  const [logsSearch, setLogsSearch] = useState('');
+  const [logsLevel, setLogsLevel] = useState('');
+  const [logsAutoRefresh, setLogsAutoRefresh] = useState(false);
+  const [copiedLogIdx, setCopiedLogIdx] = useState(null);
+
+  const fetchDeviceLogs = async (overrideRange, overrideLevel, overrideSearch) => {
+    setIsLoadingLogs(true);
+    try {
+      const range = overrideRange !== undefined ? overrideRange : logsTimeRange;
+      const lvl = overrideLevel !== undefined ? overrideLevel : logsLevel;
+      const srch = overrideSearch !== undefined ? overrideSearch : logsSearch;
+      const res = await authService.getAssetLogs(assetId, {
+        timeRange: range,
+        level: lvl,
+        search: srch,
+        limit: 100
+      });
+      setDeviceLogs(res.logs || []);
+    } catch (err) {
+      console.warn('Erro ao carregar logs do VictoriaLogs:', err.message);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
 
   const handleToggleAcknowledge = async (prob) => {
     if (!prob.eventid) {
@@ -566,10 +585,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   };
 
   useEffect(() => {
-    if (openSections.zabbix && !zbxDetails && zbxActive) {
+    if (activeTab === 'integrations' && !zbxDetails && zbxActive) {
       fetchZabbixDetails();
     }
-  }, [openSections.zabbix, zbxActive]);
+  }, [activeTab, zbxActive]);
 
   // Linha 3: Dados no Guacamole
   const fetchGuacamoleDetails = async () => {
@@ -580,7 +599,6 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       setGuacDetails(data);
     } catch (err) {
       setGuacDetails(null);
-      // Se não for erro de cadastro inexistente (404), mostra o feedback
       if (!err.message?.includes('Nenhuma conexão') && !err.message?.includes('404')) {
         setFeedback({ type: 'error', message: `Erro ao buscar detalhes no Guacamole: ${err.message}` });
       }
@@ -590,10 +608,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   };
 
   useEffect(() => {
-    if (openSections.guacamole && !guacDetails && guacActive) {
+    if (activeTab === 'integrations' && !guacDetails && guacActive) {
       fetchGuacamoleDetails();
     }
-  }, [openSections.guacamole, guacActive]);
+  }, [activeTab, guacActive]);
 
   // Linha 4: Dados no Oxidized
   const fetchOxidizedDetails = async () => {
@@ -610,10 +628,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   };
 
   useEffect(() => {
-    if (openSections.oxidized && !oxDetails && oxActive) {
+    if ((activeTab === 'integrations' || activeTab === 'operation') && !oxDetails && oxActive) {
       fetchOxidizedDetails();
     }
-  }, [openSections.oxidized, oxActive]);
+  }, [activeTab, oxActive]);
 
   // Linha 5: Status do Zabbix (Alarmes e Itens)
   const fetchZabbixStatusAndItems = async () => {
@@ -627,7 +645,6 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       setZbxProblems(probs);
       setZbxItems(items);
 
-      // Se há alarme ativo com item, seleciona automaticamente o primeiro item envolvido!
       if (probs && probs.length > 0 && probs[0].items && probs[0].items.length > 0) {
         handleSelectItem(probs[0].items[0]);
       } else if (items && items.length > 0 && !selectedItem) {
@@ -642,10 +659,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   };
 
   useEffect(() => {
-    if (openSections.zabbix_status && !zbxProblems && !zbxItems) {
+    if (activeTab === 'operation' && zbxActive && !zbxProblems && !zbxItems && !isLoading) {
       fetchZabbixStatusAndItems();
     }
-  }, [openSections.zabbix_status]);
+  }, [activeTab, zbxActive, isLoading]);
 
   // Linha 6: Conexão Remota (Gerar URL SSO no Guacamole)
   const fetchGuacamoleLaunchSession = async () => {
@@ -662,10 +679,24 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   };
 
   useEffect(() => {
-    if (openSections.remote && !guacLaunchData && comparison?.guacamole?.is_synced) {
+    if (activeTab === 'operation' && !guacLaunchData && comparison?.guacamole?.is_synced) {
       fetchGuacamoleLaunchSession();
     }
-  }, [openSections.remote]);
+  }, [activeTab, comparison?.guacamole?.is_synced]);
+
+  useEffect(() => {
+    if (activeTab === 'operation' && deviceLogs.length === 0 && !isLoadingLogs) {
+      fetchDeviceLogs();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!logsAutoRefresh || activeTab !== 'operation') return;
+    const interval = setInterval(() => {
+      fetchDeviceLogs();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [logsAutoRefresh, activeTab, logsTimeRange, logsLevel, logsSearch]);
 
   // Carregar histórico de um item específico
   const handleSelectItem = async (item, period = itemHistoryPeriod) => {
@@ -693,7 +724,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     }
   };
 
-  // Salvar configurações no IperSoft
+  // Salvar configurações no IperSoft (Apenas banco local, sem sincronização externa automática)
   const handleSaveIpersoft = async (e) => {
     if (e) e.preventDefault();
     setIsSaving(true);
@@ -716,18 +747,14 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         backup_enabled: formData.backup_enabled,
         backup_timeout: parseInt(formData.backup_timeout, 10) || 30,
         enabled_tests: enabledTests,
-        ignore_guacamole: ignoreGuacamole,
-        sync_zabbix: false,
-        sync_guacamole: true
+        ignore_guacamole: ignoreGuacamole
       });
 
-      const successMsg = formData.backup_enabled
-        ? 'Configurações salvas e sincronizadas (Guacamole & Oxidized)!'
-        : 'Configurações do IperSoft salvas e sincronizadas com Guacamole!';
-      setFeedback({ type: 'success', message: successMsg });
+      setFeedback({ 
+        type: 'success', 
+        message: 'Informações salvas no IperSoft com sucesso! Utilize os botões de sincronização individuais para replicar as alterações no Zabbix, Guacamole ou Oxidized.' 
+      });
       await loadData();
-      fetchGuacamoleDetails();
-      fetchGuacamoleLaunchSession();
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Erro ao salvar alterações no IperSoft.' });
     } finally {
@@ -735,29 +762,31 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     }
   };
 
-  // Alternar monitoramento no Zabbix
+  // Alternar monitoramento no Zabbix (apenas cadastro local IperSoft)
   const handleToggleZabbixStatus = async (e) => {
     const isChecked = e.target.checked;
     setIsTogglingZbxStatus(true);
     setFeedback(null);
     try {
       const newStatus = isChecked ? 'monitored' : 'unmonitored';
-      await authService.toggleZabbixHostStatus(assetId, isChecked);
+      await authService.updateAsset(assetId, { status: newStatus });
       setFormData(prev => ({ ...prev, status: newStatus }));
       setFeedback({ 
         type: 'success', 
-        message: isChecked ? 'Host ativado no Zabbix Server.' : 'Host desativado no Zabbix Server.' 
+        message: isChecked 
+          ? 'Monitoramento Zabbix habilitado no IperSoft. Para refletir no Zabbix Server, clique no botão "Sincronizar Zabbix".' 
+          : 'Monitoramento Zabbix desabilitado no IperSoft. Para refletir no Zabbix Server, clique no botão "Sincronizar Zabbix".' 
       });
       await loadData();
-      if (openSections.zabbix) fetchZabbixDetails();
+      if (activeTab === 'integrations' && isChecked) fetchZabbixDetails();
     } catch (err) {
-      setFeedback({ type: 'error', message: err.message || 'Falha ao alterar status no Zabbix.' });
+      setFeedback({ type: 'error', message: err.message || 'Falha ao alterar status do Zabbix.' });
     } finally {
       setIsTogglingZbxStatus(false);
     }
   };
 
-  // Alternar Guacamole
+  // Alternar Guacamole (apenas cadastro local IperSoft)
   const handleToggleGuacamoleStatus = async (e) => {
     const isChecked = e.target.checked;
     const shouldIgnore = !isChecked;
@@ -766,24 +795,22 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     setFeedback(null);
     try {
       await authService.updateAsset(assetId, { ignore_guacamole: shouldIgnore });
-      if (shouldIgnore) {
-        setGuacDetails(null);
-        setGuacLaunchData(null);
-      }
       setFeedback({ 
         type: 'success', 
-        message: isChecked ? 'Host ativado no Apache Guacamole.' : 'Host desativado e conexão removida do Apache Guacamole com sucesso.' 
+        message: isChecked 
+          ? 'Acesso remoto Guacamole habilitado no IperSoft. Para sincronizar a conexão, clique no botão "Sincronizar Guacamole".' 
+          : 'Acesso remoto Guacamole desativado no IperSoft. Para atualizar ou remover a conexão no Guacamole Server, utilize a sincronização.' 
       });
       await loadData();
-      if (openSections.guacamole && isChecked) fetchGuacamoleDetails();
+      if (activeTab === 'integrations' && isChecked) fetchGuacamoleDetails();
     } catch (err) {
-      setFeedback({ type: 'error', message: err.message || 'Falha ao alterar status no Guacamole.' });
+      setFeedback({ type: 'error', message: err.message || 'Falha ao alterar status do Guacamole.' });
     } finally {
       setIsTogglingGuacStatus(false);
     }
   };
 
-  // Alternar Oxidized
+  // Alternar Oxidized (apenas cadastro local IperSoft)
   const handleToggleOxidizedStatus = async (e) => {
     const isChecked = e.target.checked;
     setIsTogglingOxStatus(true);
@@ -793,12 +820,14 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       setFormData(prev => ({ ...prev, backup_enabled: isChecked }));
       setFeedback({ 
         type: 'success', 
-        message: isChecked ? 'Backup ativado no Oxidized.' : 'Backup desativado no Oxidized.' 
+        message: isChecked 
+          ? 'Backup ativado no IperSoft. Para recarregar a lista no daemon do Oxidized, clique no botão "Sincronizar Oxidized".' 
+          : 'Backup desativado no IperSoft. Para expurgar o nó do daemon do Oxidized, clique no botão "Sincronizar Oxidized".' 
       });
       await loadData();
-      if (openSections.oxidized) fetchOxidizedDetails();
+      if (activeTab === 'integrations' && isChecked) fetchOxidizedDetails();
     } catch (err) {
-      setFeedback({ type: 'error', message: err.message || 'Falha ao alterar status no Oxidized.' });
+      setFeedback({ type: 'error', message: err.message || 'Falha ao alterar status do Oxidized.' });
     } finally {
       setIsTogglingOxStatus(false);
     }
@@ -839,6 +868,22 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       setFeedback({ type: 'error', message: err.message || 'Erro ao sincronizar com Guacamole.' });
     } finally {
       setIsSyncingGuac(false);
+    }
+  };
+
+  // Sincronizar Oxidized
+  const handleSyncOxidized = async () => {
+    setIsSyncingOx(true);
+    setFeedback(null);
+    try {
+      const res = await authService.syncAssetToOxidized(assetId);
+      setFeedback({ type: 'success', message: res.message || 'Nó sincronizado e recarregado no Oxidized com sucesso!' });
+      await loadData();
+      fetchOxidizedDetails();
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Erro ao sincronizar com Oxidized.' });
+    } finally {
+      setIsSyncingOx(false);
     }
   };
 
@@ -938,9 +983,13 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       const res = await authService.syncAssetToAll(assetId);
       setFeedback({ type: 'success', message: res.message || 'Sincronização realizada com sucesso!' });
       await loadData();
-      if (openSections.zabbix) fetchZabbixDetails();
-      if (openSections.guacamole) fetchGuacamoleDetails();
-      if (openSections.remote) fetchGuacamoleLaunchSession();
+      if (activeTab === 'integrations') {
+        fetchZabbixDetails();
+        fetchGuacamoleDetails();
+      }
+      if (activeTab === 'operation') {
+        fetchGuacamoleLaunchSession();
+      }
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Falha ao sincronizar plataformas.' });
     } finally {
@@ -986,12 +1035,14 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       : null
   );
 
-  // Filtragem de itens do Zabbix na Linha 5
+  // Filtragem de itens do Zabbix
   const filteredItems = (zbxItems || []).filter(it => {
     if (!itemSearchQuery) return true;
     const q = itemSearchQuery.toLowerCase();
     return (it.name || '').toLowerCase().includes(q) || (it.key || '').toLowerCase().includes(q);
   });
+
+  const differences = comparison?.differences || [];
 
   return (
     <div className="view-container detail-view-layout">
@@ -999,11 +1050,14 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       <div className="detail-header-bar">
         <div className="detail-header-left">
           <button type="button" className="btn-back" onClick={onBack}>
-            <ArrowLeft size={16} /> Voltar para Equipamentos
+            <ArrowLeft size={16} /> Voltar para Inventário
           </button>
           <div className="detail-title-wrapper">
             <h1 className="detail-title">{formData.name || 'Equipamento'}</h1>
             <code className="detail-ip-badge">{formData.ip_address || formData.hostname || 'Sem IP'}</code>
+            {formData.client_group && (
+              <span className="group-pill-badge">{formData.client_group}</span>
+            )}
             <span className={`status-pill ${formData.status === 'monitored' ? 'status-pill-ok' : 'status-pill-unmonitored'}`}>
               {formData.status === 'monitored' ? 'Monitorado' : 'Desativado'}
             </span>
@@ -1021,16 +1075,41 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
             {isTesting ? 'Testando...' : 'Testar Conectividade'}
           </button>
 
-          <button 
-            type="button" 
-            className="btn-action-sync-all"
-            onClick={handleSyncAll}
-            disabled={isSyncingAll || !isAdmin}
-            title={!isAdmin ? 'Apenas administradores podem sincronizar' : 'Alinhar IperSoft, Zabbix e Guacamole'}
-          >
-            <Zap size={16} className={isSyncingAll ? 'spin-icon' : ''} />
-            {isSyncingAll ? 'Sincronizando...' : 'Sincronizar Todas as Plataformas'}
-          </button>
+          {/* Botões Manuais Separados por Integração */}
+          <div className="sync-buttons-group">
+            <button 
+              type="button" 
+              className="btn-sync-pill btn-sync-zbx-pill"
+              onClick={handleSyncZabbix}
+              disabled={isSyncingZbx || !isAdmin}
+              title={!isAdmin ? 'Apenas administradores podem sincronizar' : 'Enviar manualmente os dados deste ativo ao Zabbix Server'}
+            >
+              <Radio size={14} className={isSyncingZbx ? 'spin-icon' : ''} />
+              <span>{isSyncingZbx ? 'Sincronizando...' : 'Sincronizar Zabbix'}</span>
+            </button>
+
+            <button 
+              type="button" 
+              className="btn-sync-pill btn-sync-guac-pill"
+              onClick={handleSyncGuacamole}
+              disabled={isSyncingGuac || !isAdmin}
+              title={!isAdmin ? 'Apenas administradores podem sincronizar' : 'Enviar manualmente a conexão deste ativo ao Apache Guacamole'}
+            >
+              <Terminal size={14} className={isSyncingGuac ? 'spin-icon' : ''} />
+              <span>{isSyncingGuac ? 'Sincronizando...' : 'Sincronizar Guacamole'}</span>
+            </button>
+
+            <button 
+              type="button" 
+              className="btn-sync-pill btn-sync-ox-pill"
+              onClick={handleSyncOxidized}
+              disabled={isSyncingOx || !isAdmin}
+              title={!isAdmin ? 'Apenas administradores podem sincronizar' : 'Recarregar manualmente os nós no daemon do Oxidized (/reload)'}
+            >
+              <FileCode size={14} className={isSyncingOx ? 'spin-icon' : ''} />
+              <span>{isSyncingOx ? 'Sincronizando...' : 'Sincronizar Oxidized'}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1042,96 +1121,764 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         </div>
       )}
 
-      {/* =========================================================================
-          ESTRUTURA DAS 6 LINHAS RETRÁTEIS (ACCORDION INDEPENDENTE MULTI-OPEN)
-          ========================================================================= */}
-      <div className="accordion-stack">
+      {/* BARRA DE NAVEGAÇÃO EM 3 ABAS FOCADAS */}
+      <div className="detail-tabs-bar">
+        <button
+          type="button"
+          className={`detail-tab-btn ${activeTab === 'operation' ? 'active' : ''}`}
+          onClick={() => setActiveTab('operation')}
+        >
+          <Activity size={16} />
+          <span>Operação & Monitoramento</span>
+          {zbxActive && zbxProblems && zbxProblems.length > 0 && (
+            <span className="detail-tab-badge badge-danger">{zbxProblems.length}</span>
+          )}
+        </button>
 
-        {/* -----------------------------------------------------------------
-            LINHA 1: DADOS NO IPERSOFT & DIAGNÓSTICOS / TESTES
-            ----------------------------------------------------------------- */}
-        <div className={`accordion-card ${openSections.ipersoft ? 'is-open' : ''}`}>
-          <div className="accordion-header" onClick={() => toggleSection('ipersoft')}>
-            <div className="acc-header-left">
-              <span className="acc-chevron">
-                {openSections.ipersoft ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-              </span>
-              <div className="acc-title-group">
-                <Server size={18} color="var(--color-primary)" />
-                <span className="acc-title-text">Dados no IperSoft & Diagnósticos/Testes</span>
-                <span className="badge-tag-canonical">Canônico Master</span>
+        <button
+          type="button"
+          className={`detail-tab-btn ${activeTab === 'config' ? 'active' : ''}`}
+          onClick={() => setActiveTab('config')}
+        >
+          <Server size={16} />
+          <span>Cadastro & Parâmetros (IperSoft)</span>
+        </button>
+
+        <button
+          type="button"
+          className={`detail-tab-btn ${activeTab === 'integrations' ? 'active' : ''}`}
+          onClick={() => setActiveTab('integrations')}
+        >
+          <Layers size={16} />
+          <span>Comparativo & Sincronização Externa</span>
+          {differences.length > 0 && (
+            <span className="detail-tab-badge badge-warning" title="Divergências entre IperSoft e servidores externos">
+              {differences.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* =========================================================================
+          ABA 1: OPERAÇÃO & MONITORAMENTO (ACESSO IMEDIATO A TERMINAL, BACKUP E ALARMES)
+          ========================================================================= */}
+      {activeTab === 'operation' && (
+        <div className="detail-tab-content">
+          {/* BARRA DE RESUMO OPERACIONAL: CONECTIVIDADE + GUACAMOLE + OXIDIZED */}
+          <div className="operation-quick-grid">
+            {/* CARD 1: SAÚDE DE REDE & TERMINAL REMOTO GUACAMOLE */}
+            <div className="operation-quick-card">
+              <div className="operation-card-header">
+                <div className="operation-card-title">
+                  <Terminal size={16} color="#00bcd4" />
+                  <span>Conectividade & Terminal Remoto</span>
+                </div>
+                <div className="acc-test-badges-group">
+                  <span className={`acc-test-pill ${!enabledTests.icmp ? 'pill-disabled' : (icmpDiag?.status === 'ok' ? 'pill-ok' : icmpDiag?.status === 'timeout' ? 'pill-timeout' : 'pill-fail')}`}>
+                    ICMP: {enabledTests.icmp ? (icmpDiag?.status === 'ok' ? `${icmpDiag.latency_ms || 'OK'}ms` : icmpDiag?.status || 'Pendente') : 'Desat.'}
+                  </span>
+                  <span className={`acc-test-pill ${!enabledTests.snmp ? 'pill-disabled' : (snmpDiag?.status === 'ok' ? 'pill-ok' : 'pill-fail')}`}>
+                    SNMP: {enabledTests.snmp ? (snmpDiag?.status === 'ok' ? 'OK' : snmpDiag?.status || 'Pendente') : 'Desat.'}
+                  </span>
+                  <span className={`acc-test-pill ${!enabledTests.remote ? 'pill-disabled' : (remoteDiag?.status === 'ok' ? 'pill-ok' : 'pill-fail')}`}>
+                    {formData.remote_protocol.toUpperCase()} ({formData.remote_port}): {enabledTests.remote ? (remoteDiag?.status === 'ok' ? 'Aberta' : remoteDiag?.status || 'Pendente') : 'Desat.'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="operation-card-body">
+                {!guacActive ? (
+                  <div className="operation-card-empty">
+                    <span className="text-muted">Acesso remoto via Guacamole está desativado para este equipamento.</span>
+                    <button type="button" className="btn-secondary" onClick={() => setActiveTab('config')}>
+                      Configurar Acesso
+                    </button>
+                  </div>
+                ) : guacSynced && directGuacUrl ? (
+                  <div className="operation-card-actions-row">
+                    <div className="remote-meta-info">
+                      <span className="status-pill-ok" style={{ fontSize: '0.72rem' }}>SSO Pronto</span>
+                      <span><code>{formData.ip_address || formData.hostname}:{formData.remote_port}</code> ({formData.remote_protocol.toUpperCase()})</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <a 
+                        href={directGuacUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="btn-launch-terminal"
+                      >
+                        <ExternalLink size={14} /> Abrir em Nova Aba
+                      </a>
+                      <button 
+                        type="button" 
+                        className="btn-secondary"
+                        onClick={() => setShowEmbeddedTerminal(!showEmbeddedTerminal)}
+                      >
+                        {showEmbeddedTerminal ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                        <span>{showEmbeddedTerminal ? 'Ocultar Terminal' : 'Terminal Embutido'}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="operation-card-empty">
+                    <span className="text-muted">Conexão ainda não sincronizada no Apache Guacamole.</span>
+                    <button 
+                      type="button" 
+                      className="btn-platform-sync btn-sync-guac"
+                      onClick={handleSyncGuacamole}
+                      disabled={isSyncingGuac || !isAdmin}
+                    >
+                      <RefreshCw size={13} className={isSyncingGuac ? 'spin-icon' : ''} />
+                      <span>Criar Conexão no Guacamole</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Ícones de resultado dos testes de conexão no cabeçalho */}
-            <div className="acc-header-right">
-              <div className="acc-test-badges-group" title="Status dos testes de conectividade do equipamento">
-                {/* ICMP / Ping */}
-                <span className={`acc-test-pill ${!enabledTests.icmp ? 'pill-disabled' : (icmpDiag?.status === 'ok' ? 'pill-ok' : icmpDiag?.status === 'timeout' ? 'pill-timeout' : 'pill-fail')}`}>
-                  ICMP: {enabledTests.icmp ? (icmpDiag?.status === 'ok' ? `${icmpDiag.latency_ms || 'OK'}ms` : icmpDiag?.status || 'Pendente') : 'Desat.'}
+            {/* CARD 2: BACKUP DE CONFIGURAÇÕES OXIDIZED */}
+            <div className="operation-quick-card">
+              <div className="operation-card-header">
+                <div className="operation-card-title">
+                  <FileCode size={16} color="#e91e63" />
+                  <span>Backup de Configurações (Oxidized)</span>
+                </div>
+                <span className={`badge-status-pill badge-${oxColor}`}>
+                  {!oxActive ? 'Desativado' : oxColor === 'green' ? 'Backup em Dia' : oxColor === 'red' ? 'Falha na Coleta' : 'Aguardando Coleta'}
                 </span>
+              </div>
 
-                {/* SNMP */}
-                <span className={`acc-test-pill ${!enabledTests.snmp ? 'pill-disabled' : (snmpDiag?.status === 'ok' ? 'pill-ok' : 'pill-fail')}`}>
-                  SNMP: {enabledTests.snmp ? (snmpDiag?.status === 'ok' ? 'OK' : snmpDiag?.status || 'Pendente') : 'Desat.'}
-                </span>
-
-                {/* Porta Remota */}
-                <span className={`acc-test-pill ${!enabledTests.remote ? 'pill-disabled' : (remoteDiag?.status === 'ok' ? 'pill-ok' : 'pill-fail')}`}>
-                  {formData.remote_protocol.toUpperCase()}: {enabledTests.remote ? (remoteDiag?.status === 'ok' ? 'Aberta' : remoteDiag?.status || 'Pendente') : 'Desat.'}
-                </span>
+              <div className="operation-card-body">
+                {!oxActive ? (
+                  <div className="operation-card-empty">
+                    <span className="text-muted">Coleta de backup no Oxidized desabilitada para este ativo.</span>
+                    <button type="button" className="btn-secondary" onClick={() => setActiveTab('config')}>
+                      Habilitar no Cadastro
+                    </button>
+                  </div>
+                ) : (
+                  <div className="operation-card-actions-row">
+                    <div className="remote-meta-info">
+                      <span>Modelo: <code>{oxDetails?.model || formData.backup_model || 'RouterOS'}</code></span>
+                      <span className="text-muted">•</span>
+                      <span>
+                        Último: {oxDetails?.last_backup || comparison?.oxidized?.last_backup
+                          ? new Date(oxDetails?.last_backup || comparison?.oxidized?.last_backup).toLocaleString('pt-BR')
+                          : 'Pendente'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={handleViewOxConfig}
+                        disabled={isLoadingOxConfig}
+                      >
+                        {isLoadingOxConfig ? <RefreshCw size={14} className="spin-icon" /> : <Eye size={14} />}
+                        <span>Ver Configuração</span>
+                      </button>
+                      <button 
+                        type="button" 
+                        className="btn-secondary"
+                        style={{ borderColor: 'rgba(233, 30, 99, 0.4)', color: '#f48fb1' }}
+                        onClick={handleTriggerOxBackup}
+                        disabled={isTriggeringOxBackup || !isAdmin}
+                      >
+                        <RefreshCw size={14} className={isTriggeringOxBackup ? 'spin-icon' : ''} />
+                        <span>{isTriggeringOxBackup ? 'Solicitando...' : 'Backup Agora'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {openSections.ipersoft && (
-            <div className="accordion-body">
-              <form onSubmit={handleSaveIpersoft} className="asset-detail-form">
-                <div className="form-section-title">Identificação Básica</div>
-                <div className="form-row">
-                  <div className="form-group flex-2">
-                    <label>Nome do Equipamento (Visível)</label>
-                    <input 
-                      type="text" 
-                      value={formData.name} 
-                      onChange={e => setFormData({ ...formData, name: e.target.value })} 
-                      required 
-                      placeholder="Ex: SW-DIST-01"
-                    />
+          {/* TERMINAL WEB EMBUTIDO SE ABERTO */}
+          {showEmbeddedTerminal && directGuacUrl && (
+            <div className="embedded-terminal-frame-container" style={{ marginBottom: '1.25rem' }}>
+              <iframe 
+                src={directGuacUrl} 
+                title={`Console Remoto - ${formData.name}`}
+                className="embedded-terminal-iframe"
+                allow="clipboard-read; clipboard-write"
+              />
+            </div>
+          )}
+
+          {/* PAINEL DE MONITORAMENTO ZABBIX: ALARMES E ITENS */}
+          <div className="operation-zabbix-section">
+            <div className="operation-section-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <AlertTriangle size={18} color={zbxActive ? '#ff9800' : 'var(--text-muted)'} />
+                <h3 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 700 }}>
+                  Monitoramento Zabbix: Alarmes Ativos & Métricas do Host
+                </h3>
+                {zbxActive && zbxProblems && (
+                  <span className={`badge-alarm-count ${zbxProblems.length > 0 ? 'has-alarms' : 'no-alarms'}`}>
+                    {zbxProblems.length} {zbxProblems.length === 1 ? 'alarme ativo' : 'alarmes ativos'}
+                  </span>
+                )}
+              </div>
+
+              {zbxActive && (
+                <button 
+                  type="button" 
+                  className="btn-acc-refresh"
+                  onClick={fetchZabbixStatusAndItems}
+                  title="Atualizar alarmes e itens agora"
+                >
+                  <RefreshCw size={13} className={isLoadingZbxProblems || isLoadingZbxItems ? 'spin-icon' : ''} />
+                  <span>Atualizar Métricas</span>
+                </button>
+              )}
+            </div>
+
+            {!zbxActive ? (
+              <div className="platform-not-synced-box">
+                <Radio size={20} color="var(--text-muted)" />
+                <div>
+                  <strong>Monitoramento Zabbix desativado para este equipamento.</strong>
+                  <span style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    Ative o monitoramento na aba "Cadastro & Parâmetros" para acompanhar alarmes e gráficos.
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="zbx-monitor-grid">
+                  {/* COLUNA ESQUERDA: SUBCARD ALARMES ATIVOS */}
+                  <div className="zbx-panel-card zbx-panel-alarms">
+                    <div className="panel-card-header">
+                      <div className="panel-card-title">
+                        <AlertTriangle size={16} color="#e53935" />
+                        <h4>Alarmes Ativos (Triggers em Problema)</h4>
+                      </div>
+                      {zbxProblems && (
+                        <span className="badge-count-pill">{zbxProblems.length}</span>
+                      )}
+                    </div>
+
+                    <div className="panel-card-content">
+                      {isLoadingZbxProblems ? (
+                        <div className="lazy-loading-box">
+                          <RefreshCw size={20} className="spin-icon" color="#e53935" />
+                          <span>Buscando problemas ativos no Zabbix...</span>
+                        </div>
+                      ) : zbxProblems && zbxProblems.length > 0 ? (
+                        <div className="alarms-active-list">
+                          {zbxProblems.map((prob) => (
+                            <div key={prob.triggerid} className={`alarm-active-item ${prob.is_closed ? 'row-closed' : ''}`} style={{ borderLeftColor: prob.severity_color }}>
+                              <div className="alarm-item-header">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                                  <span className="alarm-sev-badge" style={{ backgroundColor: prob.severity_color }}>
+                                    {prob.severity_label}
+                                  </span>
+                                  
+                                  <label 
+                                    className="alarm-ack-toggle-label"
+                                    title={prob.acknowledged ? "Clique para desmarcar o reconhecimento no Zabbix" : "Clique para marcar este alarme como reconhecido no Zabbix"}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(prob.acknowledged)}
+                                      disabled={Boolean(acknowledgingEvents[prob.eventid] || !prob.eventid || prob.is_closed)}
+                                      onChange={() => handleToggleAcknowledge(prob)}
+                                      className="diag-custom-checkbox"
+                                    />
+                                    <span className={prob.acknowledged ? 'ack-status-pill pill-ack' : 'ack-status-pill pill-unack'}>
+                                      {acknowledgingEvents[prob.eventid] ? 'Salvando...' : (prob.acknowledged ? 'Reconhecido' : 'Não Reconhecido')}
+                                    </span>
+                                  </label>
+
+                                  <label 
+                                    className="alarm-close-toggle-label"
+                                    title={prob.is_closed ? "Alarme já encerrado no Zabbix" : "Clique para encerrar este alarme no Zabbix"}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(prob.is_closed)}
+                                      disabled={Boolean(closingEvents[prob.eventid || prob.triggerid] || (!prob.eventid && !prob.triggerid) || prob.is_closed)}
+                                      onChange={() => handleCloseProblem(prob)}
+                                      className="diag-custom-checkbox"
+                                    />
+                                    <span className={prob.is_closed ? 'ack-status-pill pill-closed' : 'ack-status-pill pill-open'}>
+                                      {closingEvents[prob.eventid || prob.triggerid] ? 'Encerrando...' : (prob.is_closed ? 'Encerrado' : 'Encerrar')}
+                                    </span>
+                                  </label>
+                                </div>
+
+                                <span className="alarm-time">
+                                  <Clock size={11} />
+                                  {new Date(prob.lastchange * 1000).toLocaleString('pt-BR')}
+                                </span>
+                              </div>
+
+                              <div className="alarm-item-desc">{prob.description}</div>
+
+                              {prob.opdata && (
+                                <div className="alarm-item-opdata">
+                                  <Activity size={11} className="opdata-icon" />
+                                  <span className="opdata-label">Dado Operacional:</span>
+                                  <strong>{prob.opdata}</strong>
+                                </div>
+                              )}
+
+                              {prob.items && prob.items.length > 0 && (
+                                <div className="alarm-item-actions">
+                                  {prob.items.map((it) => (
+                                    <button
+                                      key={it.itemid}
+                                      type="button"
+                                      className={`btn-alarm-view-item ${selectedItem?.itemid === it.itemid ? 'active' : ''}`}
+                                      onClick={() => handleSelectItem(it)}
+                                      title="Ver histórico e gráfico deste item para validar alarme"
+                                    >
+                                      <TrendingUp size={12} />
+                                      <span>Ver Histórico: {it.name}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="alarms-empty-box">
+                          <CheckCircle2 size={28} color="var(--color-success)" />
+                          <strong>Nenhum alarme ativo no momento!</strong>
+                          <span>Todos os triggers monitorados no Zabbix estão operando normalmente.</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="form-group flex-2">
-                    <label>Hostname Técnico</label>
-                    <input 
-                      type="text" 
-                      value={formData.hostname} 
-                      onChange={e => setFormData({ ...formData, hostname: e.target.value })} 
-                      required 
-                      placeholder="Ex: sw-dist-01.local"
-                    />
+
+                  {/* COLUNA DIREITA: SUBCARD ITENS DO HOST COM FILTRO */}
+                  <div className="zbx-panel-card zbx-panel-items">
+                    <div className="panel-card-header">
+                      <div className="panel-card-title">
+                        <TrendingUp size={16} color="var(--color-primary)" />
+                        <h4>Itens de Monitoramento do Host</h4>
+                      </div>
+                      {zbxItems && (
+                        <span className="badge-count-pill">{zbxItems.length}</span>
+                      )}
+                    </div>
+
+                    <div className="panel-card-content">
+                      <div className="items-search-box">
+                        <Search size={14} color="var(--text-muted)" />
+                        <input 
+                          type="text" 
+                          placeholder="Pesquisar métricas (ping, cpu, interface, traffic...)"
+                          value={itemSearchQuery}
+                          onChange={e => setItemSearchQuery(e.target.value)}
+                        />
+                        {itemSearchQuery && (
+                          <button type="button" className="btn-clear-search" onClick={() => setItemSearchQuery('')}>✕</button>
+                        )}
+                      </div>
+
+                      {isLoadingZbxItems ? (
+                        <div className="lazy-loading-box">
+                          <RefreshCw size={20} className="spin-icon" color="var(--color-primary)" />
+                          <span>Carregando itens monitorados...</span>
+                        </div>
+                      ) : filteredItems.length > 0 ? (
+                        <div className="items-selector-list">
+                          {filteredItems.slice(0, 50).map((it) => (
+                            <div 
+                              key={it.itemid} 
+                              className={`item-selector-row ${selectedItem?.itemid === it.itemid ? 'selected' : ''}`}
+                              onClick={() => handleSelectItem(it)}
+                            >
+                              <div className="item-row-left">
+                                <span className="item-row-name" title={it.name}>{it.name}</span>
+                                <code className="item-row-key" title={it.key}>{it.key}</code>
+                              </div>
+                              <div className="item-row-right">
+                                <span className="item-row-val">
+                                  {it.lastvalue !== null && it.lastvalue !== undefined ? `${it.lastvalue} ${it.units || ''}` : '-'}
+                                </span>
+                                <span className={`item-type-pill ${it.is_numeric ? 'type-num' : 'type-text'}`}>
+                                  {it.is_numeric ? 'Numérico' : 'Texto'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                          {filteredItems.length > 50 && (
+                            <small style={{ color: 'var(--text-muted)', textAlign: 'center', display: 'block', padding: '6px' }}>
+                              Mostrando 50 de {filteredItems.length} itens. Use a busca acima para refinar.
+                            </small>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="chart-empty-state">
+                          <span>Nenhum item correspondente à busca.</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="form-row">
-                  <div className="form-group flex-2">
-                    <label>Endereço IP Principal</label>
-                    <input 
-                      type="text" 
-                      value={formData.ip_address} 
-                      onChange={e => setFormData({ ...formData, ip_address: e.target.value })} 
-                      placeholder="Ex: 192.168.1.10"
-                    />
+                {/* PAINEL INFERIOR: GRÁFICO OU TIMELINE DO ITEM SELECIONADO */}
+                {selectedItem && (
+                  <div className="zbx-history-chart-wrapper">
+                    <div className="chart-wrapper-header">
+                      <div className="chart-title-group">
+                        <TrendingUp size={16} color="var(--color-primary)" />
+                        <div>
+                          <strong>{selectedItem.name}</strong>
+                          <code className="chart-key-badge">{selectedItem.key}</code>
+                        </div>
+                      </div>
+
+                      <div className="chart-controls-group">
+                        <span className="chart-controls-label">Período:</span>
+                        {['1h', '6h', '24h', '7d'].map((per) => (
+                          <button
+                            key={per}
+                            type="button"
+                            className={`btn-period-pill ${itemHistoryPeriod === per ? 'active' : ''}`}
+                            onClick={() => handlePeriodChange(per)}
+                            disabled={isLoadingItemHistory}
+                          >
+                            {per}
+                          </button>
+                        ))}
+
+                        <button
+                          type="button"
+                          className="btn-acc-refresh"
+                          onClick={() => handleSelectItem(selectedItem)}
+                          disabled={isLoadingItemHistory}
+                          title="Recarregar dados"
+                        >
+                          <RefreshCw size={13} className={isLoadingItemHistory ? 'spin-icon' : ''} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="chart-wrapper-body">
+                      {isLoadingItemHistory ? (
+                        <div className="lazy-loading-box">
+                          <RefreshCw size={24} className="spin-icon" color="var(--color-primary)" />
+                          <span>Carregando série histórica de dados no Zabbix...</span>
+                        </div>
+                      ) : selectedItem.is_numeric ? (
+                        <ZabbixNumericChart 
+                          history={itemHistory} 
+                          units={selectedItem.units || ''} 
+                          period={itemHistoryPeriod}
+                          item={selectedItem}
+                        />
+                      ) : (
+                        <ZabbixTextTimeline 
+                          history={itemHistory} 
+                          item={selectedItem}
+                        />
+                      )}
+                    </div>
                   </div>
-                  <div className="form-group flex-2">
-                    <label>DNS / Domínio</label>
-                    <input 
-                      type="text" 
-                      value={formData.dns} 
-                      onChange={e => setFormData({ ...formData, dns: e.target.value })} 
-                      placeholder="Ex: sw-dist-01.rede.local"
-                    />
+                )}
+              </>
+            )}
+          </div>
+
+          {/* SEÇÃO 3: SYSLOG & EVENTOS EM TEMPO REAL (VICTORIALOGS) */}
+          <div className="operation-full-card" style={{ marginTop: '1.25rem' }}>
+            <div className="operation-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div className="operation-card-title">
+                <FileText size={16} color="#4caf50" />
+                <span>Syslog do Dispositivo (VictoriaLogs)</span>
+                <span className="badge-tag-canonical" style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81c784', marginLeft: '6px' }}>
+                  UDP/TCP 514
+                </span>
+              </div>
+
+              {/* Filtros e Controles */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                {/* Seletor de Período */}
+                <select
+                  className="select-filter-compact"
+                  value={logsTimeRange}
+                  onChange={(e) => {
+                    setLogsTimeRange(e.target.value);
+                    fetchDeviceLogs(e.target.value, logsLevel, logsSearch);
+                  }}
+                  style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-main)', borderRadius: '6px', padding: '4px 8px', fontSize: '0.8rem' }}
+                >
+                  <option value="15m">Últimos 15 min</option>
+                  <option value="1h">Última 1 hora</option>
+                  <option value="6h">Últimas 6 horas</option>
+                  <option value="24h">Últimas 24 horas</option>
+                  <option value="7d">Últimos 7 dias</option>
+                </select>
+
+                {/* Filtro de Severidade */}
+                <div className="level-filter-buttons" style={{ display: 'flex', gap: '4px' }}>
+                  <button
+                    type="button"
+                    className={`btn-filter-pill ${logsLevel === '' ? 'active' : ''}`}
+                    onClick={() => {
+                      setLogsLevel('');
+                      fetchDeviceLogs(logsTimeRange, '', logsSearch);
+                    }}
+                  >
+                    Todos
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-filter-pill btn-pill-danger ${logsLevel === 'crit' ? 'active' : ''}`}
+                    onClick={() => {
+                      setLogsLevel('crit');
+                      fetchDeviceLogs(logsTimeRange, 'crit', logsSearch);
+                    }}
+                  >
+                    Erros
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-filter-pill btn-pill-warn ${logsLevel === 'warn' ? 'active' : ''}`}
+                    onClick={() => {
+                      setLogsLevel('warn');
+                      fetchDeviceLogs(logsTimeRange, 'warn', logsSearch);
+                    }}
+                  >
+                    Avisos
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-filter-pill btn-pill-info ${logsLevel === 'info' ? 'active' : ''}`}
+                    onClick={() => {
+                      setLogsLevel('info');
+                      fetchDeviceLogs(logsTimeRange, 'info', logsSearch);
+                    }}
+                  >
+                    Info
+                  </button>
+                </div>
+
+                {/* Auto-Refresh Toggle */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={logsAutoRefresh}
+                    onChange={(e) => setLogsAutoRefresh(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span>Auto (15s)</span>
+                </label>
+
+                {/* Botão Atualizar */}
+                <button
+                  type="button"
+                  className="btn-icon-subtle"
+                  onClick={() => fetchDeviceLogs()}
+                  disabled={isLoadingLogs}
+                  title="Atualizar Logs"
+                  style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-main)', cursor: 'pointer' }}
+                >
+                  <RefreshCw size={14} className={isLoadingLogs ? 'spin-icon' : ''} />
+                </button>
+              </div>
+            </div>
+
+            {/* Barra de Pesquisa de Texto */}
+            <div style={{ padding: '0.5rem 1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <Search size={14} color="var(--text-muted)" />
+              <input
+                type="text"
+                placeholder="Pesquisar nos logs (ex: BGP, down, error, GPON, interface)..."
+                value={logsSearch}
+                onChange={(e) => setLogsSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    fetchDeviceLogs(logsTimeRange, logsLevel, logsSearch);
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: 'var(--text-main)',
+                  fontSize: '0.82rem'
+                }}
+              />
+              {logsSearch && (
+                <button
+                  type="button"
+                  className="btn-text-subtle"
+                  onClick={() => {
+                    setLogsSearch('');
+                    fetchDeviceLogs(logsTimeRange, logsLevel, '');
+                  }}
+                  style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  Limpar
+                </button>
+              )}
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {deviceLogs.length} registro{deviceLogs.length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            {/* Lista de Logs estilo Terminal Monospace */}
+            <div className="logs-terminal-viewport" style={{ maxHeight: '380px', overflowY: 'auto', padding: '0.5rem', background: '#0a0d14', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+              {isLoadingLogs && deviceLogs.length === 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '2rem', color: 'var(--text-muted)' }}>
+                  <RefreshCw size={18} className="spin-icon" color="#4caf50" />
+                  <span>Consultando logs no VictoriaLogs...</span>
+                </div>
+              ) : deviceLogs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                  <p style={{ margin: '0 0 4px 0' }}>Nenhum log registrado para este dispositivo no período selecionado.</p>
+                  <small>Filtro aplicado: IP <code>{formData.ip_address}</code> {formData.hostname ? `ou Hostname "${formData.hostname}"` : ''} ({logsTimeRange})</small>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  {deviceLogs.map((log, idx) => {
+                    const lvl = (log.level || 'info').toLowerCase();
+                    const isCrit = lvl.includes('crit') || lvl.includes('err') || log.severity <= 3;
+                    const isWarn = lvl.includes('warn') || log.severity === 4;
+                    const badgeBg = isCrit ? 'rgba(244, 67, 54, 0.2)' : isWarn ? 'rgba(255, 152, 0, 0.2)' : 'rgba(33, 150, 243, 0.15)';
+                    const badgeColor = isCrit ? '#f44336' : isWarn ? '#ff9800' : '#42a5f5';
+
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          display: 'flex',
+                          gap: '8px',
+                          alignItems: 'flex-start',
+                          padding: '4px 6px',
+                          borderRadius: '4px',
+                          background: idx % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent',
+                          lineHeight: '1.4'
+                        }}
+                      >
+                        {/* Timestamp */}
+                        <span style={{ color: '#78909c', flexShrink: 0, fontSize: '0.74rem' }}>
+                          {log.timestamp ? new Date(log.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--'}
+                        </span>
+
+                        {/* Level Badge */}
+                        <span
+                          style={{
+                            background: badgeBg,
+                            color: badgeColor,
+                            padding: '1px 5px',
+                            borderRadius: '3px',
+                            fontSize: '0.68rem',
+                            fontWeight: '600',
+                            textTransform: 'uppercase',
+                            flexShrink: 0
+                          }}
+                        >
+                          {lvl}
+                        </span>
+
+                        {/* Message */}
+                        <span style={{ color: '#e0e0e0', wordBreak: 'break-word', flex: 1 }}>
+                          {log.message}
+                        </span>
+
+                        {/* Copiar Log */}
+                        <button
+                          type="button"
+                          title="Copiar log"
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${log.timestamp} [${log.level}] ${log.message}`);
+                            setCopiedLogIdx(idx);
+                            setTimeout(() => setCopiedLogIdx(null), 1500);
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: copiedLogIdx === idx ? '#4caf50' : 'rgba(255,255,255,0.2)',
+                            cursor: 'pointer',
+                            padding: '2px',
+                            flexShrink: 0
+                          }}
+                        >
+                          {copiedLogIdx === idx ? <Check size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          ABA 2: CADASTRO & PARÂMETROS NO IPERSOFT (FORMULÁRIO MODULAR 2X2)
+          ========================================================================= */}
+      {activeTab === 'config' && (
+        <div className="detail-tab-content">
+          <form onSubmit={handleSaveIpersoft} className="asset-detail-form">
+            <div className="config-cards-grid">
+              {/* BLOCO 1: IDENTIFICAÇÃO & REDE */}
+              <div className="config-section-card">
+                <div className="config-section-header">
+                  <Server size={16} color="var(--color-primary)" />
+                  <h4>1. Identificação Canônica & Rede</h4>
+                  <span className="badge-tag-canonical">Master IperSoft</span>
+                </div>
+
+                <div className="config-section-body">
+                  <div className="form-row">
+                    <div className="form-group flex-2">
+                      <label>Nome do Equipamento (Visível)</label>
+                      <input 
+                        type="text" 
+                        value={formData.name} 
+                        onChange={e => setFormData({ ...formData, name: e.target.value })} 
+                        required 
+                        placeholder="Ex: SW-DIST-01"
+                      />
+                    </div>
+                    <div className="form-group flex-2">
+                      <label>Hostname Técnico</label>
+                      <input 
+                        type="text" 
+                        value={formData.hostname} 
+                        onChange={e => setFormData({ ...formData, hostname: e.target.value })} 
+                        required 
+                        placeholder="Ex: sw-dist-01.local"
+                      />
+                    </div>
                   </div>
-                  <div className="form-group flex-2">
-                    <label>Empresa / Grupo do Cliente</label>
+
+                  <div className="form-row">
+                    <div className="form-group flex-2">
+                      <label>Endereço IP Principal</label>
+                      <input 
+                        type="text" 
+                        value={formData.ip_address} 
+                        onChange={e => setFormData({ ...formData, ip_address: e.target.value })} 
+                        placeholder="Ex: 192.168.1.10"
+                      />
+                    </div>
+                    <div className="form-group flex-2">
+                      <label>DNS / Domínio</label>
+                      <input 
+                        type="text" 
+                        value={formData.dns} 
+                        onChange={e => setFormData({ ...formData, dns: e.target.value })} 
+                        placeholder="Ex: sw-dist-01.rede.local"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Empresa / Grupo do Cliente (Host Group Zabbix & Pasta Guacamole)</label>
                     <input 
                       type="text" 
                       list="client-groups-datalist"
@@ -1145,15 +1892,50 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       ))}
                     </datalist>
                   </div>
-                </div>
 
-                {/* Ativação de Integrações */}
-                <div className="form-section-title" style={{ marginTop: '1.25rem' }}>
-                  Integrações Habilitadas para este Equipamento
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
+                      Diagnósticos Nativos Aplicáveis (1h):
+                    </label>
+                    <div className="acc-tests-config-row">
+                      <label className="test-checkbox-label">
+                        <input 
+                          type="checkbox" 
+                          className="diag-custom-checkbox"
+                          checked={enabledTests.icmp}
+                          onChange={e => setEnabledTests({ ...enabledTests, icmp: e.target.checked })}
+                        />
+                        <span>Ping (ICMP)</span>
+                      </label>
+                      <label className="test-checkbox-label">
+                        <input 
+                          type="checkbox" 
+                          className="diag-custom-checkbox"
+                          checked={enabledTests.snmp}
+                          onChange={e => setEnabledTests({ ...enabledTests, snmp: e.target.checked })}
+                        />
+                        <span>SNMP v2c</span>
+                      </label>
+                      <label className="test-checkbox-label">
+                        <input 
+                          type="checkbox" 
+                          className="diag-custom-checkbox"
+                          checked={enabledTests.remote}
+                          onChange={e => setEnabledTests({ ...enabledTests, remote: e.target.checked })}
+                        />
+                        <span>Porta ({formData.remote_protocol.toUpperCase()})</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
-                <div className="acc-integrations-toggle-grid">
-                  {/* Zabbix Toggle */}
-                  <label className={`integration-toggle-card ${zbxActive ? 'is-active is-zbx' : ''}`}>
+              </div>
+
+              {/* BLOCO 2: PARÂMETROS ZABBIX */}
+              <div className="config-section-card">
+                <div className="config-section-header">
+                  <Radio size={16} color="#e53935" />
+                  <h4>2. Monitoramento Zabbix Server</h4>
+                  <label className="config-header-toggle">
                     <input 
                       type="checkbox"
                       className="diag-custom-checkbox"
@@ -1161,20 +1943,43 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       onChange={handleToggleZabbixStatus}
                       disabled={isTogglingZbxStatus || !isAdmin}
                     />
-                    <div className="integration-toggle-info">
-                      <div className="integration-toggle-header">
-                        <Radio size={16} color={zbxActive ? '#e53935' : 'var(--text-muted)'} />
-                        <strong>Monitoramento Zabbix</strong>
-                      </div>
-                      <span className="integration-toggle-desc">
-                        {zbxActive ? 'Ativo (Sincronizado no Zabbix Server)' : 'Desativado para este equipamento'}
-                      </span>
-                    </div>
-                    {isTogglingZbxStatus && <RefreshCw size={14} className="spin-icon text-muted" />}
+                    <span>{zbxActive ? 'Habilitado' : 'Desativado'}</span>
                   </label>
+                </div>
 
-                  {/* Guacamole Toggle */}
-                  <label className={`integration-toggle-card ${guacActive ? 'is-active is-guac' : ''}`}>
+                <div className="config-section-body">
+                  <div className="form-row">
+                    <div className="form-group flex-2">
+                      <label>Community SNMP v2c</label>
+                      <input 
+                        type="text" 
+                        value={formData.snmp_community} 
+                        onChange={e => setFormData({ ...formData, snmp_community: e.target.value })} 
+                        placeholder="Ex: ipermonitor"
+                      />
+                    </div>
+                    <div className="form-group flex-1">
+                      <label>Porta Zabbix / SNMP</label>
+                      <input 
+                        type="text" 
+                        value={formData.port} 
+                        onChange={e => setFormData({ ...formData, port: e.target.value })} 
+                        placeholder="161 ou 10050"
+                      />
+                    </div>
+                  </div>
+                  <p className="config-card-hint">
+                    Alterações salvas aqui atualizam o banco local do IperSoft. Para enviar ao Zabbix Server, utilize o botão <strong>Sincronizar Zabbix</strong> no topo.
+                  </p>
+                </div>
+              </div>
+
+              {/* BLOCO 3: PARÂMETROS APACHE GUACAMOLE */}
+              <div className="config-section-card">
+                <div className="config-section-header">
+                  <Terminal size={16} color="#00bcd4" />
+                  <h4>3. Acesso Remoto (Apache Guacamole)</h4>
+                  <label className="config-header-toggle">
                     <input 
                       type="checkbox"
                       className="diag-custom-checkbox"
@@ -1182,20 +1987,77 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       onChange={handleToggleGuacamoleStatus}
                       disabled={isTogglingGuacStatus || !isAdmin}
                     />
-                    <div className="integration-toggle-info">
-                      <div className="integration-toggle-header">
-                        <Terminal size={16} color={guacActive ? '#43a047' : 'var(--text-muted)'} />
-                        <strong>Acesso Remoto Guacamole</strong>
-                      </div>
-                      <span className="integration-toggle-desc">
-                        {guacActive ? 'Ativo (Conexão SSH/Telnet/RDP)' : 'Ignorado / Sem acesso remoto'}
-                      </span>
-                    </div>
-                    {isTogglingGuacStatus && <RefreshCw size={14} className="spin-icon text-muted" />}
+                    <span>{guacActive ? 'Habilitado' : 'Ignorado'}</span>
                   </label>
+                </div>
 
-                  {/* Oxidized Toggle */}
-                  <label className={`integration-toggle-card ${oxActive ? 'is-active is-ox' : ''}`}>
+                <div className="config-section-body">
+                  <div className="form-row">
+                    <div className="form-group flex-1">
+                      <label>Protocolo Remoto</label>
+                      <select 
+                        value={formData.remote_protocol} 
+                        onChange={e => {
+                          const proto = e.target.value;
+                          const defaultP = proto === 'ssh' ? '22' : (proto === 'telnet' ? '23' : '3389');
+                          setFormData({ ...formData, remote_protocol: proto, remote_port: defaultP });
+                        }}
+                      >
+                        <option value="ssh">SSH (22)</option>
+                        <option value="telnet">Telnet (23)</option>
+                        <option value="rdp">RDP (3389)</option>
+                      </select>
+                    </div>
+                    <div className="form-group flex-1">
+                      <label>Porta Customizada</label>
+                      <input 
+                        type="text" 
+                        value={formData.remote_port} 
+                        onChange={e => setFormData({ ...formData, remote_port: e.target.value })} 
+                        placeholder="Ex: 22 ou 2200"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group flex-1">
+                      <label>Usuário Remoto</label>
+                      <input 
+                        type="text" 
+                        value={formData.remote_username} 
+                        onChange={e => setFormData({ ...formData, remote_username: e.target.value })} 
+                        placeholder="Ex: admin, root"
+                      />
+                    </div>
+                    <div className="form-group flex-1">
+                      <label>Senha de Acesso Remoto</label>
+                      <div className="password-input-wrapper">
+                        <input 
+                          type={showPassword ? 'text' : 'password'} 
+                          value={formData.remote_password} 
+                          onChange={e => setFormData({ ...formData, remote_password: e.target.value })} 
+                          placeholder={ipersoft?.has_remote_password ? '•••••••• (Preencha para alterar)' : 'Nenhuma senha gravada'}
+                        />
+                        <button 
+                          type="button" 
+                          className="btn-toggle-eye" 
+                          onClick={() => setShowPassword(!showPassword)}
+                          tabIndex="-1"
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* BLOCO 4: PARÂMETROS OXIDIZED */}
+              <div className="config-section-card">
+                <div className="config-section-header">
+                  <FileCode size={16} color="#e91e63" />
+                  <h4>4. Backup de Configurações (Oxidized)</h4>
+                  <label className="config-header-toggle">
                     <input 
                       type="checkbox"
                       className="diag-custom-checkbox"
@@ -1203,997 +2065,346 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       onChange={handleToggleOxidizedStatus}
                       disabled={isTogglingOxStatus || !isAdmin}
                     />
-                    <div className="integration-toggle-info">
-                      <div className="integration-toggle-header">
-                        <FileCode size={16} color={oxActive ? '#e91e63' : 'var(--text-muted)'} />
-                        <strong>Backup no Oxidized</strong>
-                      </div>
-                      <span className="integration-toggle-desc">
-                        {oxActive ? 'Ativo (Coleta de configs e Git)' : 'Backup desabilitado'}
-                      </span>
-                    </div>
-                    {isTogglingOxStatus && <RefreshCw size={14} className="spin-icon text-muted" />}
+                    <span>{oxActive ? 'Habilitado' : 'Desativado'}</span>
                   </label>
                 </div>
 
-                <div className="form-section-title" style={{ marginTop: '1.25rem' }}>
-                  Parâmetros de Integrações & Acesso
-                </div>
-                <div className="form-row">
-                  <div className="form-group flex-2">
-                    <label>Community SNMP v2c</label>
-                    <input 
-                      type="text" 
-                      value={formData.snmp_community} 
-                      onChange={e => setFormData({ ...formData, snmp_community: e.target.value })} 
-                      placeholder="Ex: ipermonitor"
-                    />
-                  </div>
-                  <div className="form-group flex-1">
-                    <label>Porta Zabbix</label>
-                    <input 
-                      type="text" 
-                      value={formData.port} 
-                      onChange={e => setFormData({ ...formData, port: e.target.value })} 
-                      placeholder="10050"
-                    />
-                  </div>
-                  <div className="form-group flex-1">
-                    <label>Protocolo Remoto</label>
-                    <select 
-                      value={formData.remote_protocol} 
-                      onChange={e => {
-                        const proto = e.target.value;
-                        const defaultP = proto === 'ssh' ? '22' : (proto === 'telnet' ? '23' : '3389');
-                        setFormData({ ...formData, remote_protocol: proto, remote_port: defaultP });
-                      }}
-                    >
-                      <option value="ssh">SSH (22)</option>
-                      <option value="telnet">Telnet (23)</option>
-                      <option value="rdp">RDP (3389)</option>
-                    </select>
-                  </div>
-                  <div className="form-group flex-1">
-                    <label>Porta Remota</label>
-                    <input 
-                      type="text" 
-                      value={formData.remote_port} 
-                      onChange={e => setFormData({ ...formData, remote_port: e.target.value })} 
-                      placeholder="22"
-                    />
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div className="form-group flex-2">
-                    <label>Usuário Remoto</label>
-                    <input 
-                      type="text" 
-                      value={formData.remote_username} 
-                      onChange={e => setFormData({ ...formData, remote_username: e.target.value })} 
-                      placeholder="Ex: admin, root"
-                    />
-                  </div>
-                  <div className="form-group flex-2">
-                    <label>Senha de Acesso Remoto</label>
-                    <div className="password-input-wrapper">
-                      <input 
-                        type={showPassword ? 'text' : 'password'} 
-                        value={formData.remote_password} 
-                        onChange={e => setFormData({ ...formData, remote_password: e.target.value })} 
-                        placeholder={ipersoft?.has_remote_password ? '•••••••• (Preencha para alterar)' : 'Nenhuma senha gravada'}
-                      />
-                      <button 
-                        type="button" 
-                        className="btn-toggle-eye" 
-                        onClick={() => setShowPassword(!showPassword)}
-                        tabIndex="-1"
+                <div className="config-section-body">
+                  <div className="form-row">
+                    <div className="form-group flex-2">
+                      <label>Modelo de Sistema Operacional</label>
+                      <select
+                        value={(() => {
+                          const m = (formData.backup_model || '').toLowerCase();
+                          if (m === 'dmos' || m === 'datacom') return 'datacom';
+                          if (m === 'routeros') return 'RouterOS';
+                          return formData.backup_model || 'RouterOS';
+                        })()}
+                        onChange={e => setFormData({ ...formData, backup_model: e.target.value })}
                       >
-                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
+                        <option value="RouterOS">MikroTik (RouterOS)</option>
+                        <option value="ios">Cisco (IOS / IOS-XE)</option>
+                        <option value="datacom">Datacom (DmOS)</option>
+                        <option value="vrp">Huawei (VRP)</option>
+                        <option value="fortios">Fortinet (FortiOS)</option>
+                        <option value="edgecos">EdgeCore / EdgeOS</option>
+                        <option value="junos">Juniper (JunOS)</option>
+                      </select>
+                    </div>
+                    <div className="form-group flex-1">
+                      <label title="Tempo limite em segundos para o Oxidized efetuar a leitura completa das configurações">
+                        Timeout de Coleta (s)
+                      </label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="600"
+                        step="5"
+                        placeholder="30"
+                        value={formData.backup_timeout !== undefined ? formData.backup_timeout : 30}
+                        onChange={e => setFormData({ ...formData, backup_timeout: e.target.value })}
+                      />
                     </div>
                   </div>
-                  <div className="form-group flex-2">
-                    <label>Modelo no Oxidized</label>
-                    <select
-                      value={(() => {
-                        const m = (formData.backup_model || '').toLowerCase();
-                        if (m === 'dmos' || m === 'datacom') return 'datacom';
-                        if (m === 'routeros') return 'RouterOS';
-                        return formData.backup_model || 'RouterOS';
-                      })()}
-                      onChange={e => setFormData({ ...formData, backup_model: e.target.value })}
-                    >
-                      <option value="RouterOS">MikroTik (RouterOS)</option>
-                      <option value="ios">Cisco (IOS / IOS-XE)</option>
-                      <option value="datacom">Datacom (DmOS)</option>
-                      <option value="vrp">Huawei (VRP)</option>
-                      <option value="fortios">Fortinet (FortiOS)</option>
-                      <option value="edgecos">EdgeCore / EdgeOS</option>
-                      <option value="junos">Juniper (JunOS)</option>
-                    </select>
-                  </div>
-                  <div className="form-group flex-1">
-                    <label title="Tempo limite em segundos para o Oxidized efetuar a leitura completa das configurações">
-                      Timeout Oxidized (s)
-                    </label>
-                    <input
-                      type="number"
-                      min="5"
-                      max="600"
-                      step="5"
-                      placeholder="30"
-                      value={formData.backup_timeout !== undefined ? formData.backup_timeout : 30}
-                      onChange={e => setFormData({ ...formData, backup_timeout: e.target.value })}
-                      title="Tempo limite em segundos (padrão 30s). Aumente para equipamentos com configurações extensas."
-                    />
-                  </div>
+                  <p className="config-card-hint">
+                    O Oxidized consome as credenciais SSH/Telnet configuradas no bloco ao lado e recarrega a lista quando acionado em <strong>Sincronizar Oxidized</strong>.
+                  </p>
                 </div>
-
-                {/* Seleção de Testes de Conectividade Aplicáveis */}
-                <div className="form-section-title" style={{ marginTop: '1.25rem' }}>
-                  Testes de Conectividade Aplicáveis a este Equipamento
-                </div>
-                <div className="acc-tests-config-row">
-                  <label className="test-checkbox-label">
-                    <input 
-                      type="checkbox" 
-                      className="diag-custom-checkbox"
-                      checked={enabledTests.icmp}
-                      onChange={e => setEnabledTests({ ...enabledTests, icmp: e.target.checked })}
-                    />
-                    <span>Habilitar Ping (ICMP)</span>
-                  </label>
-
-                  <label className="test-checkbox-label">
-                    <input 
-                      type="checkbox" 
-                      className="diag-custom-checkbox"
-                      checked={enabledTests.snmp}
-                      onChange={e => setEnabledTests({ ...enabledTests, snmp: e.target.checked })}
-                    />
-                    <span>Habilitar Consulta SNMP v2c</span>
-                  </label>
-
-                  <label className="test-checkbox-label">
-                    <input 
-                      type="checkbox" 
-                      className="diag-custom-checkbox"
-                      checked={enabledTests.remote}
-                      onChange={e => setEnabledTests({ ...enabledTests, remote: e.target.checked })}
-                    />
-                    <span>Habilitar Teste de Porta Remota ({formData.remote_protocol.toUpperCase()})</span>
-                  </label>
-                </div>
-
-                <div className="panel-footer-actions" style={{ marginTop: '1.5rem' }}>
-                  <button type="submit" className="btn-primary" disabled={isSaving}>
-                    <Save size={16} className={isSaving ? 'spin-icon' : ''} />
-                    {isSaving ? 'Salvando...' : 'Salvar no IperSoft'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-        </div>
-
-        {/* -----------------------------------------------------------------
-            LINHA 2: DADOS NO ZABBIX (CADASTRO E CONFIGURAÇÃO)
-            ----------------------------------------------------------------- */}
-        <div className={`accordion-card acc-card-${zbxColor} ${openSections.zabbix ? 'is-open' : ''} ${!zbxActive ? 'is-disabled' : ''}`}>
-          <div 
-            className="accordion-header" 
-            onClick={() => toggleSection('zabbix', !zbxActive)}
-            title={!zbxActive ? 'Monitoramento desativado para este equipamento no Zabbix' : 'Clique para ver dados cadastrados no Zabbix'}
-          >
-            <div className="acc-header-left">
-              <span className="acc-chevron">
-                {openSections.zabbix ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-              </span>
-              <div className="acc-title-group">
-                <Radio size={18} color="#e53935" />
-                <span className="acc-title-text">Dados no Zabbix</span>
-                <span className={`badge-status-pill badge-${zbxColor}`}>
-                  {zbxColor === 'green' ? 'Ativo & Sincronizado' : zbxColor === 'red' ? 'Pendente de Cadastro' : 'Desativado'}
-                </span>
               </div>
             </div>
 
-            <div className="acc-header-right">
-              {zbxActive && zabbix?.hostid && (
-                <span className="acc-header-hint font-mono">HostID: {zabbix.hostid}</span>
-              )}
+            <div className="panel-footer-actions" style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                * Salvar atualiza apenas o banco de dados do IperSoft. Nenhuma alteração externa é disparada automaticamente.
+              </span>
+              <button type="submit" className="btn-primary" disabled={isSaving}>
+                <Save size={16} className={isSaving ? 'spin-icon' : ''} />
+                {isSaving ? 'Salvando...' : 'Salvar Cadastro no IperSoft'}
+              </button>
             </div>
-          </div>
+          </form>
+        </div>
+      )}
 
-          {openSections.zabbix && zbxActive && (
-            <div className="accordion-body">
-              {isLoadingZbxDetails ? (
-                <div className="lazy-loading-box">
-                  <RefreshCw size={22} className="spin-icon" color="#e53935" />
-                  <span>Consultando dados cadastrais diretamente na API do Zabbix...</span>
+      {/* =========================================================================
+          ABA 3: COMPARATIVO & SINCRONIZAÇÃO EXTERNA (3 COLUNAS LADO A LADO)
+          ========================================================================= */}
+      {activeTab === 'integrations' && (
+        <div className="detail-tab-content">
+          {differences.length > 0 && (
+            <div className="differences-alert-box">
+              <AlertTriangle size={18} color="#f59e0b" />
+              <div>
+                <strong>Divergências detectadas entre o cadastro local (IperSoft) e as integrações:</strong>
+                <ul className="differences-list">
+                  {differences.map((diff, idx) => (
+                    <li key={idx}>
+                      <strong>{diff.field}:</strong> IperSoft (<code>{String(diff.ipersoft ?? '-')}</code>) vs Externo (<code>{String(diff.external ?? '-')}</code>)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          <div className="integrations-comparison-grid">
+            {/* COLUNA 1: ZABBIX SERVER */}
+            <div className={`integration-column-card border-${zbxColor}`}>
+              <div className="integration-col-header">
+                <div className="integration-col-title">
+                  <Radio size={18} color="#e53935" />
+                  <h4>Zabbix Server</h4>
                 </div>
-              ) : zbxDetails ? (
-                <div className="platform-details-view">
-                  <div className="detail-meta-grid">
-                    <div className="meta-box">
-                      <span className="meta-label">Nome Técnico (host):</span>
-                      <span className="meta-val font-mono">{zbxDetails.host}</span>
+                <span className={`badge-status-pill badge-${zbxColor}`}>
+                  {!zbxActive ? 'Desativado' : zbxSynced ? 'Sincronizado' : 'Pendente'}
+                </span>
+              </div>
+
+              <div className="integration-col-body">
+                {!zbxActive ? (
+                  <p className="text-muted">Monitoramento desativado no cadastro do IperSoft.</p>
+                ) : isLoadingZbxDetails ? (
+                  <div className="lazy-loading-box">
+                    <RefreshCw size={20} className="spin-icon" color="#e53935" />
+                    <span>Consultando API do Zabbix...</span>
+                  </div>
+                ) : zbxDetails ? (
+                  <div className="integration-kv-list">
+                    <div className="kv-row">
+                      <span>HostID no Zabbix:</span>
+                      <code>{zbxDetails.hostid}</code>
                     </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Nome Visível (name):</span>
-                      <span className="meta-val font-bold">{zbxDetails.name}</span>
+                    <div className="kv-row">
+                      <span>Host Técnico:</span>
+                      <code>{zbxDetails.host}</code>
                     </div>
-                    <div className="meta-box">
-                      <span className="meta-label">HostID:</span>
-                      <span className="meta-val font-mono">{zbxDetails.hostid}</span>
+                    <div className="kv-row">
+                      <span>Nome Visível:</span>
+                      <strong>{zbxDetails.name}</strong>
                     </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Status no Zabbix:</span>
-                      <span className="meta-val">
-                        <span className={`status-pill ${zbxDetails.status === 'monitored' ? 'status-pill-ok' : 'status-pill-disabled'}`}>
-                          {zbxDetails.status === 'monitored' ? 'Monitorado' : 'Desativado'}
-                        </span>
+                    <div className="kv-row">
+                      <span>Status no Servidor:</span>
+                      <span className={`status-pill ${zbxDetails.status === 'monitored' ? 'status-pill-ok' : 'status-pill-disabled'}`}>
+                        {zbxDetails.status === 'monitored' ? 'Monitorado' : 'Desativado'}
                       </span>
                     </div>
-                  </div>
-
-                  {/* Templates Associados */}
-                  <div className="detail-chips-section">
-                    <span className="chips-section-title">Templates Associados no Zabbix:</span>
-                    <div className="chips-group">
-                      {zbxDetails.templates && zbxDetails.templates.length > 0 ? (
-                        zbxDetails.templates.map((tpl, idx) => (
-                          <span key={idx} className="chip-badge chip-template">
-                            <Layers size={12} /> {tpl}
+                    <div className="kv-block">
+                      <span>Interfaces:</span>
+                      <div className="chips-group" style={{ marginTop: '4px' }}>
+                        {(zbxDetails.interfaces || []).map((iface, i) => (
+                          <span key={i} className="chip-badge chip-interface">
+                            <code>{iface.ip || iface.dns}:{iface.port}</code>
                           </span>
-                        ))
-                      ) : (
-                        <span className="text-muted">Nenhum template associado.</span>
-                      )}
+                        ))}
+                      </div>
+                    </div>
+                    <div className="kv-block">
+                      <span>Host Groups:</span>
+                      <div className="chips-group" style={{ marginTop: '4px' }}>
+                        {(zbxDetails.host_groups || []).map((g, i) => (
+                          <span key={i} className="chip-badge chip-group">{g}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="kv-block">
+                      <span>Templates:</span>
+                      <div className="chips-group" style={{ marginTop: '4px' }}>
+                        {(zbxDetails.templates || []).map((t, i) => (
+                          <span key={i} className="chip-badge chip-template">{t}</span>
+                        ))}
+                      </div>
                     </div>
                   </div>
+                ) : (
+                  <p className="text-muted">Equipamento ainda não cadastrado no Zabbix Server.</p>
+                )}
+              </div>
 
-                  {/* Host Groups */}
-                  <div className="detail-chips-section">
-                    <span className="chips-section-title">Host Groups (Grupos de Hosts):</span>
-                    <div className="chips-group">
-                      {zbxDetails.host_groups && zbxDetails.host_groups.length > 0 ? (
-                        zbxDetails.host_groups.map((grp, idx) => (
-                          <span key={idx} className="chip-badge chip-group">
-                            {grp}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-muted">Nenhum grupo associado.</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Interfaces */}
-                  <div className="detail-chips-section">
-                    <span className="chips-section-title">Interfaces Cadastradas no Zabbix:</span>
-                    <div className="chips-group">
-                      {zbxDetails.interfaces && zbxDetails.interfaces.length > 0 ? (
-                        zbxDetails.interfaces.map((iface, idx) => (
-                          <span key={idx} className="chip-badge chip-interface">
-                            <code>{iface.ip || iface.dns}:{iface.port}</code> 
-                            <small>({iface.type === 2 ? 'SNMP' : 'Agente'}{iface.community ? ` - ${iface.community}` : ''})</small>
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-muted">Nenhuma interface listada.</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Ações da Linha */}
-                  <div className="acc-body-footer">
-                    <button 
-                      type="button" 
-                      className="btn-platform-sync btn-sync-zbx"
-                      style={{ marginLeft: 'auto' }}
-                      onClick={handleSyncZabbix}
-                      disabled={isSyncingZbx || !isAdmin}
-                    >
-                      <RefreshCw size={14} className={isSyncingZbx ? 'spin-icon' : ''} />
-                      {isSyncingZbx ? 'Atualizando...' : 'Atualizar Cadastro no Zabbix'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="platform-not-synced-box">
-                  <AlertCircle size={20} color="var(--color-danger)" />
-                  <div>
-                    <strong>Equipamento não cadastrado no Zabbix Server.</strong>
-                    <span style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      Clique no botão abaixo para criar este host com interfaces e grupos no Zabbix.
-                    </span>
-                  </div>
-                  <button 
-                    type="button" 
-                    className="btn-platform-sync btn-sync-zbx" 
-                    style={{ marginLeft: 'auto' }}
-                    onClick={handleSyncZabbix}
-                    disabled={isSyncingZbx || !isAdmin}
-                  >
-                    <RefreshCw size={14} className={isSyncingZbx ? 'spin-icon' : ''} />
-                    Cadastrar no Zabbix
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* -----------------------------------------------------------------
-            LINHA 3: DADOS NO GUACAMOLE (CADASTRO E CONFIGURAÇÃO)
-            ----------------------------------------------------------------- */}
-        <div className={`accordion-card acc-card-${guacColor} ${openSections.guacamole ? 'is-open' : ''} ${!guacActive ? 'is-disabled' : ''}`}>
-          <div 
-            className="accordion-header" 
-            onClick={() => toggleSection('guacamole', !guacActive)}
-            title={!guacActive ? 'Acesso remoto desativado/ignorado no Apache Guacamole' : 'Clique para ver dados da conexão no Guacamole'}
-          >
-            <div className="acc-header-left">
-              <span className="acc-chevron">
-                {openSections.guacamole ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-              </span>
-              <div className="acc-title-group">
-                <Terminal size={18} color="#00bcd4" />
-                <span className="acc-title-text">Dados no Guacamole</span>
-                <span className={`badge-status-pill badge-${guacColor}`}>
-                  {guacColor === 'green' ? 'Ativo & Conexão Pronta' : guacColor === 'red' ? 'Pendente de Conexão' : 'Desativado'}
-                </span>
+              <div className="integration-col-footer">
+                <button 
+                  type="button" 
+                  className="btn-platform-sync btn-sync-zbx"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={handleSyncZabbix}
+                  disabled={isSyncingZbx || !isAdmin}
+                >
+                  <RefreshCw size={14} className={isSyncingZbx ? 'spin-icon' : ''} />
+                  <span>{isSyncingZbx ? 'Sincronizando...' : (zbxDetails ? 'Atualizar no Zabbix Server' : 'Criar Host no Zabbix')}</span>
+                </button>
               </div>
             </div>
 
-            <div className="acc-header-right">
-              {guacActive && comparison?.guacamole?.connection_id && (
-                <span className="acc-header-hint font-mono">ID: {comparison.guacamole.connection_id}</span>
-              )}
-            </div>
-          </div>
-
-          {openSections.guacamole && guacActive && (
-            <div className="accordion-body">
-              {isLoadingGuacDetails ? (
-                <div className="lazy-loading-box">
-                  <RefreshCw size={22} className="spin-icon" color="#00bcd4" />
-                  <span>Consultando dados da conexão diretamente no Apache Guacamole...</span>
+            {/* COLUNA 2: APACHE GUACAMOLE */}
+            <div className={`integration-column-card border-${guacColor}`}>
+              <div className="integration-col-header">
+                <div className="integration-col-title">
+                  <Terminal size={18} color="#00bcd4" />
+                  <h4>Apache Guacamole</h4>
                 </div>
-              ) : guacDetails ? (
-                <div className="platform-details-view">
-                  <div className="detail-meta-grid">
-                    <div className="meta-box">
-                      <span className="meta-label">Pasta / Grupo no Guacamole:</span>
-                      <span className="meta-val font-bold" style={{ color: '#00bcd4' }}>{guacDetails.folder_name || 'ROOT'}</span>
+                <span className={`badge-status-pill badge-${guacColor}`}>
+                  {!guacActive ? 'Ignorado' : guacSynced ? 'Conexão Ativa' : 'Pendente'}
+                </span>
+              </div>
+
+              <div className="integration-col-body">
+                {!guacActive ? (
+                  <p className="text-muted">Acesso remoto marcado como ignorado no IperSoft.</p>
+                ) : isLoadingGuacDetails ? (
+                  <div className="lazy-loading-box">
+                    <RefreshCw size={20} className="spin-icon" color="#00bcd4" />
+                    <span>Consultando API do Guacamole...</span>
+                  </div>
+                ) : guacDetails ? (
+                  <div className="integration-kv-list">
+                    <div className="kv-row">
+                      <span>ID Conexão:</span>
+                      <code>{comparison?.guacamole?.connection_id || '-'}</code>
                     </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Host Remoto (IP / Hostname):</span>
-                      <span className="meta-val font-mono">{guacDetails.hostname || '-'}</span>
+                    <div className="kv-row">
+                      <span>Pasta / Grupo:</span>
+                      <strong style={{ color: '#00bcd4' }}>{guacDetails.folder_name || 'ROOT'}</strong>
                     </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Protocolo & Porta:</span>
-                      <span className="meta-val uppercase"><code>{guacDetails.protocol} : {guacDetails.port}</code></span>
+                    <div className="kv-row">
+                      <span>Host Destino:</span>
+                      <code>{guacDetails.hostname || '-'}</code>
                     </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Usuário Cadastrado:</span>
-                      <span className="meta-val">{guacDetails.username || <span className="text-muted">Não configurado</span>}</span>
+                    <div className="kv-row">
+                      <span>Protocolo & Porta:</span>
+                      <code>{(guacDetails.protocol || 'ssh').toUpperCase()} : {guacDetails.port}</code>
                     </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Senha no Guacamole:</span>
-                      <span className="meta-val">
+                    <div className="kv-row">
+                      <span>Usuário Remoto:</span>
+                      <strong>{guacDetails.username || '-'}</strong>
+                    </div>
+                    <div className="kv-row">
+                      <span>Senha no Guacamole:</span>
+                      <span>
                         {guacDetails.has_password ? (
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            <span className="status-pill-ok" style={{ fontSize: '0.72rem' }}>Gravada</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="status-pill-ok" style={{ fontSize: '0.7rem' }}>Gravada</span>
                             {guacDetails.password && (
                               <button 
                                 type="button" 
                                 className="btn-toggle-eye" 
                                 onClick={() => setShowGuacPassword(!showGuacPassword)}
-                                title="Visualizar senha"
                               >
-                                {showGuacPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                                {showGuacPassword ? <EyeOff size={13} /> : <Eye size={13} />}
                               </button>
                             )}
                             {showGuacPassword && guacDetails.password && (
-                              <code style={{ fontSize: '0.8rem', color: 'var(--color-primary)' }}>{guacDetails.password}</code>
+                              <code>{guacDetails.password}</code>
                             )}
-                          </div>
+                          </span>
                         ) : (
-                          <span className="text-muted">Nenhuma senha gravada</span>
+                          <span className="text-muted">Ausente</span>
                         )}
                       </span>
                     </div>
                   </div>
-
-                  {/* Ações da Linha */}
-                  <div className="acc-body-footer">
-                    <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
-                      <button 
-                        type="button" 
-                        className="btn-platform-sync btn-sync-guac"
-                        onClick={handleSyncGuacamole}
-                        disabled={isSyncingGuac || !isAdmin}
-                      >
-                        <RefreshCw size={14} className={isSyncingGuac ? 'spin-icon' : ''} />
-                        {isSyncingGuac ? 'Sincronizando...' : 'Atualizar no Guacamole'}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn-delete-guac"
-                        onClick={handleRemoveGuacamole}
-                        disabled={isRemovingGuac || !isAdmin}
-                      >
-                        <Trash2 size={14} className={isRemovingGuac ? 'spin-icon' : ''} />
-                        Excluir Conexão
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="platform-not-synced-box">
-                  <Terminal size={20} color="var(--color-danger)" />
-                  <div>
-                    <strong>Nenhuma conexão cadastrada no Apache Guacamole.</strong>
-                    <span style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      Clique abaixo para criar o acesso remoto SSH/Telnet/RDP automaticamente no Guacamole.
-                    </span>
-                  </div>
-                  <button 
-                    type="button" 
-                    className="btn-platform-sync btn-sync-guac" 
-                    style={{ marginLeft: 'auto' }}
-                    onClick={handleSyncGuacamole}
-                    disabled={isSyncingGuac || !isAdmin}
-                  >
-                    <RefreshCw size={14} className={isSyncingGuac ? 'spin-icon' : ''} />
-                    Criar no Guacamole
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* -----------------------------------------------------------------
-            LINHA 4: DADOS NO OXIDIZED (BACKUP DE CONFIGURAÇÕES)
-            ----------------------------------------------------------------- */}
-        <div className={`accordion-card acc-card-${oxColor} ${openSections.oxidized ? 'is-open' : ''} ${!oxActive ? 'is-disabled' : ''}`}>
-          <div 
-            className="accordion-header" 
-            onClick={() => toggleSection('oxidized', !oxActive)}
-            title={!oxActive ? 'Backup desativado para este equipamento no Oxidized' : 'Clique para ver dados de backup no Oxidized'}
-          >
-            <div className="acc-header-left">
-              <span className="acc-chevron">
-                {openSections.oxidized ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-              </span>
-              <div className="acc-title-group">
-                <FileCode size={18} color="#e91e63" />
-                <span className="acc-title-text">Dados no Oxidized (Backup de Configurações)</span>
-                <span className={`badge-status-pill badge-${oxColor}`}>
-                  {oxColor === 'green' ? 'Ativo & Backup em Dia' : oxColor === 'yellow' ? 'Ativo (Aguardando Coleta)' : oxColor === 'red' ? 'Pendente / Falha' : 'Desativado'}
-                </span>
-              </div>
-            </div>
-
-            <div className="acc-header-right">
-              {oxActive && comparison?.oxidized?.last_backup && (
-                <span className="acc-header-hint font-mono">
-                  Último: {new Date(comparison.oxidized.last_backup).toLocaleDateString('pt-BR')}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {openSections.oxidized && oxActive && (
-            <div className="accordion-body">
-              {isLoadingOxDetails ? (
-                <div className="lazy-loading-box">
-                  <RefreshCw size={22} className="spin-icon" color="#e91e63" />
-                  <span>Consultando status do nó diretamente no Oxidized...</span>
-                </div>
-              ) : oxDetails ? (
-                <div className="platform-details-view">
-                  <div className="detail-meta-grid">
-                    <div className="meta-box">
-                      <span className="meta-label">Nó no Oxidized:</span>
-                      <span className="meta-val font-mono">{oxDetails.name}</span>
-                    </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Modelo / SO:</span>
-                      <span className="meta-val"><code>{oxDetails.model}</code></span>
-                    </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Pasta / Grupo Git:</span>
-                      <span className="meta-val"><code>{oxDetails.group}</code></span>
-                    </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Status da Última Coleta:</span>
-                      <span className="meta-val">
-                        <span className={`status-pill ${oxDetails.status === 'success' ? 'status-pill-ok' : 'status-pill-fail'}`}>
-                          {oxDetails.status}
-                        </span>
-                      </span>
-                    </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Último Backup Realizado:</span>
-                      <span className="meta-val">
-                        {oxDetails.last_backup ? (
-                          `${new Date(oxDetails.last_backup).toLocaleString('pt-BR')} ${oxDetails.time_taken ? `(${oxDetails.time_taken}s)` : ''}`
-                        ) : (
-                          <span className="text-muted">Pendente</span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="meta-box">
-                      <span className="meta-label">Timeout de Coleta:</span>
-                      <span className="meta-val">
-                        <code>{oxDetails.timeout || formData.backup_timeout || 30}s</code>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Ações da Linha */}
-                  <div className="acc-body-footer">
-                    <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
-                      <button 
-                        type="button" 
-                        className="btn-platform-sync"
-                        style={{ borderColor: 'rgba(233, 30, 99, 0.4)', color: '#f48fb1' }}
-                        onClick={handleTriggerOxBackup}
-                        disabled={isTriggeringOxBackup || !isAdmin}
-                      >
-                        <RefreshCw size={14} className={isTriggeringOxBackup ? 'spin-icon' : ''} />
-                        {isTriggeringOxBackup ? 'Solicitando...' : 'Fazer Backup Agora'}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={handleReloadOxidized}
-                        disabled={isReloadingOx || !isAdmin}
-                        title="Força o Oxidized a recarregar as credenciais e nós a partir do IperSoft (/reload)"
-                      >
-                        {isReloadingOx ? <RefreshCw size={14} className="spin-icon" /> : <RotateCcw size={14} />}
-                        <span>{isReloadingOx ? 'Recarregando...' : 'Recarregar no Oxidized'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={handleViewOxConfig}
-                        disabled={isLoadingOxConfig}
-                      >
-                        {isLoadingOxConfig ? <RefreshCw size={14} className="spin-icon" /> : <Eye size={14} />}
-                        <span>Ver Configuração Atual</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="platform-not-synced-box">
-                  <FileCode size={20} color="var(--color-danger)" />
-                  <div>
-                    <strong>Nenhum nó vinculado no Oxidized para este equipamento.</strong>
-                    <span style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      O dispositivo será importado dinamicamente pelo Oxidized ou sincronizado nas integrações.
-                    </span>
-                  </div>
-                  <button 
-                    type="button" 
-                    className="btn-secondary" 
-                    style={{ marginLeft: 'auto' }}
-                    onClick={fetchOxidizedDetails}
-                  >
-                    <RefreshCw size={14} /> Recarregar
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* -----------------------------------------------------------------
-            LINHA 5: STATUS DO ZABBIX (ALARMES E ITENS COM GRÁFICO / TIMELINE)
-            ----------------------------------------------------------------- */}
-        <div className={`accordion-card acc-card-${zbxActive ? 'cyan' : 'gray'} ${openSections.zabbix_status ? 'is-open' : ''} ${!zbxActive ? 'is-disabled' : ''}`}>
-          <div 
-            className="accordion-header" 
-            onClick={() => toggleSection('zabbix_status', !zbxActive)}
-            title={!zbxActive ? 'Habilite o monitoramento no Zabbix para visualizar alarmes e métricas' : 'Clique para ver alarmes ativos, itens e gráficos'}
-          >
-            <div className="acc-header-left">
-              <span className="acc-chevron">
-                {openSections.zabbix_status ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-              </span>
-              <div className="acc-title-group">
-                <AlertTriangle size={18} color={zbxActive ? '#ff9800' : 'var(--text-muted)'} />
-                <span className="acc-title-text">Status do Zabbix: Alarmes Ativos & Itens do Host</span>
-                {zbxActive && zbxProblems && (
-                  <span className={`badge-alarm-count ${zbxProblems.length > 0 ? 'has-alarms' : 'no-alarms'}`}>
-                    {zbxProblems.length} {zbxProblems.length === 1 ? 'alarme ativo' : 'alarmes ativos'}
-                  </span>
-                )}
-                {!zbxActive && (
-                  <span className="badge-status-pill badge-gray">Monitoramento Desativado</span>
+                ) : (
+                  <p className="text-muted">Nenhuma conexão criada no servidor Guacamole.</p>
                 )}
               </div>
-            </div>
 
-            <div className="acc-header-right">
-              {zbxActive && openSections.zabbix_status && (
+              <div className="integration-col-footer" style={{ display: 'flex', gap: '8px' }}>
                 <button 
                   type="button" 
-                  className="btn-acc-refresh"
-                  onClick={(e) => { e.stopPropagation(); fetchZabbixStatusAndItems(); }}
-                  title="Atualizar alarmes e itens agora"
+                  className="btn-platform-sync btn-sync-guac"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={handleSyncGuacamole}
+                  disabled={isSyncingGuac || !isAdmin}
                 >
-                  <RefreshCw size={13} className={isLoadingZbxProblems || isLoadingZbxItems ? 'spin-icon' : ''} />
-                  <span>Atualizar</span>
+                  <RefreshCw size={14} className={isSyncingGuac ? 'spin-icon' : ''} />
+                  <span>{isSyncingGuac ? 'Enviando...' : (guacDetails ? 'Atualizar Conexão' : 'Criar no Guacamole')}</span>
                 </button>
-              )}
-            </div>
-          </div>
-
-          {openSections.zabbix_status && zbxActive && (
-            <div className="accordion-body">
-              <div className="zbx-monitor-grid">
-                
-                {/* COLUNA ESQUERDA: SUBCARD ALARMES ATIVOS */}
-                <div className="zbx-panel-card zbx-panel-alarms">
-                  <div className="panel-card-header">
-                    <div className="panel-card-title">
-                      <AlertTriangle size={16} color="#e53935" />
-                      <h4>Alarmes Ativos (Triggers em Problema)</h4>
-                    </div>
-                    {zbxProblems && (
-                      <span className="badge-count-pill">{zbxProblems.length}</span>
-                    )}
-                  </div>
-
-                  <div className="panel-card-content">
-                    {isLoadingZbxProblems ? (
-                      <div className="lazy-loading-box">
-                        <RefreshCw size={20} className="spin-icon" color="#e53935" />
-                        <span>Buscando problemas ativos no Zabbix...</span>
-                      </div>
-                    ) : zbxProblems && zbxProblems.length > 0 ? (
-                      <div className="alarms-active-list">
-                        {zbxProblems.map((prob) => (
-                          <div key={prob.triggerid} className={`alarm-active-item ${prob.is_closed ? 'row-closed' : ''}`} style={{ borderLeftColor: prob.severity_color }}>
-                            <div className="alarm-item-header">
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                                <span className="alarm-sev-badge" style={{ backgroundColor: prob.severity_color }}>
-                                  {prob.severity_label}
-                                </span>
-                                
-                                <label 
-                                  className="alarm-ack-toggle-label"
-                                  title={prob.acknowledged ? "Clique para desmarcar o reconhecimento no Zabbix" : "Clique para marcar este alarme como reconhecido no Zabbix"}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(prob.acknowledged)}
-                                    disabled={Boolean(acknowledgingEvents[prob.eventid] || !prob.eventid || prob.is_closed)}
-                                    onChange={() => handleToggleAcknowledge(prob)}
-                                    className="diag-custom-checkbox"
-                                  />
-                                  <span className={prob.acknowledged ? 'ack-status-pill pill-ack' : 'ack-status-pill pill-unack'}>
-                                    {acknowledgingEvents[prob.eventid] ? 'Salvando...' : (prob.acknowledged ? 'Reconhecido' : 'Não Reconhecido')}
-                                  </span>
-                                </label>
-
-                                <label 
-                                  className="alarm-close-toggle-label"
-                                  title={prob.is_closed ? "Alarme já encerrado no Zabbix" : "Clique para encerrar este alarme no Zabbix"}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(prob.is_closed)}
-                                    disabled={Boolean(closingEvents[prob.eventid || prob.triggerid] || (!prob.eventid && !prob.triggerid) || prob.is_closed)}
-                                    onChange={() => handleCloseProblem(prob)}
-                                    className="diag-custom-checkbox"
-                                  />
-                                  <span className={prob.is_closed ? 'ack-status-pill pill-closed' : 'ack-status-pill pill-open'}>
-                                    {closingEvents[prob.eventid || prob.triggerid] ? 'Encerrando...' : (prob.is_closed ? 'Encerrado' : 'Encerrar')}
-                                  </span>
-                                </label>
-                              </div>
-
-                              <span className="alarm-time">
-                                <Clock size={11} />
-                                {new Date(prob.lastchange * 1000).toLocaleString('pt-BR')}
-                              </span>
-                            </div>
-
-                            <div className="alarm-item-desc">{prob.description}</div>
-
-                            {prob.opdata && (
-                              <div className="alarm-item-opdata">
-                                <Activity size={11} className="opdata-icon" />
-                                <span className="opdata-label">Dado Operacional:</span>
-                                <strong>{prob.opdata}</strong>
-                              </div>
-                            )}
-
-                            {/* Itens vinculados ao alarme */}
-                            {prob.items && prob.items.length > 0 && (
-                              <div className="alarm-item-actions">
-                                {prob.items.map((it) => (
-                                  <button
-                                    key={it.itemid}
-                                    type="button"
-                                    className={`btn-alarm-view-item ${selectedItem?.itemid === it.itemid ? 'active' : ''}`}
-                                    onClick={() => handleSelectItem(it)}
-                                    title="Ver histórico e gráfico deste item para validar alarme"
-                                  >
-                                    <TrendingUp size={12} />
-                                    <span>Ver Histórico: {it.name}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="alarms-empty-box">
-                        <CheckCircle2 size={28} color="var(--color-success)" />
-                        <strong>Nenhum alarme ativo no momento!</strong>
-                        <span>Todos os triggers monitorados no Zabbix estão operando normalmente.</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* COLUNA DIREITA: SUBCARD ITENS DO HOST COM FILTRO */}
-                <div className="zbx-panel-card zbx-panel-items">
-                  <div className="panel-card-header">
-                    <div className="panel-card-title">
-                      <TrendingUp size={16} color="var(--color-primary)" />
-                      <h4>Itens de Monitoramento do Host</h4>
-                    </div>
-                    {zbxItems && (
-                      <span className="badge-count-pill">{zbxItems.length}</span>
-                    )}
-                  </div>
-
-                  <div className="panel-card-content">
-                    {/* Campo de Busca Rápida de Itens */}
-                    <div className="items-search-box">
-                      <Search size={14} color="var(--text-muted)" />
-                      <input 
-                        type="text" 
-                        placeholder="Pesquisar métricas (ping, cpu, interface, traffic...)"
-                        value={itemSearchQuery}
-                        onChange={e => setItemSearchQuery(e.target.value)}
-                      />
-                      {itemSearchQuery && (
-                        <button type="button" className="btn-clear-search" onClick={() => setItemSearchQuery('')}>✕</button>
-                      )}
-                    </div>
-
-                    {isLoadingZbxItems ? (
-                      <div className="lazy-loading-box">
-                        <RefreshCw size={20} className="spin-icon" color="var(--color-primary)" />
-                        <span>Carregando itens monitorados...</span>
-                      </div>
-                    ) : filteredItems.length > 0 ? (
-                      <div className="items-selector-list">
-                        {filteredItems.slice(0, 50).map((it) => (
-                          <div 
-                            key={it.itemid} 
-                            className={`item-selector-row ${selectedItem?.itemid === it.itemid ? 'selected' : ''}`}
-                            onClick={() => handleSelectItem(it)}
-                          >
-                            <div className="item-row-left">
-                              <span className="item-row-name" title={it.name}>{it.name}</span>
-                              <code className="item-row-key" title={it.key}>{it.key}</code>
-                            </div>
-                            <div className="item-row-right">
-                              <span className="item-row-val">
-                                {it.lastvalue !== null && it.lastvalue !== undefined ? `${it.lastvalue} ${it.units || ''}` : '-'}
-                              </span>
-                              <span className={`item-type-pill ${it.is_numeric ? 'type-num' : 'type-text'}`}>
-                                {it.is_numeric ? 'Numérico' : 'Texto'}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                        {filteredItems.length > 50 && (
-                          <small style={{ color: 'var(--text-muted)', textAlign: 'center', display: 'block', padding: '6px' }}>
-                            Mostrando 50 de {filteredItems.length} itens. Use a busca acima para refinar.
-                          </small>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="chart-empty-state">
-                        <span>Nenhum item correspondente à busca.</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-              </div>
-
-              {/* PAINEL INFERIOR: VISUALIZAÇÃO DO GRÁFICO OU TIMELINE DO ITEM SELECIONADO */}
-              {selectedItem && (
-                <div className="zbx-history-chart-wrapper">
-                  <div className="chart-wrapper-header">
-                    <div className="chart-title-group">
-                      <TrendingUp size={16} color="var(--color-primary)" />
-                      <div>
-                        <strong>{selectedItem.name}</strong>
-                        <code className="chart-key-badge">{selectedItem.key}</code>
-                      </div>
-                    </div>
-
-                    <div className="chart-controls-group">
-                      <span className="chart-controls-label">Período:</span>
-                      {['1h', '6h', '24h', '7d'].map((per) => (
-                        <button
-                          key={per}
-                          type="button"
-                          className={`btn-period-pill ${itemHistoryPeriod === per ? 'active' : ''}`}
-                          onClick={() => handlePeriodChange(per)}
-                          disabled={isLoadingItemHistory}
-                        >
-                          {per}
-                        </button>
-                      ))}
-
-                      <button
-                        type="button"
-                        className="btn-acc-refresh"
-                        onClick={() => handleSelectItem(selectedItem)}
-                        disabled={isLoadingItemHistory}
-                        title="Recarregar dados"
-                      >
-                        <RefreshCw size={13} className={isLoadingItemHistory ? 'spin-icon' : ''} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="chart-wrapper-body">
-                    {isLoadingItemHistory ? (
-                      <div className="lazy-loading-box">
-                        <RefreshCw size={24} className="spin-icon" color="var(--color-primary)" />
-                        <span>Carregando série histórica de dados no Zabbix...</span>
-                      </div>
-                    ) : selectedItem.is_numeric ? (
-                      <ZabbixNumericChart 
-                        history={itemHistory} 
-                        units={selectedItem.units || ''} 
-                        period={itemHistoryPeriod}
-                        item={selectedItem}
-                      />
-                    ) : (
-                      <ZabbixTextTimeline 
-                        history={itemHistory} 
-                        item={selectedItem}
-                      />
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* -----------------------------------------------------------------
-            LINHA 6: CONEXÃO REMOTA (GUACAMOLE SSO AUTOMATIZADO)
-            ----------------------------------------------------------------- */}
-        <div className={`accordion-card acc-card-${guacActive ? 'cyan' : 'gray'} ${openSections.remote ? 'is-open' : ''} ${!guacActive ? 'is-disabled' : ''}`}>
-          <div 
-            className="accordion-header" 
-            onClick={() => toggleSection('remote', !guacActive)}
-            title={!guacActive ? 'Acesso remoto desativado para este equipamento' : 'Clique para abrir terminal remoto'}
-          >
-            <div className="acc-header-left">
-              <span className="acc-chevron">
-                {openSections.remote ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-              </span>
-              <div className="acc-title-group">
-                <Terminal size={18} color={guacActive ? '#00bcd4' : 'var(--text-muted)'} />
-                <span className="acc-title-text">Conexão Remota (Apache Guacamole SSO)</span>
-                <span className={`badge-status-pill badge-${guacColor}`}>
-                  {guacActive ? (guacSynced ? 'Sessão Pronta (Zero Login)' : 'Pendente de Conexão') : 'Acesso Desativado'}
-                </span>
-              </div>
-            </div>
-
-            <div className="acc-header-right">
-              {guacActive && (
-                <span className="acc-header-hint uppercase">
-                  {formData.remote_protocol} : {formData.remote_port}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {openSections.remote && guacActive && (
-            <div className="accordion-body">
-              {isLoadingGuacLaunch ? (
-                <div className="lazy-loading-box">
-                  <RefreshCw size={22} className="spin-icon" color="#00bcd4" />
-                  <span>Gerando sessão autenticada com token SSO no Apache Guacamole...</span>
-                </div>
-              ) : guacSynced && directGuacUrl ? (
-                <div className="remote-session-panel">
-                  <div className="remote-session-toolbar">
-                    <div className="remote-meta-info">
-                      <span className="status-pill-ok" style={{ fontSize: '0.72rem' }}>Token SSO Ativo</span>
-                      <span>Host: <code>{formData.ip_address || formData.hostname}</code> ({formData.remote_protocol.toUpperCase()})</span>
-                    </div>
-
-                    <div className="remote-toolbar-actions">
-                      {/* Botão de Abrir Nova Aba com Token SSO */}
-                      <a 
-                        href={directGuacUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="btn-launch-terminal"
-                        title="Abrir terminal em nova aba sem pedir senha"
-                      >
-                        <ExternalLink size={15} /> Abrir Sessão em Nova Aba
-                      </a>
-
-                      {/* Botão de Alternar Terminal Embutido na Tela */}
-                      <button 
-                        type="button" 
-                        className="btn-secondary"
-                        onClick={() => setShowEmbeddedTerminal(!showEmbeddedTerminal)}
-                      >
-                        {showEmbeddedTerminal ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                        <span>{showEmbeddedTerminal ? 'Ocultar Terminal Embutido' : 'Abrir Terminal Embutido'}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Terminal Web Embutido (iFrame com SSO) */}
-                  {showEmbeddedTerminal && (
-                    <div className="embedded-terminal-frame-container">
-                      <iframe 
-                        src={directGuacUrl} 
-                        title={`Console Remoto - ${formData.name}`}
-                        className="embedded-terminal-iframe"
-                        allow="clipboard-read; clipboard-write"
-                      />
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="platform-not-synced-box">
-                  <Terminal size={20} color="var(--color-danger)" />
-                  <div>
-                    <strong>Nenhuma conexão remota ativa no Apache Guacamole.</strong>
-                    <span style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      Para habilitar a conexão remota automatizada, certifique-se de que a conexão esteja cadastrada e sincronizada.
-                    </span>
-                  </div>
-                  <button 
-                    type="button" 
-                    className="btn-platform-sync btn-sync-guac" 
-                    style={{ marginLeft: 'auto' }}
-                    onClick={handleSyncGuacamole}
-                    disabled={isSyncingGuac || !isAdmin}
+                {guacDetails && (
+                  <button
+                    type="button"
+                    className="btn-delete-guac"
+                    onClick={handleRemoveGuacamole}
+                    disabled={isRemovingGuac || !isAdmin}
+                    title="Excluir conexão do servidor Apache Guacamole"
                   >
-                    <RefreshCw size={14} className={isSyncingGuac ? 'spin-icon' : ''} />
-                    Sincronizar Conexão
+                    <Trash2 size={14} />
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          )}
-        </div>
 
-      </div>
+            {/* COLUNA 3: OXIDIZED DAEMON */}
+            <div className={`integration-column-card border-${oxColor}`}>
+              <div className="integration-col-header">
+                <div className="integration-col-title">
+                  <FileCode size={18} color="#e91e63" />
+                  <h4>Oxidized Daemon</h4>
+                </div>
+                <span className={`badge-status-pill badge-${oxColor}`}>
+                  {!oxActive ? 'Desativado' : oxColor === 'green' ? 'Sincronizado' : oxColor === 'red' ? 'Erro de Coleta' : 'Aguardando'}
+                </span>
+              </div>
+
+              <div className="integration-col-body">
+                {!oxActive ? (
+                  <p className="text-muted">Coleta de backup desabilitada para este equipamento.</p>
+                ) : isLoadingOxDetails ? (
+                  <div className="lazy-loading-box">
+                    <RefreshCw size={20} className="spin-icon" color="#e91e63" />
+                    <span>Consultando daemon do Oxidized...</span>
+                  </div>
+                ) : oxDetails ? (
+                  <div className="integration-kv-list">
+                    <div className="kv-row">
+                      <span>Nome do Nó:</span>
+                      <code>{oxDetails.name}</code>
+                    </div>
+                    <div className="kv-row">
+                      <span>Modelo de SO:</span>
+                      <code>{oxDetails.model}</code>
+                    </div>
+                    <div className="kv-row">
+                      <span>Grupo Git:</span>
+                      <code>{oxDetails.group}</code>
+                    </div>
+                    <div className="kv-row">
+                      <span>Timeout Configurado:</span>
+                      <code>{oxDetails.timeout || formData.backup_timeout || 30}s</code>
+                    </div>
+                    <div className="kv-row">
+                      <span>Status da Coleta:</span>
+                      <span className={`status-pill ${oxDetails.status === 'success' ? 'status-pill-ok' : 'status-pill-fail'}`}>
+                        {oxDetails.status}
+                      </span>
+                    </div>
+                    <div className="kv-row">
+                      <span>Último Backup:</span>
+                      <span>
+                        {oxDetails.last_backup
+                          ? `${new Date(oxDetails.last_backup).toLocaleString('pt-BR')}`
+                          : 'Pendente'}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-muted">Nó aguardando recarga da lista no daemon do Oxidized.</p>
+                )}
+              </div>
+
+              <div className="integration-col-footer" style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  type="button" 
+                  className="btn-platform-sync btn-sync-ox"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={handleSyncOxidized}
+                  disabled={isSyncingOx || !isAdmin}
+                >
+                  <RefreshCw size={14} className={isSyncingOx ? 'spin-icon' : ''} />
+                  <span>{isSyncingOx ? 'Recarregando...' : 'Sincronizar Oxidized (/reload)'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* =========================================================================
           MODAL DE VISUALIZAÇÃO DE CONFIGURAÇÃO DO OXIDIZED

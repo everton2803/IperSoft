@@ -366,7 +366,7 @@ export const authService = {
     return result;
   },
 
-  async toggleAssetStatus(id, status, syncZabbix = true) {
+  async toggleAssetStatus(id, status) {
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
@@ -377,8 +377,7 @@ export const authService = {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        status,
-        sync_zabbix: syncZabbix
+        status
       })
     });
     const result = await response.json();
@@ -387,7 +386,7 @@ export const authService = {
   },
 
   async toggleZabbixHostStatus(id, isMonitored) {
-    return this.toggleAssetStatus(id, isMonitored ? 'monitored' : 'unmonitored', true);
+    return this.toggleAssetStatus(id, isMonitored ? 'monitored' : 'unmonitored');
   },
 
   async bulkUpdateIntegrations({ asset_ids, zabbix_enabled, guacamole_enabled, oxidized_enabled }) {
@@ -468,6 +467,19 @@ export const authService = {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || 'Falha ao remover do Guacamole.');
+    return result;
+  },
+
+  async syncAssetToOxidized(id) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/assets/${id}/sync-oxidized`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || 'Falha ao sincronizar com Oxidized.');
     return result;
   },
 
@@ -730,6 +742,83 @@ export const authService = {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'Falha ao disparar backup no Oxidized.');
+    return data;
+  },
+
+  // VictoriaLogs (Syslog)
+  async getVictoriaLogsConfig() {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/victorialogs/config`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao obter configuração do VictoriaLogs.');
+    return data;
+  },
+
+  async saveVictoriaLogsConfig({ url, is_active = true }) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/victorialogs/config`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url, is_active })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao salvar configuração do VictoriaLogs.');
+    return data;
+  },
+
+  async testVictoriaLogsConnection({ url } = {}) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/victorialogs/test`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao testar conexão com VictoriaLogs.');
+    return data;
+  },
+
+  async getVictoriaLogsStats() {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/victorialogs/stats`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao obter estatísticas do VictoriaLogs.');
+    return data;
+  },
+
+  async getAssetLogs(assetId, { timeRange = '24h', limit = 100, search = '', level = '' } = {}) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const params = new URLSearchParams();
+    if (timeRange) params.append('time_range', timeRange);
+    if (limit) params.append('limit', limit);
+    if (search) params.append('search', search);
+    if (level) params.append('level', level);
+
+    const response = await fetch(`${API_BASE_URL}/assets/${assetId}/logs?${params.toString()}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao carregar logs do equipamento.');
     return data;
   }
 };

@@ -68,11 +68,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.routers.guacamole import router as guacamole_router
+from app.routers.guacamole import router as guacamole_router, sync_guacamole_connections_with_db
+from app.routers.zabbix import sync_zabbix_hosts_with_db
 from app.routers.diagnostics import router as diagnostics_router
 from app.routers.oxidized import router as oxidized_router
+from app.routers.victorialogs import router as victorialogs_router
 from app.services.diagnostics import run_all_diagnostics_batch
-from app.services.oxidized import OxidizedService
 import asyncio
 
 # Routers
@@ -83,31 +84,52 @@ app.include_router(assets_router, prefix="/api/v1")
 app.include_router(guacamole_router, prefix="/api/v1")
 app.include_router(diagnostics_router, prefix="/api/v1")
 app.include_router(oxidized_router, prefix="/api/v1")
+app.include_router(victorialogs_router, prefix="/api/v1")
 
 async def hourly_diagnostics_scheduler():
-    """Rotina agendada para testar conectividade de rede e sincronizar status do Oxidized a cada 1 hora (3600s)."""
-    logger.info("Agendador de diagnósticos e status ativo (intervalo: 1h).")
+    """Rotina agendada (1h) para importar cadastros do Zabbix e Guacamole e executar diagnósticos de rede."""
+    logger.info("Agendador de importação (Zabbix/Guacamole) e diagnósticos de rede ativo (intervalo: 1h).")
     # Pequena pausa no boot para garantir que banco e APIs estejam prontos
     await asyncio.sleep(20)
     while True:
+        # 1. Importação periódica de hosts do Zabbix Server -> IperSoft
+        db_zbx = SessionLocal()
+        try:
+            zbx_cfg = db_zbx.query(IntegrationConfig).filter(
+                IntegrationConfig.name == "zabbix",
+                IntegrationConfig.is_active == True
+            ).first()
+            if zbx_cfg and zbx_cfg.url:
+                logger.info("Iniciando ciclo automático de importação de hosts do Zabbix (1h)...")
+                zbx_res = await sync_zabbix_hosts_with_db(db_zbx)
+                logger.info(f"Importação Zabbix (1h): {zbx_res.get('message')}")
+        except Exception as zbx_err:
+            logger.error(f"Erro no ciclo horário de importação do Zabbix: {zbx_err}")
+        finally:
+            db_zbx.close()
+
+        # 2. Importação periódica de conexões do Apache Guacamole -> IperSoft
+        db_guac = SessionLocal()
+        try:
+            guac_cfg = db_guac.query(IntegrationConfig).filter(
+                IntegrationConfig.name == "guacamole",
+                IntegrationConfig.is_active == True
+            ).first()
+            if guac_cfg and guac_cfg.url and guac_cfg.username and guac_cfg.password:
+                logger.info("Iniciando ciclo automático de importação de conexões do Guacamole (1h)...")
+                guac_res = await sync_guacamole_connections_with_db(db_guac)
+                logger.info(f"Importação Guacamole (1h): {guac_res.get('message')}")
+        except Exception as guac_err:
+            logger.error(f"Erro no ciclo horário de importação do Guacamole: {guac_err}")
+        finally:
+            db_guac.close()
+
+        # 3. Diagnósticos de conectividade de rede (ICMP / SNMP / TCP)
         try:
             logger.info("Iniciando ciclo automático de diagnósticos de rede (1h)...")
             await run_all_diagnostics_batch()
         except Exception as e:
             logger.error(f"Erro no ciclo do agendador horário de diagnósticos: {e}")
-
-        try:
-            db_ox = SessionLocal()
-            ox_cfg = db_ox.query(IntegrationConfig).filter(
-                IntegrationConfig.name == "oxidized",
-                IntegrationConfig.is_active == True
-            ).first()
-            if ox_cfg and ox_cfg.url:
-                logger.info("Iniciando ciclo automático de sincronização do Oxidized (1h)...")
-                await OxidizedService.sync_nodes_with_database(db_ox, ox_cfg.url, ox_cfg.username, ox_cfg.password)
-            db_ox.close()
-        except Exception as ox_err:
-            logger.error(f"Erro no ciclo do agendador horário do Oxidized: {ox_err}")
 
         await asyncio.sleep(3600)
 

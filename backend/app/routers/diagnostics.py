@@ -14,7 +14,8 @@ from app.routers.auth import get_current_user
 from app.services.diagnostics import (
     run_diagnostics_for_asset,
     run_all_diagnostics_batch,
-    diagnostic_state
+    diagnostic_state,
+    _is_snmp_applicable_by_default
 )
 
 logger = logging.getLogger(__name__)
@@ -59,29 +60,34 @@ def get_diagnostic_stats(
     Retorna métricas consolidadas dos alarmes ativos e status da rotina de teste.
     """
     failed_statuses = ["failed", "timeout"]
-    
-    total_alarms = db.query(NetworkDiagnostic).filter(NetworkDiagnostic.status.in_(failed_statuses)).count()
-    icmp_alarms = db.query(NetworkDiagnostic).filter(
+    active_asset_statuses = ["active", "monitored"]
+
+    base_q = db.query(NetworkDiagnostic).join(Asset, NetworkDiagnostic.asset_id == Asset.id).filter(
+        Asset.status.in_(active_asset_statuses)
+    )
+
+    total_alarms = base_q.filter(NetworkDiagnostic.status.in_(failed_statuses)).count()
+    icmp_alarms = base_q.filter(
         NetworkDiagnostic.test_type == "icmp",
         NetworkDiagnostic.status.in_(failed_statuses)
     ).count()
-    snmp_alarms = db.query(NetworkDiagnostic).filter(
+    snmp_alarms = base_q.filter(
         NetworkDiagnostic.test_type == "snmp",
         NetworkDiagnostic.status.in_(failed_statuses)
     ).count()
-    ssh_alarms = db.query(NetworkDiagnostic).filter(
+    ssh_alarms = base_q.filter(
         NetworkDiagnostic.test_type == "ssh",
         NetworkDiagnostic.status.in_(failed_statuses)
     ).count()
-    telnet_alarms = db.query(NetworkDiagnostic).filter(
+    telnet_alarms = base_q.filter(
         NetworkDiagnostic.test_type == "telnet",
         NetworkDiagnostic.status.in_(failed_statuses)
     ).count()
-    rdp_alarms = db.query(NetworkDiagnostic).filter(
+    rdp_alarms = base_q.filter(
         NetworkDiagnostic.test_type == "rdp",
         NetworkDiagnostic.status.in_(failed_statuses)
     ).count()
-    total_services = db.query(NetworkDiagnostic).count()
+    total_services = base_q.count()
 
     return DiagnosticStats(
         total_alarms=total_alarms,
@@ -111,6 +117,8 @@ def list_alarms(
     """
     query = db.query(NetworkDiagnostic, Asset.name.label("asset_name")).join(
         Asset, NetworkDiagnostic.asset_id == Asset.id
+    ).filter(
+        Asset.status.in_(["active", "monitored"])
     )
 
     if only_failures:
@@ -190,9 +198,14 @@ async def test_single_asset(
     if not asset:
         raise HTTPException(status_code=404, detail="Ativo não encontrado")
 
-    saved_tests = (asset.raw_data or {}).get("enabled_tests", {})
+    saved_tests = (asset.raw_data or {}).get("enabled_tests") or {}
     inc_icmp = payload.include_icmp if (payload and payload.include_icmp is not None) else saved_tests.get("icmp", True)
-    inc_snmp = payload.include_snmp if (payload and payload.include_snmp is not None) else saved_tests.get("snmp", True)
+    if payload and payload.include_snmp is not None:
+        inc_snmp = payload.include_snmp
+    elif "snmp" in saved_tests:
+        inc_snmp = bool(saved_tests["snmp"])
+    else:
+        inc_snmp = _is_snmp_applicable_by_default(asset)
     inc_remote = payload.include_remote if (payload and payload.include_remote is not None) else saved_tests.get("remote", True)
 
     results = await run_diagnostics_for_asset(

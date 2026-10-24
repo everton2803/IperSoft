@@ -3,21 +3,23 @@ import {
   Server, 
   Terminal, 
   FileCode, 
-  Globe, 
-  PieChart, 
   Radio, 
-  Key, 
   CheckCircle2, 
   AlertCircle, 
   Loader2, 
   RefreshCw, 
   Link,
-  ShieldCheck,
   Check,
   Layers,
   ExternalLink,
   Copy,
-  RotateCcw
+  RotateCcw,
+  Settings,
+  Clock,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Activity
 } from 'lucide-react';
 import { authService } from '../services/api';
 
@@ -30,8 +32,12 @@ export const IntegrationsView = ({ isAdmin }) => {
   const [zbxPassword, setZbxPassword] = useState('');
   const [zbxHasToken, setZbxHasToken] = useState(false);
   const [zbxIsConnected, setZbxIsConnected] = useState(false);
+  const [zbxLastSync, setZbxLastSync] = useState(null);
   const [zbxLoading, setZbxLoading] = useState(false);
   const [zbxTesting, setZbxTesting] = useState(false);
+  const [zbxSyncing, setZbxSyncing] = useState(false);
+  const [zbxSyncResult, setZbxSyncResult] = useState(null);
+  const [showZbxSettings, setShowZbxSettings] = useState(false);
 
   // Guacamole state
   const [guacUrl, setGuacUrl] = useState('');
@@ -39,10 +45,12 @@ export const IntegrationsView = ({ isAdmin }) => {
   const [guacPassword, setGuacPassword] = useState('');
   const [guacHasPassword, setGuacHasPassword] = useState(false);
   const [guacIsConnected, setGuacIsConnected] = useState(false);
+  const [guacLastSync, setGuacLastSync] = useState(null);
   const [guacLoading, setGuacLoading] = useState(false);
   const [guacTesting, setGuacTesting] = useState(false);
   const [guacMatching, setGuacMatching] = useState(false);
   const [guacMatchResult, setGuacMatchResult] = useState(null);
+  const [showGuacSettings, setShowGuacSettings] = useState(false);
 
   // Oxidized state
   const [oxUrl, setOxUrl] = useState('https://oxidized.iper.net.br');
@@ -50,15 +58,25 @@ export const IntegrationsView = ({ isAdmin }) => {
   const [oxPassword, setOxPassword] = useState('');
   const [oxHasPassword, setOxHasPassword] = useState(false);
   const [oxIsConnected, setOxIsConnected] = useState(false);
+  const [oxLastSync, setOxLastSync] = useState(null);
   const [oxLoading, setOxLoading] = useState(false);
   const [oxTesting, setOxTesting] = useState(false);
   const [oxSyncing, setOxSyncing] = useState(false);
   const [oxReloading, setOxReloading] = useState(false);
   const [oxSyncResult, setOxSyncResult] = useState(null);
   const [copiedSourceUrl, setCopiedSourceUrl] = useState(false);
+  const [showOxSettings, setShowOxSettings] = useState(false);
+
+  // VictoriaLogs state
+  const [vlogsUrl, setVlogsUrl] = useState('http://10.10.1.2:9428');
+  const [vlogsIsConnected, setVlogsIsConnected] = useState(false);
+  const [vlogsLoading, setVlogsLoading] = useState(false);
+  const [vlogsTesting, setVlogsTesting] = useState(false);
+  const [vlogsStats, setVlogsStats] = useState(null);
+  const [showVlogsSettings, setShowVlogsSettings] = useState(false);
 
   // Global feedback
-  const [feedback, setFeedback] = useState(null); // { type: 'success' | 'error', text: '' }
+  const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
     loadConfigs();
@@ -66,10 +84,12 @@ export const IntegrationsView = ({ isAdmin }) => {
 
   const loadConfigs = async () => {
     try {
-      const [zbxCfg, guacCfg, oxCfg] = await Promise.all([
+      const [zbxCfg, guacCfg, oxCfg, vlogsCfg, vlogsStatData] = await Promise.all([
         authService.getZabbixConfig().catch(() => null),
         authService.getGuacamoleConfig().catch(() => null),
-        authService.getOxidizedConfig().catch(() => null)
+        authService.getOxidizedConfig().catch(() => null),
+        authService.getVictoriaLogsConfig().catch(() => null),
+        authService.getVictoriaLogsStats().catch(() => null)
       ]);
 
       if (zbxCfg) {
@@ -77,7 +97,9 @@ export const IntegrationsView = ({ isAdmin }) => {
         setZbxHasToken(zbxCfg.has_token || false);
         setZbxUsername(zbxCfg.username || '');
         setZbxIsConnected(zbxCfg.is_active || false);
+        setZbxLastSync(zbxCfg.last_sync || null);
         if (zbxCfg.username) setZbxAuthType('userpass');
+        if (!zbxCfg.is_active) setShowZbxSettings(true);
       }
 
       if (guacCfg) {
@@ -85,13 +107,27 @@ export const IntegrationsView = ({ isAdmin }) => {
         setGuacUsername(guacCfg.username || '');
         setGuacHasPassword(guacCfg.has_password || false);
         setGuacIsConnected(guacCfg.is_active || false);
+        setGuacLastSync(guacCfg.last_sync || null);
+        if (!guacCfg.is_active) setShowGuacSettings(true);
       }
 
       if (oxCfg) {
-        setOxUrl(oxCfg.url || 'https://oxidized.iper.net.br');
+        setOxUrl(oxCfg.url || 'http://10.10.1.2:8888');
         setOxUsername(oxCfg.username || '');
         setOxHasPassword(oxCfg.has_password || false);
         setOxIsConnected(oxCfg.is_active || false);
+        setOxLastSync(oxCfg.last_sync || null);
+        if (!oxCfg.is_active) setShowOxSettings(true);
+      }
+
+      if (vlogsCfg) {
+        setVlogsUrl(vlogsCfg.url || 'http://10.10.1.2:9428');
+        setVlogsIsConnected(vlogsCfg.is_active || false);
+        if (!vlogsCfg.is_active) setShowVlogsSettings(true);
+      }
+
+      if (vlogsStatData) {
+        setVlogsStats(vlogsStatData);
       }
     } catch (err) {
       console.warn('Erro ao carregar configurações:', err);
@@ -148,10 +184,30 @@ export const IntegrationsView = ({ isAdmin }) => {
       setZbxToken('');
       setZbxPassword('');
       setZbxIsConnected(true);
+      await loadConfigs();
     } catch (err) {
       setFeedback({ type: 'error', text: err.message || 'Erro ao salvar configuração do Zabbix.' });
     } finally {
       setZbxLoading(false);
+    }
+  };
+
+  const handleSyncZabbixHosts = async () => {
+    setZbxSyncing(true);
+    setFeedback(null);
+    setZbxSyncResult(null);
+    try {
+      const res = await authService.syncZabbixHosts();
+      setZbxSyncResult(res);
+      setFeedback({
+        type: 'success',
+        text: res.message || `Sincronização concluída: ${res.created || 0} novos importados, ${res.updated || 0} atualizados.`
+      });
+      await loadConfigs();
+    } catch (err) {
+      setFeedback({ type: 'error', text: err.message || 'Falha ao buscar e importar hosts do Zabbix.' });
+    } finally {
+      setZbxSyncing(false);
     }
   };
 
@@ -200,6 +256,7 @@ export const IntegrationsView = ({ isAdmin }) => {
       setGuacHasPassword(Boolean(guacPassword || guacHasPassword));
       setGuacPassword('');
       setGuacIsConnected(true);
+      await loadConfigs();
     } catch (err) {
       setFeedback({ type: 'error', text: err.message || 'Erro ao salvar configuração do Guacamole.' });
     } finally {
@@ -223,6 +280,7 @@ export const IntegrationsView = ({ isAdmin }) => {
         type: 'success', 
         text: res.message || `${res.matched} conexões do Guacamole foram vinculadas aos ativos pelo IP com sucesso.` 
       });
+      await loadConfigs();
     } catch (err) {
       setFeedback({ type: 'error', text: err.message || 'Falha ao buscar e vincular conexões do Guacamole.' });
     } finally {
@@ -288,6 +346,7 @@ export const IntegrationsView = ({ isAdmin }) => {
         type: 'success',
         text: `Sincronização concluída! ${res.matched_count} de ${res.total_nodes} nós do Oxidized foram vinculados aos ativos do IperSoft.`
       });
+      await loadConfigs();
     } catch (err) {
       setFeedback({ type: 'error', text: err.message || 'Falha ao sincronizar nós do Oxidized.' });
     } finally {
@@ -319,32 +378,50 @@ export const IntegrationsView = ({ isAdmin }) => {
     setTimeout(() => setCopiedSourceUrl(false), 2500);
   };
 
-  const remainingIntegrations = [
-    {
-      id: 'phpipam',
-      name: 'phpIPAM',
-      type: 'Gestão de IP e VLANs',
-      desc: 'Unificação do plano de sub-redes, controle de alocação de IPs e inventário de VLANs.',
-      icon: Globe,
-      status: 'Próxima Etapa'
-    },
-    {
-      id: 'grafana',
-      name: 'Grafana & Rsyslog',
-      type: 'Telemetria & Logs',
-      desc: 'Centralização de syslog de rede, telemetria de tráfego e dashboards visuais operacionais.',
-      icon: PieChart,
-      status: 'Próxima Etapa'
-    },
-    {
-      id: 'nfsen',
-      name: 'nfdump & NfSen',
-      type: 'Análise de NetFlow / sFlow',
-      desc: 'Coleta de fluxos de rede para análise de consumo de tráfego de banda e segurança.',
-      icon: Radio,
-      status: 'Próxima Etapa'
+  // VictoriaLogs Handlers
+  const handleTestVictoriaLogs = async () => {
+    if (!vlogsUrl.trim()) {
+      setFeedback({ type: 'error', text: 'Informe a URL do VictoriaLogs.' });
+      return;
     }
-  ];
+    setVlogsTesting(true);
+    setFeedback(null);
+    try {
+      const res = await authService.testVictoriaLogsConnection({ url: vlogsUrl.trim() });
+      setFeedback({ type: 'success', text: res.message || 'Conexão com VictoriaLogs validada com sucesso.' });
+      setVlogsIsConnected(true);
+      const statData = await authService.getVictoriaLogsStats().catch(() => null);
+      if (statData) setVlogsStats(statData);
+    } catch (err) {
+      setFeedback({ type: 'error', text: err.message || 'Erro ao conectar ao VictoriaLogs.' });
+      setVlogsIsConnected(false);
+    } finally {
+      setVlogsTesting(false);
+    }
+  };
+
+  const handleSaveVictoriaLogs = async (e) => {
+    e.preventDefault();
+    if (!vlogsUrl.trim()) {
+      setFeedback({ type: 'error', text: 'A URL do VictoriaLogs é obrigatória.' });
+      return;
+    }
+    setVlogsLoading(true);
+    setFeedback(null);
+    try {
+      await authService.saveVictoriaLogsConfig({
+        url: vlogsUrl.trim(),
+        is_active: true
+      });
+      setFeedback({ type: 'success', text: 'Configuração do VictoriaLogs salva com sucesso.' });
+      setVlogsIsConnected(true);
+      await loadConfigs();
+    } catch (err) {
+      setFeedback({ type: 'error', text: err.message || 'Erro ao salvar configuração do VictoriaLogs.' });
+    } finally {
+      setVlogsLoading(false);
+    }
+  };
 
   return (
     <div className="integrations-view">
@@ -353,7 +430,7 @@ export const IntegrationsView = ({ isAdmin }) => {
         <div>
           <h1 className="section-title">Integrações de Sistemas</h1>
           <p className="dashboard-sub">
-            Conexão e credenciais de API com os contêineres e serviços externos da infraestrutura
+            Sincronização de inventário e credenciais de API com Zabbix Server, Apache Guacamole e Oxidized
           </p>
         </div>
       </div>
@@ -365,465 +442,644 @@ export const IntegrationsView = ({ isAdmin }) => {
         </div>
       )}
 
-      {/* 1. APACHE GUACAMOLE CARD */}
-      <div className="integration-main-card">
-        <div className="integration-card-header">
-          <div className="integration-header-left">
-            <div className="integration-icon-container">
-              <Terminal size={22} className="integration-icon-main" />
+      {/* GRID EM 3 COLUNAS PARA AS 3 INTEGRAÇÕES ATIVAS */}
+      <div className="integrations-three-col-grid">
+        {/* 1. ZABBIX SERVER CARD */}
+        <div className="integration-main-card">
+          <div className="integration-card-header">
+            <div className="integration-header-left">
+              <div className="integration-icon-container" style={{ background: 'rgba(229, 57, 53, 0.1)', borderColor: 'rgba(229, 57, 53, 0.25)' }}>
+                <Radio size={22} color="#e53935" />
+              </div>
+              <div>
+                <div className="integration-title-row">
+                  <h2 className="integration-main-title">Zabbix Server</h2>
+                  <span className={`connection-badge ${zbxIsConnected ? 'badge-connected' : 'badge-pending'}`}>
+                    {zbxIsConnected ? (
+                      <>
+                        <span className="dot-online" style={{ marginRight: 4 }}></span>
+                        Conectado
+                      </>
+                    ) : (
+                      'Não Conectado'
+                    )}
+                  </span>
+                </div>
+                <p className="integration-main-sub">
+                  Importação automática de hosts a cada <strong>1 hora</strong>. O envio de alterações do IperSoft para o Zabbix é estritamente manual.
+                </p>
+              </div>
             </div>
-            <div>
-              <div className="integration-title-row">
-                <h2 className="integration-main-title">Apache Guacamole</h2>
-                <span className={`connection-badge ${guacIsConnected ? 'badge-connected' : 'badge-pending'}`}>
-                  {guacIsConnected ? (
-                    <>
-                      <span className="dot-online" style={{ marginRight: 4 }}></span>
-                      Conectado via API
-                    </>
-                  ) : (
-                    'Não Conectado'
-                  )}
+          </div>
+
+          <div className="integration-status-strip">
+            <div className="status-strip-item">
+              <Clock size={13} color="var(--color-primary)" />
+              <span>Última sincronização: <strong>{zbxLastSync ? new Date(zbxLastSync).toLocaleString('pt-BR') : 'N/A'}</strong></span>
+            </div>
+            <div className="status-strip-item">
+              <span className="mini-badge">Auto-Import: 1h</span>
+            </div>
+          </div>
+
+          {isAdmin && (
+            <div className="integration-primary-actions">
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={handleSyncZabbixHosts}
+                disabled={zbxSyncing || zbxLoading || zbxTesting}
+                title="Busca todos os hosts do Zabbix, vincula com os ativos existentes e importa os novos para o IperSoft"
+              >
+                {zbxSyncing ? (
+                  <>
+                    <Loader2 size={15} className="spin-icon" />
+                    <span>Importando Hosts do Zabbix...</span>
+                  </>
+                ) : (
+                  <>
+                    <Link size={15} />
+                    <span>Sincronizar & Importar Hosts Agora</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {zbxSyncResult && (
+            <div className="match-summary-card">
+              <div className="match-summary-header">
+                <span className="match-summary-title">Resultado:</span>
+                <span className="match-summary-badge">
+                  {zbxSyncResult.updated || 0} atualizados • {zbxSyncResult.created || 0} novos
                 </span>
               </div>
-              <p className="integration-main-sub">
-                Gateway de terminal web (SSH / Telnet) para acesso remoto aos switches e roteadores da rede.
-              </p>
+              <p className="match-summary-desc">{zbxSyncResult.message}</p>
             </div>
+          )}
+
+          {/* Seção retrátil de credenciais */}
+          <div className="integration-settings-collapse">
+            <button
+              type="button"
+              className="btn-collapse-settings"
+              onClick={() => setShowZbxSettings(!showZbxSettings)}
+            >
+              <Settings size={14} />
+              <span>Configurações de Conexão e Credenciais</span>
+              {showZbxSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
+            </button>
+
+            {showZbxSettings && (
+              <form onSubmit={handleSaveZabbix} className="integration-form" style={{ marginTop: '0.85rem' }}>
+                <div className="form-group">
+                  <label className="form-label">URL da API Zabbix</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="ex: http://192.168.1.50/zabbix"
+                    value={zbxUrl}
+                    onChange={(e) => setZbxUrl(e.target.value)}
+                    disabled={!isAdmin || zbxLoading}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Método de Autenticação</label>
+                  <div className="auth-mode-selector">
+                    <label className="radio-label">
+                      <input
+                        type="radio"
+                        name="zbxAuthType"
+                        value="token"
+                        checked={zbxAuthType === 'token'}
+                        onChange={() => setZbxAuthType('token')}
+                        disabled={!isAdmin || zbxLoading}
+                      />
+                      <span>API Token (5.4+)</span>
+                    </label>
+                    <label className="radio-label">
+                      <input
+                        type="radio"
+                        name="zbxAuthType"
+                        value="userpass"
+                        checked={zbxAuthType === 'userpass'}
+                        onChange={() => setZbxAuthType('userpass')}
+                        disabled={!isAdmin || zbxLoading}
+                      />
+                      <span>Usuário / Senha</span>
+                    </label>
+                  </div>
+                </div>
+
+                {zbxAuthType === 'token' ? (
+                  <div className="form-group">
+                    <label className="form-label">
+                      API Token {zbxHasToken && <span className="tag-saved">(Gravado)</span>}
+                    </label>
+                    <input
+                      type="password"
+                      className="form-input"
+                      placeholder={zbxHasToken ? '•••••••••••• (em branco mantém)' : 'Cole o token da API'}
+                      value={zbxToken}
+                      onChange={(e) => setZbxToken(e.target.value)}
+                      disabled={!isAdmin || zbxLoading}
+                    />
+                  </div>
+                ) : (
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label className="form-label">Usuário</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Admin"
+                        value={zbxUsername}
+                        onChange={(e) => setZbxUsername(e.target.value)}
+                        disabled={!isAdmin || zbxLoading}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Senha</label>
+                      <input
+                        type="password"
+                        className="form-input"
+                        placeholder="Senha"
+                        value={zbxPassword}
+                        onChange={(e) => setZbxPassword(e.target.value)}
+                        disabled={!isAdmin || zbxLoading}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="integration-actions-footer">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleTestZabbix}
+                    disabled={zbxTesting || zbxLoading || zbxSyncing}
+                  >
+                    {zbxTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                    <span>Testar</span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      style={{ width: 'auto' }}
+                      disabled={zbxLoading || zbxTesting || zbxSyncing}
+                    >
+                      {zbxLoading ? 'Salvando...' : 'Salvar'}
+                    </button>
+                  )}
+                </div>
+              </form>
+            )}
           </div>
         </div>
 
-        <form onSubmit={handleSaveGuacamole} className="integration-form">
-          <div className="form-group">
-            <label className="form-label">URL do Guacamole</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="ex: http://ip-da-sua-vps:8080/guacamole"
-              value={guacUrl}
-              onChange={(e) => setGuacUrl(e.target.value)}
-              disabled={!isAdmin || guacLoading || guacMatching}
-              required
-            />
-            <span className="form-field-hint">
-              Informe a URL do Guacamole (com ou sem <code>/guacamole</code>). O sistema normaliza automaticamente.
-            </span>
-          </div>
-
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">Usuário Administrador</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="ex: guacadmin ou seu usuário admin"
-                value={guacUsername}
-                onChange={(e) => setGuacUsername(e.target.value)}
-                disabled={!isAdmin || guacLoading || guacMatching}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">
-                Senha {guacHasPassword && <span className="tag-saved">(Senha já salva no banco)</span>}
-              </label>
-              <input
-                type="password"
-                className="form-input"
-                placeholder={guacHasPassword ? '•••••••••••••••• (deixe em branco para manter)' : 'Senha de administrador do Guacamole'}
-                value={guacPassword}
-                onChange={(e) => setGuacPassword(e.target.value)}
-                disabled={!isAdmin || guacLoading || guacMatching}
-              />
+        {/* 2. APACHE GUACAMOLE CARD */}
+        <div className="integration-main-card">
+          <div className="integration-card-header">
+            <div className="integration-header-left">
+              <div className="integration-icon-container">
+                <Terminal size={22} className="integration-icon-main" />
+              </div>
+              <div>
+                <div className="integration-title-row">
+                  <h2 className="integration-main-title">Apache Guacamole</h2>
+                  <span className={`connection-badge ${guacIsConnected ? 'badge-connected' : 'badge-pending'}`}>
+                    {guacIsConnected ? (
+                      <>
+                        <span className="dot-online" style={{ marginRight: 4 }}></span>
+                        Conectado
+                      </>
+                    ) : (
+                      'Não Conectado'
+                    )}
+                  </span>
+                </div>
+                <p className="integration-main-sub">
+                  Importação automática de conexões (SSH/Telnet/RDP) a cada <strong>1 hora</strong>. Criação e edição no Guacamole são manuais.
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* Action buttons */}
-          <div className="integration-actions-footer">
+          <div className="integration-status-strip">
+            <div className="status-strip-item">
+              <Clock size={13} color="var(--color-primary)" />
+              <span>Última sincronização: <strong>{guacLastSync ? new Date(guacLastSync).toLocaleString('pt-BR') : 'N/A'}</strong></span>
+            </div>
+            <div className="status-strip-item">
+              <span className="mini-badge">Auto-Import: 1h</span>
+            </div>
+          </div>
+
+          {isAdmin && (
+            <div className="integration-primary-actions">
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={handleMatchGuacamoleConnections}
+                disabled={guacMatching || guacLoading || guacTesting}
+                title="Busca todas as conexões do Guacamole, vincula com os ativos existentes por IP e importa as novas"
+              >
+                {guacMatching ? (
+                  <>
+                    <Loader2 size={15} className="spin-icon" />
+                    <span>Importando Conexões...</span>
+                  </>
+                ) : (
+                  <>
+                    <Link size={15} />
+                    <span>Sincronizar & Importar Conexões Agora</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {guacMatchResult && (
+            <div className="match-summary-card">
+              <div className="match-summary-header">
+                <span className="match-summary-title">Resultado:</span>
+                <span className="match-summary-badge">
+                  {guacMatchResult.matched} vinculadas • {guacMatchResult.created_new || 0} novas
+                </span>
+              </div>
+              <p className="match-summary-desc">{guacMatchResult.message}</p>
+            </div>
+          )}
+
+          {/* Seção retrátil de credenciais */}
+          <div className="integration-settings-collapse">
+            <button
+              type="button"
+              className="btn-collapse-settings"
+              onClick={() => setShowGuacSettings(!showGuacSettings)}
+            >
+              <Settings size={14} />
+              <span>Configurações de Conexão e Credenciais</span>
+              {showGuacSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
+            </button>
+
+            {showGuacSettings && (
+              <form onSubmit={handleSaveGuacamole} className="integration-form" style={{ marginTop: '0.85rem' }}>
+                <div className="form-group">
+                  <label className="form-label">URL do Guacamole</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="ex: http://ip-da-sua-vps:8080/guacamole"
+                    value={guacUrl}
+                    onChange={(e) => setGuacUrl(e.target.value)}
+                    disabled={!isAdmin || guacLoading || guacMatching}
+                    required
+                  />
+                </div>
+
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label className="form-label">Usuário Admin</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="guacadmin"
+                      value={guacUsername}
+                      onChange={(e) => setGuacUsername(e.target.value)}
+                      disabled={!isAdmin || guacLoading || guacMatching}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">
+                      Senha {guacHasPassword && <span className="tag-saved">(Gravada)</span>}
+                    </label>
+                    <input
+                      type="password"
+                      className="form-input"
+                      placeholder={guacHasPassword ? '••••••••••••' : 'Senha'}
+                      value={guacPassword}
+                      onChange={(e) => setGuacPassword(e.target.value)}
+                      disabled={!isAdmin || guacLoading || guacMatching}
+                    />
+                  </div>
+                </div>
+
+                <div className="integration-actions-footer">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleTestGuacamole}
+                    disabled={guacTesting || guacLoading || guacMatching}
+                  >
+                    {guacTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                    <span>Testar</span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      style={{ width: 'auto' }}
+                      disabled={guacLoading || guacTesting || guacMatching}
+                    >
+                      {guacLoading ? 'Salvando...' : 'Salvar'}
+                    </button>
+                  )}
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+
+        {/* 3. OXIDIZED CARD */}
+        <div className="integration-main-card">
+          <div className="integration-card-header">
+            <div className="integration-header-left">
+              <div className="integration-icon-container" style={{ background: 'rgba(233, 30, 99, 0.1)', borderColor: 'rgba(233, 30, 99, 0.25)' }}>
+                <FileCode size={22} color="#e91e63" />
+              </div>
+              <div>
+                <div className="integration-title-row">
+                  <h2 className="integration-main-title">Oxidized Backup</h2>
+                  <span className={`connection-badge ${oxIsConnected ? 'badge-connected' : 'badge-pending'}`}>
+                    {oxIsConnected ? (
+                      <>
+                        <span className="dot-online" style={{ marginRight: 4 }}></span>
+                        Conectado
+                      </>
+                    ) : (
+                      'Não Conectado'
+                    )}
+                  </span>
+                </div>
+                <p className="integration-main-sub">
+                  O Oxidized lê a lista de equipamentos dinamicamente do IperSoft via <code>source: http</code>.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="integration-status-strip">
+            <div className="status-strip-item">
+              <Clock size={13} color="var(--color-primary)" />
+              <span>Última consulta: <strong>{oxLastSync ? new Date(oxLastSync).toLocaleString('pt-BR') : 'N/A'}</strong></span>
+            </div>
+            <div className="status-strip-item">
+              <span className="mini-badge">Fonte: IperSoft HTTP</span>
+            </div>
+          </div>
+
+          <div className="integration-primary-actions" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ flex: 1, justifyContent: 'center' }}
+              onClick={handleReloadOxidized}
+              disabled={oxReloading || oxSyncing || oxTesting || oxLoading || !isAdmin}
+              title="Força o Oxidized a recarregar a lista de nós do IperSoft (/reload)"
+            >
+              {oxReloading ? <Loader2 size={14} className="spin-icon" /> : <RotateCcw size={14} />}
+              <span>{oxReloading ? 'Recarregando...' : 'Recarregar Nós (/reload)'}</span>
+            </button>
+
             <button
               type="button"
               className="btn-secondary"
-              onClick={handleTestGuacamole}
-              disabled={guacTesting || guacLoading || guacMatching}
+              style={{ flex: 1, justifyContent: 'center' }}
+              onClick={handleSyncOxidized}
+              disabled={oxSyncing || oxTesting || oxLoading || oxReloading}
+              title="Atualiza o status do último backup de cada nó no IperSoft"
             >
-              {guacTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
-              <span>Testar Conexão</span>
+              {oxSyncing ? <Loader2 size={14} className="spin-icon" /> : <Layers size={14} />}
+              <span>{oxSyncing ? 'Consultando...' : 'Atualizar Status'}</span>
             </button>
-
-            {isAdmin && (
-              <>
-                <button
-                  type="submit"
-                  className="btn-secondary"
-                  disabled={guacLoading || guacTesting || guacMatching}
-                >
-                  {guacLoading ? 'Salvando...' : 'Salvar Configurações'}
-                </button>
-
-                <button
-                  type="button"
-                  className="btn-primary"
-                  style={{ width: 'auto' }}
-                  onClick={handleMatchGuacamoleConnections}
-                  disabled={guacMatching || guacLoading || guacTesting}
-                  title="Busca todas as conexões do Guacamole, vincula com os ativos existentes por IP e importa as restantes"
-                >
-                  {guacMatching ? (
-                    <>
-                      <Loader2 size={14} className="spin-icon" />
-                      <span>Sincronizando Conexões...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Link size={14} />
-                      <span>Sincronizar & Importar Conexões do Guacamole</span>
-                    </>
-                  )}
-                </button>
-              </>
-            )}
           </div>
-        </form>
 
-        {/* Match Result Details Card if executed */}
-        {guacMatchResult && (
-          <div className="match-summary-card">
-            <div className="match-summary-header">
-              <span className="match-summary-title">Resultado da Sincronização:</span>
-              <span className="match-summary-badge">
-                {guacMatchResult.matched} vinculadas • {guacMatchResult.created_new || 0} importadas
-              </span>
-            </div>
-            <p className="match-summary-desc">
-              {guacMatchResult.message}
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* 2. ZABBIX SERVER CARD */}
-      <div className="integration-main-card">
-        <div className="integration-card-header">
-          <div className="integration-header-left">
-            <div className="integration-icon-container">
-              <Server size={22} className="integration-icon-main" />
-            </div>
-            <div>
-              <div className="integration-title-row">
-                <h2 className="integration-main-title">Zabbix Server</h2>
-                <span className={`connection-badge ${zbxIsConnected ? 'badge-connected' : 'badge-pending'}`}>
-                  {zbxIsConnected ? (
-                    <>
-                      <span className="dot-online" style={{ marginRight: 4 }}></span>
-                      Conectado via API
-                    </>
-                  ) : (
-                    'Não Conectado'
-                  )}
+          {oxSyncResult && (
+            <div className="match-summary-card">
+              <div className="match-summary-header">
+                <span className="match-summary-title">Status Atualizado:</span>
+                <span className="match-summary-badge">
+                  {oxSyncResult.matched_count} de {oxSyncResult.total_nodes} nós vinculados
                 </span>
-              </div>
-              <p className="integration-main-sub">
-                Comunicação JSON-RPC ativa para telemetria de monitoramento e sincronização de status de hosts (<code>host.update</code>).
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <form onSubmit={handleSaveZabbix} className="integration-form">
-          <div className="form-group">
-            <label className="form-label">URL da API Zabbix</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="ex: http://192.168.1.50/zabbix ou http://zabbix.suaempresa.com"
-              value={zbxUrl}
-              onChange={(e) => setZbxUrl(e.target.value)}
-              disabled={!isAdmin || zbxLoading}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Método de Autenticação</label>
-            <div className="auth-mode-selector">
-              <label className="radio-label">
-                <input
-                  type="radio"
-                  name="zbxAuthType"
-                  value="token"
-                  checked={zbxAuthType === 'token'}
-                  onChange={() => setZbxAuthType('token')}
-                  disabled={!isAdmin || zbxLoading}
-                />
-                <span>API Token (Recomendado - Zabbix 5.4+)</span>
-              </label>
-              <label className="radio-label">
-                <input
-                  type="radio"
-                  name="zbxAuthType"
-                  value="userpass"
-                  checked={zbxAuthType === 'userpass'}
-                  onChange={() => setZbxAuthType('userpass')}
-                  disabled={!isAdmin || zbxLoading}
-                />
-                <span>Usuário e Senha</span>
-              </label>
-            </div>
-          </div>
-
-          {zbxAuthType === 'token' ? (
-            <div className="form-group">
-              <label className="form-label">
-                API Token {zbxHasToken && <span className="tag-saved">(Chave ativa e gravada no banco)</span>}
-              </label>
-              <input
-                type="password"
-                className="form-input"
-                placeholder={zbxHasToken ? '•••••••••••••••••••••••• (deixe em branco para manter)' : 'Cole o token de autenticação'}
-                value={zbxToken}
-                onChange={(e) => setZbxToken(e.target.value)}
-                disabled={!isAdmin || zbxLoading}
-              />
-            </div>
-          ) : (
-            <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label">Usuário Zabbix</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="ex: Admin"
-                  value={zbxUsername}
-                  onChange={(e) => setZbxUsername(e.target.value)}
-                  disabled={!isAdmin || zbxLoading}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Senha</label>
-                <input
-                  type="password"
-                  className="form-input"
-                  placeholder="Senha do usuário"
-                  value={zbxPassword}
-                  onChange={(e) => setZbxPassword(e.target.value)}
-                  disabled={!isAdmin || zbxLoading}
-                />
               </div>
             </div>
           )}
 
-          <div className="integration-actions-footer">
+          {/* Seção retrátil de credenciais + Endpoint source: http */}
+          <div className="integration-settings-collapse">
             <button
               type="button"
-              className="btn-secondary"
-              onClick={handleTestZabbix}
-              disabled={zbxTesting || zbxLoading}
+              className="btn-collapse-settings"
+              onClick={() => setShowOxSettings(!showOxSettings)}
             >
-              {zbxTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
-              <span>Testar Conexão</span>
+              <Settings size={14} />
+              <span>Configurações & Endpoint Source HTTP</span>
+              {showOxSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
             </button>
 
-            {isAdmin && (
-              <button
-                type="submit"
-                className="btn-primary"
-                style={{ width: 'auto' }}
-                disabled={zbxLoading || zbxTesting}
-              >
-                {zbxLoading ? 'Salvando...' : 'Salvar Configurações'}
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
+            {showOxSettings && (
+              <form onSubmit={handleSaveOxidized} className="integration-form" style={{ marginTop: '0.85rem' }}>
+                <div className="form-group">
+                  <label className="form-label">URL da API do Oxidized</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="ex: https://oxidized.iper.net.br ou http://ip:8888"
+                    value={oxUrl}
+                    onChange={(e) => setOxUrl(e.target.value)}
+                    disabled={!isAdmin || oxLoading || oxSyncing}
+                    required
+                  />
+                </div>
 
-      {/* 3. OXIDIZED CARD */}
-      <div className="integration-main-card">
-        <div className="integration-card-header">
-          <div className="integration-header-left">
-            <div className="integration-icon-container" style={{ background: 'rgba(233, 30, 99, 0.1)', borderColor: 'rgba(233, 30, 99, 0.25)' }}>
-              <FileCode size={22} color="#e91e63" />
-            </div>
-            <div>
-              <div className="integration-title-row">
-                <h2 className="integration-main-title">Oxidized (Backup de Configurações)</h2>
-                <span className={`connection-badge ${oxIsConnected ? 'badge-connected' : 'badge-pending'}`}>
-                  {oxIsConnected ? (
-                    <>
-                      <span className="dot-online" style={{ marginRight: 4 }}></span>
-                      Conectado via API
-                    </>
-                  ) : (
-                    'Não Conectado'
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label className="form-label">Usuário (Opcional)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Sem auth"
+                      value={oxUsername}
+                      onChange={(e) => setOxUsername(e.target.value)}
+                      disabled={!isAdmin || oxLoading || oxSyncing}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Senha (Opcional)</label>
+                    <input
+                      type="password"
+                      className="form-input"
+                      placeholder={oxHasPassword ? '••••••••' : 'Opcional'}
+                      value={oxPassword}
+                      onChange={(e) => setOxPassword(e.target.value)}
+                      disabled={!isAdmin || oxLoading || oxSyncing}
+                    />
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '8px',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <ExternalLink size={12} color="var(--color-primary)" />
+                      Endpoint <code>source: http</code>
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      style={{ padding: '2px 7px', fontSize: '0.7rem', height: 'auto' }}
+                      onClick={handleCopySourceUrl}
+                    >
+                      {copiedSourceUrl ? <Check size={11} color="var(--color-success)" /> : <Copy size={11} />}
+                      <span>{copiedSourceUrl ? 'Copiado!' : 'Copiar'}</span>
+                    </button>
+                  </div>
+                  <code style={{ fontSize: '0.72rem', padding: '5px 8px', background: 'rgba(0, 0, 0, 0.3)', borderRadius: '4px', wordBreak: 'break-all' }}>
+                    {typeof window !== 'undefined' ? `${window.location.origin}/api/v1/integrations/oxidized/nodes` : '/api/v1/integrations/oxidized/nodes'}
+                  </code>
+                </div>
+
+                <div className="integration-actions-footer">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleTestOxidized}
+                    disabled={oxTesting || oxLoading || oxSyncing}
+                  >
+                    {oxTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                    <span>Testar</span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      style={{ width: 'auto' }}
+                      disabled={oxLoading || oxTesting || oxSyncing || oxReloading}
+                    >
+                      {oxLoading ? 'Salvando...' : 'Salvar'}
+                    </button>
                   )}
-                </span>
-              </div>
-              <p className="integration-main-sub">
-                Coleta automatizada de scripts/configurações de switches e roteadores via SSH/Telnet com versionamento em Git.
-              </p>
-            </div>
+                </div>
+              </form>
+            )}
           </div>
         </div>
 
-        <form onSubmit={handleSaveOxidized} className="integration-form">
-          <div className="form-group">
-            <label className="form-label">URL da API do Oxidized</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="ex: https://oxidized.iper.net.br ou http://ip:8888"
-              value={oxUrl}
-              onChange={(e) => setOxUrl(e.target.value)}
-              disabled={!isAdmin || oxLoading || oxSyncing}
-              required
-            />
-            <span className="form-field-hint">
-              URL do serviço web do Oxidized (porta 8888 ou proxy reverso HTTPS).
+        {/* =========================================================================
+            CARD 4: VICTORIALOGS (SYSLOG CENTRAL)
+            ========================================================================= */}
+        <div className="integration-column-card">
+          <div className="integration-card-header">
+            <div className="integration-title-group">
+              <div className="integration-icon-wrapper" style={{ background: 'rgba(76, 175, 80, 0.12)', color: '#4caf50' }}>
+                <FileText size={20} />
+              </div>
+              <div>
+                <h3 className="integration-title">VictoriaLogs</h3>
+                <span className="integration-subtitle">Syslog UDP/TCP 514 (Retenção 30d)</span>
+              </div>
+            </div>
+            <span className={`status-pill ${vlogsIsConnected ? 'status-pill-ok' : 'status-pill-disabled'}`}>
+              {vlogsIsConnected ? 'Ativo' : 'Desconectado'}
             </span>
           </div>
 
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">Usuário (Opcional)</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Deixe vazio se não houver autenticação web"
-                value={oxUsername}
-                onChange={(e) => setOxUsername(e.target.value)}
-                disabled={!isAdmin || oxLoading || oxSyncing}
-              />
+          <div className="integration-status-strip">
+            <div className="status-item">
+              <span className="status-label">Endereço Direto:</span>
+              <span className="status-value"><code>{vlogsUrl || '10.10.1.2:9428'}</code></span>
             </div>
-            <div className="form-group">
-              <label className="form-label">Senha (Opcional)</label>
-              <input
-                type="password"
-                className="form-input"
-                placeholder={oxHasPassword ? '•••••••••••••••• (deixe vazio para manter)' : 'Senha do Oxidized Web se houver'}
-                value={oxPassword}
-                onChange={(e) => setOxPassword(e.target.value)}
-                disabled={!isAdmin || oxLoading || oxSyncing}
-              />
+            <div className="status-item">
+              <span className="status-label">Logs (Última 1h):</span>
+              <span className="status-value">{vlogsStats?.total_1h ? `${vlogsStats.total_1h.toLocaleString('pt-BR')} msgs` : 'Ativo'}</span>
             </div>
           </div>
 
-          {/* BOX DE FONTE DINÂMICA (SOURCE: HTTP) */}
-          <div style={{
-            background: 'rgba(255, 255, 255, 0.03)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '8px',
-            padding: '1rem',
-            marginTop: '0.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <ExternalLink size={14} color="var(--color-primary)" />
-                URL de Fonte Dinâmica para o Oxidized (<code>source: http</code>)
-              </span>
-              <button
-                type="button"
-                className="btn-secondary"
-                style={{ padding: '3px 8px', fontSize: '0.72rem', height: 'auto' }}
-                onClick={handleCopySourceUrl}
-              >
-                {copiedSourceUrl ? <Check size={12} color="var(--color-success)" /> : <Copy size={12} />}
-                <span>{copiedSourceUrl ? 'Copiado!' : 'Copiar Endpoint'}</span>
-              </button>
+          <div className="integration-card-body">
+            <div className="integration-summary-box">
+              <p>
+                Armazenamento central de logs Syslog coletados em portas UDP e TCP 514 na VPS BrDrive.
+                Integrado ao IperSoft para correlacionar quedas de rede e alarmes com o registro dos equipamentos.
+              </p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                <span className="badge-tag-canonical" style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81c784' }}>
+                  LogsQL
+                </span>
+                <span className="badge-tag-canonical">
+                  Syslog RFC3164/5424
+                </span>
+              </div>
             </div>
-            <code style={{ fontSize: '0.78rem', padding: '6px 10px', background: 'rgba(0, 0, 0, 0.3)', borderRadius: '4px', wordBreak: 'break-all' }}>
-              {typeof window !== 'undefined' ? `${window.location.origin}/api/v1/integrations/oxidized/nodes` : '/api/v1/integrations/oxidized/nodes'}
-            </code>
-            <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
-              Ao configurar essa URL como <code>source: http</code> no <code>~/.config/oxidized/config</code>, o Oxidized importará automaticamente os nós cadastrados no IperSoft organizados pelos grupos de cliente (<code>athila</code>, <code>atm</code>, etc.).
-            </small>
-          </div>
 
-          <div className="integration-actions-footer">
+            {/* Botão de Toggle das Configurações */}
             <button
               type="button"
-              className="btn-secondary"
-              onClick={handleTestOxidized}
-              disabled={oxTesting || oxLoading || oxSyncing}
+              className="btn-toggle-settings"
+              onClick={() => setShowVlogsSettings(!showVlogsSettings)}
             >
-              {oxTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
-              <span>Testar Conexão</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Settings size={14} />
+                <span>Configurações de Conexão</span>
+              </div>
+              {showVlogsSettings ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
 
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleSyncOxidized}
-              disabled={oxSyncing || oxTesting || oxLoading || oxReloading}
-              title="Ler nós cadastrados no Oxidized e associar aos ativos do IperSoft"
-            >
-              {oxSyncing ? <Loader2 size={14} className="spin-icon" /> : <Layers size={14} />}
-              <span>{oxSyncing ? 'Sincronizando Nós...' : 'Sincronizar Nós do Oxidized'}</span>
-            </button>
+            {/* Formulário Retrátil */}
+            {showVlogsSettings && (
+              <form onSubmit={handleSaveVictoriaLogs} className="integration-settings-form">
+                <div className="form-group">
+                  <label className="form-label">URL da API do VictoriaLogs</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="http://10.10.1.2:9428"
+                    value={vlogsUrl}
+                    onChange={(e) => setVlogsUrl(e.target.value)}
+                    disabled={!isAdmin || vlogsLoading}
+                  />
+                  <small className="form-help">
+                    Endereço interno do container VictoriaLogs na porta 9428 (sem passar pelo Traefik).
+                  </small>
+                </div>
 
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleReloadOxidized}
-              disabled={oxReloading || oxSyncing || oxTesting || oxLoading}
-              title="Força o Oxidized a recarregar a fonte de dados (/reload), removendo da memória nós excluídos do IperSoft"
-            >
-              {oxReloading ? <Loader2 size={14} className="spin-icon" /> : <RotateCcw size={14} />}
-              <span>{oxReloading ? 'Recarregando...' : 'Recarregar Nós no Oxidized'}</span>
-            </button>
-
-            {isAdmin && (
-              <button
-                type="submit"
-                className="btn-primary"
-                style={{ width: 'auto' }}
-                disabled={oxLoading || oxTesting || oxSyncing || oxReloading}
-              >
-                {oxLoading ? 'Salvando...' : 'Salvar Configurações'}
-              </button>
+                <div className="integration-actions-footer">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleTestVictoriaLogs}
+                    disabled={vlogsTesting || vlogsLoading}
+                  >
+                    {vlogsTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                    <span>Testar Conexão</span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      style={{ width: 'auto' }}
+                      disabled={vlogsLoading || vlogsTesting}
+                    >
+                      {vlogsLoading ? 'Salvando...' : 'Salvar'}
+                    </button>
+                  )}
+                </div>
+              </form>
             )}
           </div>
-        </form>
-
-        {oxSyncResult && (
-          <div className="match-summary-card">
-            <div className="match-summary-header">
-              <span className="match-summary-title">Resultado da Sincronização:</span>
-              <span className="match-summary-badge">
-                {oxSyncResult.matched_count} de {oxSyncResult.total_nodes} nós vinculados
-              </span>
-            </div>
-            <p className="match-summary-desc">
-              Os nós do Oxidized foram vinculados com sucesso pelo endereço IP ou nome aos ativos da base.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* 3. UPCOMING INTEGRATIONS ROADMAP */}
-      <div className="upcoming-section">
-        <h2 className="section-title" style={{ fontSize: '1.05rem', marginBottom: '0.85rem' }}>
-          Próximas Integrações da Infraestrutura
-        </h2>
-        <div className="modules-grid">
-          {remainingIntegrations.map((item) => {
-            const Icon = item.icon;
-            return (
-              <div key={item.id} className="module-card">
-                <div className="module-icon-box">
-                  <Icon size={18} />
-                </div>
-                <div className="module-info">
-                  <div className="module-name">{item.name}</div>
-                  <div className="module-type">{item.type}</div>
-                  <p className="module-subdesc">{item.desc}</p>
-                </div>
-                <span className="module-badge">{item.status}</span>
-              </div>
-            );
-          })}
         </div>
       </div>
     </div>

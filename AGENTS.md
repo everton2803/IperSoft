@@ -145,14 +145,18 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 - **Identifier Decodificado**: Guacamole usa identificadores base64 (ex: `MTIzAGMAcG9zdGdyZXNxbA==`). A função `extract_raw_identifier` extrai com segurança a ID numérica real antes de chamar endpoints de atualização.
 - **Portas Customizadas (ex: 2200)**: Assegura que tanto ao criar quanto ao sincronizar ou atualizar uma conexão, a porta informada pelo operador seja gravada no objeto `AssetGuacamole` e no dicionário `parameters["port"]` enviado à API do Guacamole.
 - **Preservação de Credenciais**: Quando uma conexão é atualizada, os parâmetros existentes não são apagados; senhas existentes são mantidas caso o usuário não tenha digitado uma nova.
-- **Expurgo e Remoção Automática de Conexões**:
-  - Quando a integração do Guacamole é desativada para um equipamento (`ignore_guacamole: true` na Linha 1 ou em lote), ou quando o equipamento é excluído do IperSoft, o sistema invoca `remove_asset_guacamole_connections()`, chamando `DELETE /api/session/data/{dataSource}/connections/{identifier}` no Guacamole Server e excluindo os vínculos locais (`AssetGuacamole` e `guacamole_connection_id`).
-  - No endpoint de sincronização completa (`/assets/{id}/sync-all`), se o equipamento estiver com o Guacamole desativado, o sistema garante a remoção de conexões residuais no Guacamole Server.
-  - No endpoint de vinculação/importação do Guacamole (`/integrations/guacamole/match`), conexões pertencentes a equipamentos marcados como ignorados no IperSoft são automaticamente expurgadas do Apache Guacamole Server, impedindo que conexões reapareçam.
+- **Importação Automática (1h) e Sob Demanda (`sync_guacamole_connections_with_db`)**:
+  - A cada 1 hora (via `hourly_diagnostics_scheduler` em `main.py`) ou sob demanda via `POST /api/v1/integrations/guacamole/match`, o IperSoft consulta todas as conexões do Apache Guacamole, vincula a equipamentos existentes por `connection_id`, nome/hostname ou endereço IP, e importa automaticamente novos dispositivos cadastrados no Guacamole para o IperSoft (sem jamais excluir ou alterar conexões no servidor Guacamole automaticamente).
+- **Envio / Exclusão Estritamente Manual**:
+  - O IperSoft **nunca** altera nem exclui conexões no Apache Guacamole de forma automática ao salvar, desativar ou remover um ativo localmente. Qualquer envio ou remoção no servidor Guacamole deve ser acionado manualmente pelo operador nos botões dedicados (`POST /api/v1/assets/{id}/sync-guacamole` ou `DELETE /api/v1/assets/{id}/guacamole`).
 
 
 ### 5.2. `ZabbixService` (`app/services/zabbix.py`)
 - **JSON-RPC**: Chamadas padronizadas a `api_jsonrpc.php` com suporte a autenticação por Token ou `user.login`.
+- **Importação Automática (1h) e Sob Demanda (`sync_zabbix_hosts_with_db`)**:
+  - A cada 1 hora (via `hourly_diagnostics_scheduler` em `main.py`) ou sob demanda via `POST /api/v1/integrations/zabbix/sync`, o IperSoft importa novos hosts cadastrados diretamente no Zabbix e vincula/atualiza ativos existentes (por `hostid`, `hostname`/`name` ou `ip_address`), evitando duplicidades com equipamentos já vindos do Guacamole ou criados manualmente.
+- **Envio Estritamente Manual**:
+  - Alterações de cadastro ou status feitas no IperSoft não alteram o Zabbix Server automaticamente; o envio para o Zabbix ocorre apenas quando o operador clica manualmente no botão **Sincronizar Zabbix** (`POST /api/v1/assets/{id}/sync-zabbix`).
 - **Triggers / Alarmes**: Busca de triggers ativas (`trigger.get` com `filter={"value": 1}`) e mapeamento de severidades (0 a 5: Não classificado a Desastre).
 - **Resolução Completa de Macros e Operational Data (`opdata`)**: Em chamadas `trigger.get` (`fetch_all_problems` e `fetch_host_problems`), inclusão obrigatória de `expandDescription: 1`, `expandComment: 1` e extração de `name` do `selectLastEvent`. Garante que nomes de protótipos de LLD (ex: `{#IFNAME}`) e thresholds com macros (ex: `{$TEMP.CRIT}`, `{$PART.CRIT}`) cheguem ao frontend 100% resolvidos com valores reais. Para os **Dados Operacionais (`opdata`)**, o sistema consulta os eventos ativos via `problem.get` em lote (`eventids`), obtendo o valor dinâmico avaliado em tempo real pelo Zabbix (ex: `status: down (0)`, `espaço livre: 4.86 %`, `status: sem energia (1)`), com fallback para macros resolvidas da trigger.
 - **Itens e Histórico**: Coleta de métricas do host (`item.get`) e histórico numérico (`history.get` com tipos numéricos `0` float e `3` integer) ou de texto (`1`, `2`, `4`).
@@ -161,10 +165,13 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 - **Consulta e Sincronização de Status**: Consulta endpoints `/nodes.json`, `/node/fetch/{node}` e `/node/version/{node}` para sincronizar status de backup dos nós com equipamentos do IperSoft.
   - **Prevenção de Colisões e Chaves Duplicadas**: A função `sync_nodes_with_database` utiliza dicionário em memória de registros existentes e dá prioridade absoluta a correspondência exata por nome (`node_name.lower()`), seguida por IP, garantindo que múltiplos nós com mesmo IP (ou NAT/VMs) nunca gerem `UniqueViolation` em `asset_oxidized`.
 - **Disparo Manual de Backup**: Suporte a gatilho manual de backup (`/node/next/{node}`).
-- **Recarregamento Automático e Expurgar Nós Excluídos (`/reload`)**:
-  - O daemon do Oxidized mantém nós na memória RAM. Ao excluir um equipamento no IperSoft, desativar seu backup (`backup_enabled = False`) ou **alterar suas credenciais de acesso remoto (porta, usuário, senha, protocolo, IP, modelo de backup ou timeout de coleta)**, o IperSoft executa automaticamente `notify_oxidized_reload_if_active()` chamando `GET /reload` no Oxidized. Isso garante que qualquer alteração feita no cadastro seja aplicada em tempo real no daemon sem intervenção manual.
-  - Na sincronização periódica (`sync_nodes_with_database`), caso o nó pertença a um ativo cujo backup está desativado no IperSoft (`backup_enabled == False`), o IperSoft respeita estritamente a escolha do operador, não reativando o backup e expurgando o nó do daemon.
-  - Há botões dedicados de recarga manual sob demanda na tela de Integrações (**Recarregar Nós no Oxidized**) e diretamente no modal de detalhes do ativo na Linha 4 (**Recarregar no Oxidized**).
+- **Recarregamento Sob Demanda e Desacoplamento de Sincronização (`/reload`)**:
+  - **Desacoplamento Total de Integração Automática**: A edição, ativação/desativação em lote ou exclusão de um equipamento no IperSoft atualiza **exclusivamente o banco de dados do IperSoft**, sem disparar chamadas automáticas externas para o Zabbix, Guacamole ou daemon do Oxidized.
+  - A sincronização das alterações do IperSoft para cada plataforma é feita **manualmente sob demanda pelo operador através de botões dedicados e separados por integração**:
+    - **Sincronizar Zabbix**: Envia cadastro/status para a API do Zabbix Server (`POST /api/v1/assets/{id}/sync-zabbix`).
+    - **Sincronizar Guacamole**: Envia conexão/credenciais para a API do Apache Guacamole (`POST /api/v1/assets/{id}/sync-guacamole`).
+    - **Sincronizar Oxidized**: Atualiza o nó e aciona `POST /api/v1/assets/{id}/sync-oxidized` (que chama `/reload` no daemon do Oxidized).
+  - Há botões dedicados de recarga manual sob demanda na tela de Integrações (**Recarregar Nós no Oxidized**) e diretamente no modal de detalhes do ativo no cabeçalho e na Linha 4 (**Sincronizar com Oxidized**).
 - **Fornecimento Dinâmico de Inventário (`source: http`)**:
   - Endpoint `GET /api/v1/integrations/oxidized/nodes`: Entrega a lista de nós participantes do backup (`backup_enabled == True`) em formato JSON para consumo dinâmico pelo driver nativo `source: http` do Oxidized.
   - **Suporte a Timeout Ajustável por Dispositivo**: O payload exporta `"timeout": X` tanto como atributo de primeiro nível quanto dentro de `"vars": {"timeout": X}` (com padrão de 30s se não customizado). Isso permite aumentar o tempo limite para leitura de configurações pesadas (ex: switches e roteadores de borda/core) sem afetar o timeout geral de dispositivos mais rápidos.
@@ -174,39 +181,35 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
   - **Endpoint Legado / Compatibilidade CSV**: `GET /api/v1/integrations/oxidized/router.db` entrega o inventário diretamente no formato texto `router.db` delimitado por dois pontos (`name:model:ip:proto:port:user:pwd`).
 - **Diretiva `resolve_dns: false` no Oxidized**: No `/opt/oxidized/config`, deve-se declarar `resolve_dns: false` para que o Oxidized conecte diretamente pelo endereço informado no campo `ip`, impedindo erros de resolução DNS (`Resolv::ResolvError`) provocados por nomes amigáveis que contenham espaços ou pontuações.
 
-### 5.4. `DiagnosticsService` (`app/services/diagnostics.py`)
+### 5.4. `DiagnosticsService` (`app/services/diagnostics.py`) & Agendador Horário (`main.py`)
 - **ICMP Ping**: Execução nativa Linux (`ping -c 1 -W 2`) via `asyncio.create_subprocess_exec`.
 - **SNMP Test**: Envio de pacote UDP de teste na porta 161 com community configurada.
 - **TCP Test**: Teste de abertura de socket TCP na porta do serviço (ex: 22/2200 para SSH, 23 para Telnet, 3389 para RDP).
-- **Agendador Horário Automático**: Background task iniciada no boot do FastAPI (`hourly_diagnostics_scheduler`) que executa diagnósticos em todos os ativos a cada 1 hora.
+- **Agendador Horário Automático (`hourly_diagnostics_scheduler`)**: Background task iniciada no boot do FastAPI que executa a cada **1 hora (3600s)**:
+  1. Importação automática de hosts do **Zabbix Server** para o IperSoft (`sync_zabbix_hosts_with_db`).
+  2. Importação automática de conexões do **Apache Guacamole** para o IperSoft (`sync_guacamole_connections_with_db`).
+  3. Bateria de diagnósticos de rede (ICMP, SNMP, TCP) em todos os ativos.
+
+### 5.5. `VictoriaLogsService` (`app/services/victorialogs.py`)
+- **Integração com LogsQL**: Consulta direta à API do VictoriaLogs (`GET /select/logsql/query`) via rede privada WireGuard (`http://10.10.1.2:9428`), sem intermediários.
+- **Filtro de Dispositivo por IP/Hostname**: `(remote_ip:"<ip>" OR hostname:"<nome>")` com suporte a filtros de período (`15m`, `1h`, `6h`, `24h`, `7d`), busca de texto (`AND "<termo>"`) e níveis de severidade (crítico, erro, aviso, info).
+- **Health & Stats**: Métricas de volume de logs em tempo real (`_time:1h | count()`) e health check nativo.
 
 ---
 
 ## 6. Frontend: Componentes e Padrões de Interface
 
-### 6.1. `AssetDetailView.jsx` — Visualizador de 6 Linhas Independentes
-O modal de detalhes do equipamento foi planejado para carregar dados sob demanda (lazy loading) e permitir manter múltiplos painéis abertos simultaneamente sem fechar os outros:
-1. **Linha 1 — Dados IperSoft & Diagnósticos**:
-   - Informações canônicas (Nome, Hostname, IP, Cliente/Grupo).
-   - **Ativação Centralizada de Integrações**: Checkboxes para habilitar/desabilitar Zabbix, Guacamole e Oxidized diretamente no inventário master, com feedback visual imediato e sem bloquear reativações quando a linha estiver desabilitada.
-   - **Parâmetros Oxidized**: Seleção de Modelo de SO e campo numérico de **Timeout Oxidized (s)** (padrão 30s).
-   - Badges rápidos de conectividade no cabeçalho da linha (Ping, SNMP, Acesso Remoto).
-   - Ao abrir: Permite rodar testes manuais imediatos (ICMP, SNMP, TCP) e ver latências.
-2. **Linha 2 — Dados no Zabbix**:
-   - Carrega sob demanda via API do Zabbix.
-   - Exibe Nome no Zabbix, Nome Visível, Interfaces cadastradas, Host Groups e Templates associados.
-3. **Linha 3 — Dados no Guacamole**:
-   - Carrega sob demanda via API do Guacamole.
-   - Exibe Pasta/Grupo da conexão, IP, Protocolo, **Porta Customizada** (ex: 2200), Usuário e presença de Senha.
-   - Permite editar e sincronizar credenciais e porta diretamente com o Guacamole.
-4. **Linha 4 — Dados no Oxidized**:
-   - Carrega status de backup, nome do nó, modelo configurado (`RouterOS`, `Cisco`, etc.), grupo, **Timeout de Coleta configurado** e data/hora do último backup com tempo de execução.
-5. **Linha 5 — Status Zabbix (Alarmes e Itens)**:
-   - Alarmes/Triggers ativos do host com badge de severidade, checkbox de reconhecimento direto (`event.acknowledge`) e checkbox de encerramento/resolução manual do alarme (`event.acknowledge` com action de close).
-   - Lista completa de itens monitorados pelo Zabbix.
-   - Ao selecionar um item numérico, renderiza o sub-componente `ZabbixNumericChart`: gráfico SVG interativo com cálculo de mínimo, máximo, média e último valor com tooltip ao passar o mouse.
-6. **Linha 6 — Conexão Remota Guacamole**:
-   - Abertura de sessão direta do Guacamole dentro de iframe ou nova janela, reutilizando credenciais sem forçar novo login manual na interface web do Guacamole.
+### 6.1. `AssetDetailView.jsx` — Visualizador Organizado em 3 Abas Operacionais
+A tela de detalhes do equipamento foi estruturada em **3 abas focadas** com carregamento sob demanda (lazy loading):
+1. **Aba 1 — Operação & Monitoramento (Padrão ao abrir)**:
+   - **Acesso Rápido**: Cards no topo para **Conectividade & Terminal Remoto Guacamole SSO** (abertura em nova aba ou terminal embutido via iframe, sem login manual) e **Backup de Configurações Oxidized** (status da coleta, visualização imediata da configuração atual e disparo de backup sob demanda).
+   - **Monitoramento Zabbix (Alarmes & Itens)**: Lista de triggers ativas do host com severidade, Dado Operacional (`opdata`), reconhecimento (`event.acknowledge`) e encerramento manual; seletor de itens monitorados com busca rápida; e gráfico SVG interativo (`ZabbixNumericChart`) ou linha do tempo textual (`ZabbixTextTimeline`).
+2. **Aba 2 — Cadastro & Parâmetros (IperSoft)**:
+   - Formulário modular em grid 2x2: **1. Identificação Canônica & Rede** (Nome, Hostname, IP, DNS, Grupo/Cliente e seleção de diagnósticos nativos aplicáveis), **2. Monitoramento Zabbix**, **3. Acesso Remoto Apache Guacamole** (Protocolo, Porta Customizada, Usuário e Senha) e **4. Backup Oxidized** (Modelo de SO e Timeout de Coleta em segundos).
+   - Salvar atualiza exclusivamente o banco local do IperSoft, sem disparar alterações automáticas nos servidores externos.
+3. **Aba 3 — Comparativo & Sincronização Externa**:
+   - Alerta de divergências (`differences`) entre o cadastro do IperSoft e as ferramentas externas.
+   - Grid comparativo de **3 colunas lado a lado** (**Zabbix Server**, **Apache Guacamole** e **Oxidized Daemon**) exibindo os dados reais consultados nas APIs externas e botões de sincronização manual individual.
 
 ### 6.2. `ZabbixAlarmsView.jsx` — Central de Alarmes Zabbix (Tela Principal)
 Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas do Zabbix Server:
@@ -227,10 +230,10 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
 ### 6.4. `AssetsList.jsx` — Seleção Múltipla e Ações em Lote de Integrações
 - Permite seleção individual por checkbox em cada linha e seleção em massa via cabeçalho da tabela.
 - Barra de ações em lote flutuante/topo (`bulk-actions-bar`):
-  - Ativar / Desativar monitoramento no Zabbix em lote (com sincronização em tempo real no Zabbix Server).
-  - Ativar / Desativar acesso remoto no Apache Guacamole em lote (com atualização de `ignore_guacamole`).
-  - Ativar / Desativar backup no Oxidized em lote (com exclusão de dados obsoletos de backup e disparo automático de `GET /reload` para expurgo imediato da memória do Oxidized).
-  - Endpoint dedicado no backend: `POST /api/v1/assets/bulk-integrations`.
+  - Ativar / Desativar monitoramento no Zabbix em lote (atualização local no IperSoft).
+  - Ativar / Desativar acesso remoto no Apache Guacamole em lote (atualização local de `ignore_guacamole` no IperSoft).
+  - Ativar / Desativar backup no Oxidized em lote (atualização local de `backup_enabled` no IperSoft).
+  - Endpoint dedicado no backend: `POST /api/v1/assets/bulk-integrations` (sem envio automático às plataformas externas).
 
 ---
 
@@ -282,4 +285,63 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
            password: password
            timeout: timeout
      ```
+10. **Limpeza Automática de Diagnósticos de Rede Órfãos/Desativados (`DiagnosticsService`)**:
+    - Em `backend/app/services/diagnostics.py`, a função `_upsert_diag_in_session` atualiza o registro existente do equipamento (`asset_id` + `test_type` ou protocolo remoto) e remove quaisquer registros órfãos de portas ou protocolos antigos quando a porta/protocolo do ativo é alterada.
+    - Hosts importados do Zabbix que utilizam exclusivamente Zabbix Agent (`port == 10050`, `type == 1`) sem interface SNMP (`type == 2`) têm o teste SNMP (porta 161) desabilitado por padrão (`_is_snmp_applicable_by_default`), evitando falsos positivos de timeout SNMP.
+    - Tanto o lote horário (`run_all_diagnostics_batch`) quanto as rotas de edição (`update_asset`, `toggle_asset_status`, `bulk_update_integrations`) removem imediatamente da tabela `network_diagnostics` os testes de ativos inativos ou com `test_icmp`, `test_snmp`, `test_remote` / `ignore_guacamole` desmarcados.
+
+---
+
+## 8. Topologia Distribuída dos 3 Ambientes (LAN + WireGuard)
+
+O ecossistema completo do projeto opera de forma distribuída em **3 ambientes Linux** interconectados via rede local e túneis **WireGuard**. A máquina principal do IperSoft já possui chaves SSH autorizadas e aliases configurados em `/home/everton/.ssh/config` para acesso direto e sem senha aos outros dois ambientes.
+
+### 8.1. Resumo de Conectividade e Acesso SSH
+
+| Ambiente | Hostname | IP Privado / WireGuard | Usuário SSH | Comando / Alias SSH | Chave SSH Utilizada |
+|---|---|---|---|---|---|
+| **1. VM Local (IperSoft)** | `everton-docker` | `192.168.28.102` | `everton` | *(Ambiente Local)* | `~/.ssh/id_ed25519` |
+| **2. VPS Datacenter BrDrive** | `iper-ubuntu` | `10.10.1.2` | `root` | `ssh brdrive` *(ou `ssh 10.10.1.2`)* | `~/.ssh/id_ed25519` |
+| **3. VM Oracle Cloud** | `vnic1` | `10.10.2.2` *(VPC: `10.0.0.62`)* | `ubuntu` *(sudo NOPASSWD)* | `ssh oracle` *(ou `ssh 10.10.2.2`)* | `~/.ssh/id_rsa_oracle` / `~/.ssh/id_ed25519` |
+
+> **Nota sobre o IP da VM Oracle**: Embora ocasionalmente referenciada como `10.10.2.3`, o endereço ativo na interface WireGuard (`wg0`) da VM Oracle e registrado nas rotas de proxy reverso do Traefik é **`10.10.2.2`**. No `~/.ssh/config`, tanto `10.10.2.2` quanto `10.10.2.3`, `oracle` e `vm-oracle` apontam automaticamente para `10.10.2.2`.
+
+---
+
+### 8.2. Ambiente 1 — VM Local (`everton-docker` — `192.168.28.102`)
+Hospeda a aplicação central **IperSoft** e serviços auxiliares locais:
+- **IperSoft** (`/home/everton/IperSoft/docker-compose.yml`):
+  - `ipersoft_frontend`: React 18 + Vite (portas `5173`, `3000`, `80`).
+  - `ipersoft_backend`: FastAPI + Python 3.11 (porta `8000`).
+  - `ipersoft_postgres`: PostgreSQL 16 Alpine (porta `5432`).
+- **Traefik & Geofeed** (`/home/everton/.gemini/antigravity-cli/scratch/geofeed/docker-compose.yml`):
+  - `traefik_proxy` (`traefik:v3.3`) e `geofeed_web` (`nginx:alpine`).
+
+---
+
+### 8.3. Ambiente 2 — VPS Datacenter BrDrive (`ssh brdrive` — `10.10.1.2`)
+Atua como o **Core de Monitoramento, Gerência, NetFlow/Syslog e Proxy Reverso Público (`*.iper.net.br`)**. Todos os projetos residem em `/opt/`:
+
+| Diretório em `brdrive` | Domínio / Rota Traefik | Containers Docker | Função Principal |
+|---|---|---|---|
+| `/opt/traefik` | *(Ingress Ports `80`/`443`)* | `traefik` (`traefik:v2.11`) | Reverse Proxy global + TLS Let's Encrypt. Roteia tráfego para containers locais e para a VM Oracle (`10.10.2.2`) via `/opt/traefik/dynamic/`. |
+| `/opt/zabbix` | `https://zabbix70.iper.net.br` *(Direto: `http://10.10.1.2:8085`)* | `zabbix-server` (`10051`), `zabbix-web` (`8085`), `zabbix-postgres` (TimescaleDB PG15) | Monitoramento Zabbix 7.0 LTS integrado diretamente ao IperSoft. |
+| `/opt/guacamole` | `https://guacamoles.iper.net.br` *(Direto: `http://10.10.1.2:8086/guacamole`)* | `guacamole` (`8086`), `guacd`, `guacamole-postgres` (PG15) | Gateway de acesso remoto SSH/Telnet/RDP integrado diretamente ao IperSoft. |
+| `/opt/oxidized` | `https://oxidized.iper.net.br` *(Direto: `http://10.10.1.2:8888`)* | `oxidized` (`oxidized/oxidized:latest`, porta `8888`) | Backup automatizado de configurações de rede. Lê a lista de nós dinamicamente de `http://192.168.28.102:8000/api/v1/integrations/oxidized/nodes`. |
+| `/opt/akvorado/docker` | `https://flows.iper.net.br` | `akvorado-inlet-1` (UDP `2055`/`4739`/`6343`), `akvorado-outlet-1` (BGP `10179`), `akvorado-console-1` (`8088`), `akvorado-orchestrator-1`, `akvorado-clickhouse-1`, `akvorado-kafka-1`, `akvorado-kafka-ui-1`, `akvorado-redis-1`, `akvorado-geoip-1` | Coletor e analisador de fluxos de tráfego (NetFlow / IPFIX / sFlow) e BGP. |
+| `/opt/victorialogs` | `https://logs.iper.net.br` *(Direto: `http://10.10.1.2:9428`)* | `victorialogs` (`victoriametrics/victoria-logs:latest`, portas `514` UDP/TCP, `9428` HTTP) | Servidor central de Syslog integrado ao IperSoft para correlação de eventos em tempo real. |
+| `/opt/weathermap` | `https://weathermap.iper.net.br` | `weathermap` | Mapas visuais de topologia e utilização de links. |
+| `/opt/portainer` | `https://portainer.iper.net.br` | `portainer` (`portainer/portainer-ce:latest`) | Gerenciamento visual de containers Docker. |
+
+---
+
+### 8.4. Ambiente 3 — Instância Oracle Cloud (`ssh oracle` — `10.10.2.2`)
+Hospeda os sistemas de **Visualização (Grafana), IPAM, Planejamento Óptico e Nuvem de Arquivos**, todos em `/opt/` e expostos em HTTPS através do Traefik da VPS BrDrive (`/opt/traefik/dynamic/*.yml` apontando para `10.10.2.2`):
+
+| Diretório em `oracle` | Domínio Público (via Traefik BrDrive) | Containers Docker & Portas Internas | Função Principal |
+|---|---|---|---|
+| `/opt/grafana-stack` | `https://grafanas.iper.net.br` → `http://10.10.2.2:3000` | `grafana` (`grafana/grafana:latest`, plugin `alexanderzobnin-zabbix-app`) | Dashboards executivos e operacionais conectados ao Zabbix. |
+| `/opt/phpipam` | `https://ipam.iper.net.br` → `http://10.10.2.2:8081` | `phpipam-web` (`8081->80`), `phpipam-cron`, `phpipam-db` (`mariadb:11`) | Gestão de endereçamento IP (IPv4/IPv6), sub-redes e VLANs. |
+| `/opt/pon-planner` | `https://pon.iper.net.br` → `http://10.10.2.2:8000` | `pon-planner` (`pon-planner-backend`, porta `8000`) | Cálculo e planejamento de redes ópticas PON/FTTH. |
+| `/opt/nextcloud` | `https://cloud.iper.net.br` → `http://10.10.2.2:8080` | `nextcloud` (`nextcloud:34.0.1`, `8080->80`), `nextcloud-db` (`mariadb:11`) | Armazenamento e compartilhamento corporativo de arquivos. |
 

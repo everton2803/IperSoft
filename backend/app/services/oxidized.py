@@ -248,7 +248,8 @@ class OxidizedService:
                     ox_record.vars = node_vars
                     ox_record.last_sync = func.now()
 
-                target_asset.backup_model = node_model
+                if not target_asset.backup_model:
+                    target_asset.backup_model = node_model
                 target_asset.backup_enabled = True
             else:
                 unmatched_nodes.append({
@@ -258,13 +259,6 @@ class OxidizedService:
                 })
 
         db.commit()
-
-        if needs_reload:
-            try:
-                await cls.reload_nodes(url, username, password)
-                logger.info("Oxidized recarregado após sincronização para descartar nós desativados da memória.")
-            except Exception as e:
-                logger.warning(f"Aviso ao recarregar nós no Oxidized durante sincronização: {e}")
 
         return {
             "total_nodes": len(nodes),

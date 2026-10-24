@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { Sun, Moon, Network, LogOut, Users, Server, Layers, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Sun, Moon, Network, LogOut, Users, Server, Layers, Activity, ShieldAlert } from 'lucide-react';
 
 export const Navbar = ({ 
   user, 
@@ -23,7 +23,7 @@ export const Navbar = ({
           </div>
           <div className="brand-text">
             <span className="brand-title">IPER<span className="brand-highlight">SOFT</span></span>
-            <span className="brand-subtitle">Ativos de Rede</span>
+            <span className="brand-subtitle">Gestão de Rede & NOC</span>
           </div>
         </div>
 
@@ -34,10 +34,10 @@ export const Navbar = ({
               className={`nav-link-btn ${activeNav === 'zabbix_alarms' ? 'active' : ''}`}
               onClick={() => onSelectNav('zabbix_alarms')}
               style={{ position: 'relative' }}
-              title="Central Principal: Triggers disparadas e incidentes ativos monitorados no Zabbix"
+              title="Central de Incidentes: Triggers disparadas e problemas ativos no Zabbix"
             >
               <ShieldAlert size={15} color={zabbixAlarmCount > 0 ? '#e53935' : 'inherit'} />
-              <span>Alarmes Zabbix</span>
+              <span>Central de Incidentes</span>
               {zabbixAlarmCount > 0 && (
                 <span style={{
                   backgroundColor: '#e53935',
@@ -57,19 +57,20 @@ export const Navbar = ({
             <button
               className={`nav-link-btn ${activeNav === 'assets' ? 'active' : ''}`}
               onClick={() => onSelectNav('assets')}
+              title="Inventário unificado de equipamentos (Zabbix, Guacamole e Oxidized)"
             >
               <Server size={15} />
-              <span>Ativos de Rede</span>
+              <span>Inventário de Ativos</span>
             </button>
 
             <button
               className={`nav-link-btn ${activeNav === 'alarms' ? 'active' : ''}`}
               onClick={() => onSelectNav('alarms')}
               style={{ position: 'relative' }}
-              title="Central de Diagnósticos e Alarmes IperSoft (ICMP Ping, SNMP, Portas Remotas)"
+              title="Diagnóstico de Rede: Testes ativos de Ping (ICMP), SNMP e Portas TCP"
             >
-              <AlertTriangle size={15} color={alarmCount > 0 ? 'var(--color-danger)' : 'inherit'} />
-              <span>Alarmes IperSoft</span>
+              <Activity size={15} color={alarmCount > 0 ? 'var(--color-danger)' : 'inherit'} />
+              <span>Diagnóstico de Rede</span>
               {alarmCount > 0 && (
                 <span style={{
                   backgroundColor: 'var(--color-danger)',
@@ -89,6 +90,7 @@ export const Navbar = ({
             <button
               className={`nav-link-btn ${activeNav === 'integrations' ? 'active' : ''}`}
               onClick={() => onSelectNav('integrations')}
+              title="Sincronização e credenciais do Zabbix, Guacamole e Oxidized"
             >
               <Layers size={15} />
               <span>Integrações</span>

@@ -166,21 +166,56 @@ async def test_tcp(ip: str, port: int, timeout: float = 2.5) -> Dict[str, Any]:
             "message": f"Falha de conexão: {str(e)}"
         }
 
+def _is_snmp_applicable_by_default(asset: Asset) -> bool:
+    """
+    Determina se o teste SNMP v2c (porta 161) é aplicável por padrão quando
+    o operador não definiu explicitamente 'snmp' em enabled_tests.
+    Se o host no Zabbix possui apenas interface Zabbix Agent (porta 10050, type=1)
+    sem interface SNMP (type=2), não deve testar SNMP 161 por padrão.
+    """
+    if not asset.zabbix:
+        return False
+    raw_ifaces = (asset.raw_data or {}).get("interfaces") or []
+    if raw_ifaces:
+        has_snmp_iface = any(str(i.get("type")) == "2" or str(i.get("port")) == "161" for i in raw_ifaces)
+        if not has_snmp_iface:
+            return False
+    z_port = str(asset.zabbix.port or asset.port or "")
+    if z_port == "10050" and not raw_ifaces:
+        return False
+    return True
+
+
 def _upsert_diag_in_session(db: Session, asset_id: int, test_type: str, status: str, latency: Optional[float], target_host: str, target_port: Optional[str], message: str):
-    """Atualiza ou insere o registro atual de diagnóstico na tabela network_diagnostics."""
-    existing = db.query(NetworkDiagnostic).filter(
-        NetworkDiagnostic.asset_id == asset_id,
-        NetworkDiagnostic.test_type == test_type,
-        NetworkDiagnostic.target_port == target_port
-    ).first()
+    """
+    Atualiza ou insere o registro atual de diagnóstico na tabela network_diagnostics,
+    removendo registros órfãos de portas ou protocolos antigos do mesmo ativo.
+    """
+    remote_types = ["ssh", "telnet", "rdp", "vnc"]
+    if test_type in remote_types:
+        existing_list = db.query(NetworkDiagnostic).filter(
+            NetworkDiagnostic.asset_id == asset_id,
+            NetworkDiagnostic.test_type.in_(remote_types)
+        ).order_by(NetworkDiagnostic.id.asc()).all()
+    else:
+        existing_list = db.query(NetworkDiagnostic).filter(
+            NetworkDiagnostic.asset_id == asset_id,
+            NetworkDiagnostic.test_type == test_type
+        ).order_by(NetworkDiagnostic.id.asc()).all()
 
     now = datetime.now(timezone.utc)
-    if existing:
-        existing.status = status
-        existing.latency_ms = latency
-        existing.target_host = target_host
-        existing.message = message
-        existing.tested_at = now
+    if existing_list:
+        primary = existing_list[0]
+        primary.test_type = test_type
+        primary.status = status
+        primary.latency_ms = latency
+        primary.target_host = target_host
+        primary.target_port = target_port
+        primary.message = message
+        primary.tested_at = now
+        # Remove duplicatas ou registros presos de portas/protocolos anteriores
+        for stale in existing_list[1:]:
+            db.delete(stale)
     else:
         diag = NetworkDiagnostic(
             asset_id=asset_id,
@@ -207,83 +242,82 @@ async def run_diagnostics_for_asset(
     """
     now = datetime.now(timezone.utc)
     target_ip = asset.ip_address or asset.hostname
+    ignore_guac = bool((asset.raw_data or {}).get("ignore_guacamole"))
     results = {}
 
     # 1. ICMP Ping Test
-    if include_icmp:
-        if target_ip:
-            icmp_res = await test_icmp(target_ip, timeout=2.0)
-            results["icmp"] = icmp_res
-            _upsert_diag_in_session(
-                db, asset.id, "icmp", icmp_res["status"],
-                icmp_res["latency_ms"], target_ip, None, icmp_res["message"]
-            )
-            if asset.zabbix:
-                asset.zabbix.icmp_status = icmp_res["status"]
-                asset.zabbix.icmp_latency_ms = icmp_res["latency_ms"]
-                asset.zabbix.last_diagnostics = now
+    if include_icmp and target_ip:
+        icmp_res = await test_icmp(target_ip, timeout=2.0)
+        results["icmp"] = icmp_res
+        _upsert_diag_in_session(
+            db, asset.id, "icmp", icmp_res["status"],
+            icmp_res["latency_ms"], target_ip, None, icmp_res["message"]
+        )
+        if asset.zabbix:
+            asset.zabbix.icmp_status = icmp_res["status"]
+            asset.zabbix.icmp_latency_ms = icmp_res["latency_ms"]
+            asset.zabbix.last_diagnostics = now
     else:
-        # Se ICMP foi desativado, remove diagnóstico de falha para não gerar alarme
         db.query(NetworkDiagnostic).filter(
             NetworkDiagnostic.asset_id == asset.id,
             NetworkDiagnostic.test_type == "icmp"
-        ).delete()
+        ).delete(synchronize_session=False)
         if asset.zabbix:
             asset.zabbix.icmp_status = "disabled"
         results["icmp"] = {"status": "disabled", "message": "Teste desativado pelo usuário"}
 
     # 2. SNMP Test
-    if include_snmp:
-        if asset.zabbix:
-            comm = asset.zabbix.snmp_community or asset.snmp_community or "ipermonitor"
-            snmp_port = 161
-            snmp_res = await test_snmp(target_ip, community=comm, port=snmp_port, timeout=2.0)
-            results["snmp"] = snmp_res
-            _upsert_diag_in_session(
-                db, asset.id, "snmp", snmp_res["status"],
-                snmp_res["latency_ms"], target_ip, str(snmp_port), snmp_res["message"]
-            )
-            asset.zabbix.snmp_status = snmp_res["status"]
-            asset.zabbix.snmp_message = snmp_res["message"]
-            asset.zabbix.last_diagnostics = now
+    if include_snmp and asset.zabbix and target_ip:
+        comm = asset.zabbix.snmp_community or asset.snmp_community or "ipermonitor"
+        snmp_port = 161
+        snmp_res = await test_snmp(target_ip, community=comm, port=snmp_port, timeout=2.0)
+        results["snmp"] = snmp_res
+        _upsert_diag_in_session(
+            db, asset.id, "snmp", snmp_res["status"],
+            snmp_res["latency_ms"], target_ip, str(snmp_port), snmp_res["message"]
+        )
+        asset.zabbix.snmp_status = snmp_res["status"]
+        asset.zabbix.snmp_message = snmp_res["message"]
+        asset.zabbix.last_diagnostics = now
     else:
-        # Se SNMP foi desativado, remove diagnóstico antigo de falha
         db.query(NetworkDiagnostic).filter(
             NetworkDiagnostic.asset_id == asset.id,
             NetworkDiagnostic.test_type == "snmp"
-        ).delete()
+        ).delete(synchronize_session=False)
         if asset.zabbix:
             asset.zabbix.snmp_status = "disabled"
             asset.zabbix.snmp_message = "Teste SNMP desativado"
         results["snmp"] = {"status": "disabled", "message": "Teste desativado pelo usuário"}
 
     # 3. Guacamole Protocols (SSH, Telnet, RDP)
-    if include_remote:
+    if include_remote and not ignore_guac:
         results["guacamole"] = []
         if asset.guacamole and len(asset.guacamole) > 0:
-            for g_conn in asset.guacamole:
-                g_host = g_conn.hostname or target_ip
-                proto = (g_conn.protocol or "ssh").lower()
-                default_port = 22 if proto == "ssh" else (23 if proto == "telnet" else 3389)
-                port_val = int(g_conn.port) if g_conn.port and g_conn.port.isdigit() else default_port
+            # Testa a conexão principal configurada no ativo
+            g_conn = asset.guacamole[0]
+            g_host = g_conn.hostname or target_ip
+            proto = (g_conn.protocol or "ssh").lower()
+            default_port = 22 if proto == "ssh" else (23 if proto == "telnet" else 3389)
+            port_val = int(g_conn.port) if g_conn.port and str(g_conn.port).isdigit() else default_port
 
-                tcp_res = await test_tcp(g_host, port_val, timeout=2.5)
-                results["guacamole"].append({
-                    "connection_id": g_conn.connection_id,
-                    "protocol": proto,
-                    "port": port_val,
-                    **tcp_res
-                })
+            tcp_res = await test_tcp(g_host, port_val, timeout=2.5)
+            results["guacamole"].append({
+                "connection_id": g_conn.connection_id,
+                "protocol": proto,
+                "port": port_val,
+                **tcp_res
+            })
 
-                _upsert_diag_in_session(
-                    db, asset.id, proto, tcp_res["status"],
-                    tcp_res["latency_ms"], g_host, str(port_val), tcp_res["message"]
-                )
-                g_conn.tcp_status = tcp_res["status"]
-                g_conn.tcp_latency_ms = tcp_res["latency_ms"]
-                g_conn.tcp_message = tcp_res["message"]
-                g_conn.last_diagnostics = now
-        elif target_ip:
+            _upsert_diag_in_session(
+                db, asset.id, proto, tcp_res["status"],
+                tcp_res["latency_ms"], g_host, str(port_val), tcp_res["message"]
+            )
+            for g_c in asset.guacamole:
+                g_c.tcp_status = tcp_res["status"]
+                g_c.tcp_latency_ms = tcp_res["latency_ms"]
+                g_c.tcp_message = tcp_res["message"]
+                g_c.last_diagnostics = now
+        elif target_ip and asset.guacamole_connection_id:
             proto = (asset.guacamole_protocol or "ssh").lower()
             default_port = 22 if proto == "ssh" else (23 if proto == "telnet" else 3389)
             tcp_res = await test_tcp(target_ip, default_port, timeout=2.5)
@@ -297,11 +331,16 @@ async def run_diagnostics_for_asset(
                 db, asset.id, proto, tcp_res["status"],
                 tcp_res["latency_ms"], target_ip, str(default_port), tcp_res["message"]
             )
+        else:
+            db.query(NetworkDiagnostic).filter(
+                NetworkDiagnostic.asset_id == asset.id,
+                NetworkDiagnostic.test_type.in_(["ssh", "telnet", "rdp", "vnc"])
+            ).delete(synchronize_session=False)
     else:
         db.query(NetworkDiagnostic).filter(
             NetworkDiagnostic.asset_id == asset.id,
-            NetworkDiagnostic.test_type.in_(["ssh", "telnet", "rdp"])
-        ).delete()
+            NetworkDiagnostic.test_type.in_(["ssh", "telnet", "rdp", "vnc"])
+        ).delete(synchronize_session=False)
         if asset.guacamole:
             for g_conn in asset.guacamole:
                 g_conn.tcp_status = "disabled"
@@ -315,7 +354,7 @@ async def run_all_diagnostics_batch():
     Varredura concorrente otimizada de todos os ativos do banco:
     1. Carrega plano de testes em memória (1 consulta rápida ao DB)
     2. Executa testes I/O assíncronos em paralelo com semáforo
-    3. Atualiza banco em bloco
+    3. Atualiza banco em bloco e expurga diagnósticos órfãos/desabilitados
     """
     global diagnostic_state
     if diagnostic_state["is_running"]:
@@ -334,10 +373,16 @@ async def run_all_diagnostics_batch():
         assets = db.query(Asset).filter(Asset.status.in_(["active", "monitored"])).all()
         for a in assets:
             target_ip = a.ip_address or a.hostname
-            saved_tests = (a.raw_data or {}).get("enabled_tests", {})
+            raw = a.raw_data or {}
+            saved_tests = raw.get("enabled_tests") or {}
+            ignore_guac = bool(raw.get("ignore_guacamole"))
+
             inc_icmp = saved_tests.get("icmp", True)
-            inc_snmp = saved_tests.get("snmp", True)
-            inc_remote = saved_tests.get("remote", True)
+            if "snmp" in saved_tests:
+                inc_snmp = bool(saved_tests["snmp"])
+            else:
+                inc_snmp = _is_snmp_applicable_by_default(a)
+            inc_remote = saved_tests.get("remote", True) and not ignore_guac
 
             item = {
                 "asset_id": a.id,
@@ -346,22 +391,23 @@ async def run_all_diagnostics_batch():
                 "include_icmp": inc_icmp,
                 "include_snmp": inc_snmp,
                 "include_remote": inc_remote,
-                "has_zabbix": a.zabbix is not None,
+                "has_zabbix": a.zabbix is not None and a.zabbix.status != "unmonitored",
                 "snmp_community": (a.zabbix.snmp_community if a.zabbix else None) or a.snmp_community or "ipermonitor",
                 "guacamole_conns": []
             }
-            if a.guacamole:
-                for g in a.guacamole:
-                    proto = (g.protocol or "ssh").lower()
-                    def_port = 22 if proto == "ssh" else (23 if proto == "telnet" else 3389)
-                    p_val = int(g.port) if g.port and g.port.isdigit() else def_port
-                    item["guacamole_conns"].append({
-                        "id": g.id,
-                        "connection_id": g.connection_id,
-                        "hostname": g.hostname or target_ip,
-                        "protocol": proto,
-                        "port": p_val
-                    })
+            if a.guacamole and not ignore_guac:
+                # Usa a conexão primária do ativo para evitar testes duplicados no mesmo host
+                g = a.guacamole[0]
+                proto = (g.protocol or "ssh").lower()
+                def_port = 22 if proto == "ssh" else (23 if proto == "telnet" else 3389)
+                p_val = int(g.port) if g.port and str(g.port).isdigit() else def_port
+                item["guacamole_conns"].append({
+                    "id": g.id,
+                    "connection_id": g.connection_id,
+                    "hostname": g.hostname or target_ip,
+                    "protocol": proto,
+                    "port": p_val
+                })
             targets.append(item)
     finally:
         db.close()
@@ -379,23 +425,26 @@ async def run_all_diagnostics_batch():
             target_res = {
                 "asset_id": target["asset_id"],
                 "target_ip": ip,
+                "include_icmp": target["include_icmp"],
+                "include_snmp": target["include_snmp"] and target["has_zabbix"],
+                "include_remote": target["include_remote"] and len(target["guacamole_conns"]) > 0,
                 "icmp": None,
                 "snmp": None,
                 "guac": []
             }
 
             # ICMP
-            if target.get("include_icmp", True) and ip:
+            if target_res["include_icmp"] and ip:
                 target_res["icmp"] = await test_icmp(ip, timeout=2.0)
 
             # SNMP
-            if target.get("include_snmp", True) and target["has_zabbix"] and ip:
+            if target_res["include_snmp"] and ip:
                 target_res["snmp"] = await test_snmp(
                     ip, community=target["snmp_community"], port=161, timeout=2.0
                 )
 
             # Guacamole
-            if target.get("include_remote", True):
+            if target_res["include_remote"]:
                 for g in target["guacamole_conns"]:
                     res_tcp = await test_tcp(g["hostname"], g["port"], timeout=2.5)
                     target_res["guac"].append({
@@ -409,9 +458,6 @@ async def run_all_diagnostics_batch():
             diagnostic_state["current_progress"] += 1
             return target_res
 
-            diagnostic_state["current_progress"] += 1
-            return target_res
-
     try:
         tasks = [execute_target(t) for t in targets]
         all_results = await asyncio.gather(*tasks)
@@ -420,8 +466,13 @@ async def run_all_diagnostics_batch():
         now = datetime.now(timezone.utc)
         db_save = SessionLocal()
         try:
-            # Dicionário de ativos para atualização rápida
             asset_ids = [r["asset_id"] for r in all_results]
+            # Remove diagnósticos de ativos que estão inativos/desmonitorados
+            if asset_ids:
+                db_save.query(NetworkDiagnostic).filter(
+                    ~NetworkDiagnostic.asset_id.in_(asset_ids)
+                ).delete(synchronize_session=False)
+
             db_assets = {a.id: a for a in db_save.query(Asset).filter(Asset.id.in_(asset_ids)).all()}
 
             for r in all_results:
@@ -430,7 +481,7 @@ async def run_all_diagnostics_batch():
                 if not asset:
                     continue
 
-                # Salvar ICMP
+                # Salvar ou Limpar ICMP
                 if r["icmp"]:
                     _upsert_diag_in_session(
                         db_save, aid, "icmp", r["icmp"]["status"],
@@ -440,8 +491,15 @@ async def run_all_diagnostics_batch():
                         asset.zabbix.icmp_status = r["icmp"]["status"]
                         asset.zabbix.icmp_latency_ms = r["icmp"]["latency_ms"]
                         asset.zabbix.last_diagnostics = now
+                else:
+                    db_save.query(NetworkDiagnostic).filter(
+                        NetworkDiagnostic.asset_id == aid,
+                        NetworkDiagnostic.test_type == "icmp"
+                    ).delete(synchronize_session=False)
+                    if asset.zabbix:
+                        asset.zabbix.icmp_status = "disabled"
 
-                # Salvar SNMP
+                # Salvar ou Limpar SNMP
                 if r["snmp"] and asset.zabbix:
                     _upsert_diag_in_session(
                         db_save, aid, "snmp", r["snmp"]["status"],
@@ -450,21 +508,35 @@ async def run_all_diagnostics_batch():
                     asset.zabbix.snmp_status = r["snmp"]["status"]
                     asset.zabbix.snmp_message = r["snmp"]["message"]
                     asset.zabbix.last_diagnostics = now
+                else:
+                    db_save.query(NetworkDiagnostic).filter(
+                        NetworkDiagnostic.asset_id == aid,
+                        NetworkDiagnostic.test_type == "snmp"
+                    ).delete(synchronize_session=False)
+                    if asset.zabbix:
+                        asset.zabbix.snmp_status = "disabled"
+                        asset.zabbix.snmp_message = "Teste SNMP desativado"
 
-                # Salvar Guacamole TCP
+                # Salvar ou Limpar Guacamole TCP
                 if r["guac"] and asset.guacamole:
-                    guac_map = {g.id: g for g in asset.guacamole}
                     for g_res in r["guac"]:
                         _upsert_diag_in_session(
                             db_save, aid, g_res["protocol"], g_res["status"],
                             g_res["latency_ms"], g_res["host"], str(g_res["port"]), g_res["message"]
                         )
-                        g_obj = guac_map.get(g_res["guac_id"])
-                        if g_obj:
+                        for g_obj in asset.guacamole:
                             g_obj.tcp_status = g_res["status"]
                             g_obj.tcp_latency_ms = g_res["latency_ms"]
                             g_obj.tcp_message = g_res["message"]
                             g_obj.last_diagnostics = now
+                else:
+                    db_save.query(NetworkDiagnostic).filter(
+                        NetworkDiagnostic.asset_id == aid,
+                        NetworkDiagnostic.test_type.in_(["ssh", "telnet", "rdp", "vnc"])
+                    ).delete(synchronize_session=False)
+                    if asset.guacamole:
+                        for g_obj in asset.guacamole:
+                            g_obj.tcp_status = "disabled"
 
             db_save.commit()
             logger.info("Resultados de diagnósticos salvos no banco com sucesso.")
