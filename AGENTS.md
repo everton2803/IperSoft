@@ -195,6 +195,24 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 - **Filtro de Dispositivo por IP/Hostname**: `(remote_ip:"<ip>" OR hostname:"<nome>")` com suporte a filtros de período (`15m`, `1h`, `6h`, `24h`, `7d`), busca de texto (`AND "<termo>"`) e níveis de severidade (crítico, erro, aviso, info).
 - **Health & Stats**: Métricas de volume de logs em tempo real (`_time:1h | count()`) e health check nativo.
 
+### 5.6. Stack de Backup de Roteadores & Telecom na Oracle Cloud (`10.10.2.2`)
+- **Localização e Propósito**: Hospedada na instância ARM64 da Oracle Cloud (`/opt/backup-services`), isolada geograficamente do datacenter local (BrDrive), garantindo redundância total de Disaster Recovery para os ISPs.
+- **SFTPGo (FTP / SFTP / Web Client)**:
+  - Docker container: `sftpgo` (`drakkan/sftpgo:latest`).
+  - FTP porta 21 (range passivo `50000-50100`, IP passivo forçado `10.10.2.2`).
+  - SFTP porta 2022 e Web GUI porta 8082 (publicada via Traefik em `https://ftp.iper.net.br`).
+  - Mapeamento das pastas dos clientes em `/opt/backup-services/data/ftp/<cliente>/` e pasta compartilhada `/tftp` acessível graficamente.
+  - Usuário inicial: `bkup.iper` / `iper.bkup` (pasta `/iper`).
+- **TFTP Server (tftp-hpa)**:
+  - Docker container: `tftp-server` (Alpine `tftp-hpa` com `network_mode: host`).
+  - Escuta em `0.0.0.0:69/udp` e grava em `/opt/backup-services/data/tftp/<cliente>/`.
+  - Pastas gerenciáveis diretamente pela interface web do SFTPGo.
+- **Rotina Diária de Compactação (`archive_backups.sh` + systemd timer)**:
+  - Timer: `backup-archive.timer` disparado diariamente às **00:00:00 (Horário de Brasília)**.
+  - Script: `/opt/backup-services/scripts/archive_backups.sh`.
+  - Comportamento: Para cada pasta de cliente em `data/ftp` e `data/tftp`, compacta todos os arquivos soltos e subpastas (como árvores do UNM Fiberhome) em `_historico/<cliente>_AAAA-MM-DD.tar.gz`. Remove os arquivos arquivados para não sobrescrever nem duplicar, porém **preserva intacta a estrutura de subpastas vazias** para que softwares como UNM2000 nunca quebrem rotinas futuras.
+  - Retenção automática de 90 dias com log em `/var/log/backup-archive.log`.
+
 ---
 
 ## 6. Frontend: Componentes e Padrões de Interface
