@@ -202,10 +202,11 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
   - FTP porta 21 (range passivo `50000-50100`, IP passivo forçado `10.10.2.2`).
   - SFTP porta 2022 e Web GUI porta 8082 (publicada via Traefik em `https://ftp.iper.net.br`).
   - Mapeamento das pastas dos clientes em `/opt/backup-services/data/ftp/<cliente>/` e pasta compartilhada `/tftp` acessível graficamente.
-  - Usuário inicial: `bkup.iper` / `iper.bkup` (pasta `/iper`).
+  - Administrador: `admin` / `09@Iper`.
+  - Contas migradas do FileZilla: Todos os 24 usuários (provedores `bkp.*`, clientes `clientes.*`, UNMs `unm*` e `ie.mksolutions`) cadastrados com suas credenciais originais e pastas chroot dedicadas.
 - **TFTP Server (tftp-hpa)**:
   - Docker container: `tftp-server` (Alpine `tftp-hpa` com `network_mode: host`).
-  - Escuta em `0.0.0.0:69/udp` e grava em `/opt/backup-services/data/tftp/<cliente>/`.
+  - Escuta em `0.0.0.0:69/udp` e grava em `/opt/backup-services/data/tftp/<cliente>/` (pastas criadas para todos os ISPs: Athila, ATM, Bkup, Diretrix, Fortaleza, Infonet, Inforline, Iper, LHTech, Oestenets, RTnet, Seven, Taionet).
   - Pastas gerenciáveis diretamente pela interface web do SFTPGo.
 - **Rotina Diária de Compactação (`archive_backups.sh` + systemd timer)**:
   - Timer: `backup-archive.timer` disparado diariamente às **00:00:00 (Horário de Brasília)**.
