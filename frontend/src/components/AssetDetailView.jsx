@@ -2048,11 +2048,11 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     <input 
                       type="checkbox"
                       className="diag-custom-checkbox"
-                      checked={zbxActive}
-                      onChange={handleToggleZabbixStatus}
-                      disabled={isTogglingZbxStatus || !isAdmin}
+                      checked={formData.status === 'monitored'}
+                      onChange={e => setFormData({ ...formData, status: e.target.checked ? 'monitored' : 'unmonitored' })}
+                      disabled={!isAdmin}
                     />
-                    <span>{zbxActive ? 'Habilitado' : 'Desativado'}</span>
+                    <span>{formData.status === 'monitored' ? 'Habilitado' : 'Desativado'}</span>
                   </label>
                 </div>
 
@@ -2092,11 +2092,11 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     <input 
                       type="checkbox"
                       className="diag-custom-checkbox"
-                      checked={guacActive}
-                      onChange={handleToggleGuacamoleStatus}
-                      disabled={isTogglingGuacStatus || !isAdmin}
+                      checked={!ignoreGuacamole}
+                      onChange={e => setIgnoreGuacamole(!e.target.checked)}
+                      disabled={!isAdmin}
                     />
-                    <span>{guacActive ? 'Habilitado' : 'Ignorado'}</span>
+                    <span>{!ignoreGuacamole ? 'Habilitado' : 'Ignorado'}</span>
                   </label>
                 </div>
 
@@ -2170,11 +2170,11 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     <input 
                       type="checkbox"
                       className="diag-custom-checkbox"
-                      checked={oxActive}
-                      onChange={handleToggleOxidizedStatus}
-                      disabled={isTogglingOxStatus || !isAdmin}
+                      checked={formData.backup_enabled !== false}
+                      onChange={e => setFormData({ ...formData, backup_enabled: e.target.checked })}
+                      disabled={!isAdmin}
                     />
-                    <span>{oxActive ? 'Habilitado' : 'Desativado'}</span>
+                    <span>{formData.backup_enabled !== false ? 'Habilitado' : 'Desativado'}</span>
                   </label>
                 </div>
 

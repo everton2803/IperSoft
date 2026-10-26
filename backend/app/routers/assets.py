@@ -636,12 +636,13 @@ async def update_asset(
         asset.backup_enabled = payload.backup_enabled
         if payload.backup_enabled is False and asset.oxidized:
             db.delete(asset.oxidized)
+            asset.oxidized = None
     if payload.backup_timeout is not None:
         try:
             t_val = int(payload.backup_timeout)
             if t_val > 0:
                 asset.backup_timeout = t_val
-                if asset.oxidized:
+                if asset.oxidized and payload.backup_enabled is not False:
                     asset.oxidized.timeout = t_val
                     ox_vars = dict(asset.oxidized.vars or {})
                     ox_vars["timeout"] = t_val
@@ -1551,6 +1552,14 @@ async def get_asset_oxidized_details(
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+
+    if asset.backup_enabled is False:
+        return {
+            "name": asset.name,
+            "status": "disabled",
+            "message": "Backup de configurações desativado para este equipamento no IperSoft.",
+            "timeout": asset.backup_timeout or 30
+        }
 
     node_name = asset.oxidized.node_name if (asset.oxidized and asset.oxidized.node_name) else asset.name
     cfg = _get_oxidized_config(db)
