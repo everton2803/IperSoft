@@ -58,6 +58,8 @@ class AssetZabbix(Base):
     id = Column(Integer, primary_key=True, index=True)
     asset_id = Column(Integer, ForeignKey("assets.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
     hostid = Column(String(50), index=True, nullable=True)
+    host = Column(String(150), nullable=True) # Nome técnico do host no Zabbix
+    name = Column(String(150), nullable=True) # Nome visível do host no Zabbix
     port = Column(String(20), default="10050", nullable=True)
     snmp_community = Column(String(100), default="ipermonitor", nullable=True)
     host_groups = Column(JSON, default=list, nullable=False)

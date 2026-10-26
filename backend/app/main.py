@@ -27,8 +27,22 @@ try:
         conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS backup_timeout INTEGER DEFAULT 30;"))
         conn.execute(text("UPDATE assets SET backup_timeout = 30 WHERE backup_timeout IS NULL;"))
         conn.execute(text("ALTER TABLE asset_oxidized ADD COLUMN IF NOT EXISTS timeout INTEGER DEFAULT 30;"))
+        conn.execute(text("ALTER TABLE asset_zabbix ADD COLUMN IF NOT EXISTS host VARCHAR(150);"))
+        conn.execute(text("ALTER TABLE asset_zabbix ADD COLUMN IF NOT EXISTS name VARCHAR(150);"))
+        conn.execute(text("""
+            UPDATE asset_zabbix 
+            SET host = assets.hostname 
+            FROM assets 
+            WHERE asset_zabbix.asset_id = assets.id AND asset_zabbix.host IS NULL;
+        """))
+        conn.execute(text("""
+            UPDATE asset_zabbix 
+            SET name = assets.name 
+            FROM assets 
+            WHERE asset_zabbix.asset_id = assets.id AND asset_zabbix.name IS NULL;
+        """))
         conn.commit()
-    logger.info("Migrações de colunas de backup_timeout verificadas com sucesso.")
+    logger.info("Migrações de colunas de backup_timeout e campos de nomes do Zabbix verificadas com sucesso.")
     
     # Auto-seed initial admin if no users exist
     db = SessionLocal()

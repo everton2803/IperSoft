@@ -192,6 +192,9 @@ class AssetResponse(BaseModel):
 class AssetUpdate(BaseModel):
     name: Optional[str] = None
     hostname: Optional[str] = None
+    zabbix_host: Optional[str] = None          # Nome técnico do host no Zabbix
+    zabbix_name: Optional[str] = None          # Nome visível do host no Zabbix
+    guacamole_connection_name: Optional[str] = None # Nome da conexão no Guacamole
     client_group: Optional[str] = None
     ip_address: Optional[str] = None
     dns: Optional[str] = None
@@ -490,11 +493,31 @@ async def update_asset(
 
     if payload.name is not None:
         asset.name = payload.name.strip()
-        if asset.guacamole:
-            for g in asset.guacamole:
-                g.connection_name = asset.name
+        # No Oxidized deve pegar SEMPRE o nome do IperSoft
+        if asset.oxidized:
+            asset.oxidized.node_name = asset.name
+
     if payload.hostname is not None:
         asset.hostname = payload.hostname.strip()
+
+    # Campos de Nomes específicos das Plataformas
+    if payload.zabbix_host is not None:
+        zh_val = payload.zabbix_host.strip() or None
+        if zh_val:
+            asset.hostname = zh_val
+        if asset.zabbix:
+            asset.zabbix.host = zh_val
+
+    if payload.zabbix_name is not None:
+        zn_val = payload.zabbix_name.strip() or None
+        if asset.zabbix:
+            asset.zabbix.name = zn_val
+
+    if payload.guacamole_connection_name is not None:
+        gcn_val = payload.guacamole_connection_name.strip() or None
+        if asset.guacamole:
+            for g in asset.guacamole:
+                g.connection_name = gcn_val or asset.name
     if payload.client_group is not None:
         cg_val = payload.client_group.strip() or None
         asset.client_group = cg_val
@@ -734,8 +757,9 @@ async def get_asset_comparison(
         "is_configured": bool(zbx_config and zbx_config.url),
         "is_synced": is_zbx_synced,
         "hostid": real_hid if is_zbx_synced else None,
-        "name": asset.name,
-        "hostname": asset.hostname,
+        "host": (zbx_rec.host if zbx_rec and zbx_rec.host else None) or asset.hostname or asset.name,
+        "name": (zbx_rec.name if zbx_rec and zbx_rec.name else None) or asset.name,
+        "hostname": (zbx_rec.host if zbx_rec and zbx_rec.host else None) or asset.hostname,
         "ip_address": asset.ip_address,
         "port": (zbx_rec.port if zbx_rec else None) or asset.port or "10050",
         "snmp_community": (zbx_rec.snmp_community if zbx_rec else None) or asset.snmp_community or "ipermonitor",
@@ -883,10 +907,13 @@ async def sync_asset_to_zabbix(
         raise HTTPException(status_code=400, detail="Zabbix não configurado nas integrações.")
 
     c_group = asset.client_group or (asset.host_groups[0] if (asset.host_groups and len(asset.host_groups) > 0) else None)
+    zbx_host = (asset.zabbix.host if asset.zabbix and asset.zabbix.host else None) or asset.hostname or asset.name
+    zbx_name = (asset.zabbix.name if asset.zabbix and asset.zabbix.name else None) or asset.name
+
     host_data = {
         "hostid": asset.zabbix.hostid if asset.zabbix else asset.external_id,
-        "name": asset.name,
-        "hostname": asset.hostname,
+        "name": zbx_name,
+        "hostname": zbx_host,
         "client_group": c_group,
         "ip_address": asset.ip_address,
         "dns": asset.dns,
@@ -909,6 +936,8 @@ async def sync_asset_to_zabbix(
             asset.zabbix = AssetZabbix(
                 asset_id=asset.id,
                 hostid=result.get("hostid"),
+                host=zbx_host,
+                name=zbx_name,
                 port=host_data["port"],
                 snmp_community=host_data["snmp_community"],
                 host_groups=[c_group] if c_group else [],
@@ -918,6 +947,8 @@ async def sync_asset_to_zabbix(
             db.add(asset.zabbix)
         else:
             asset.zabbix.hostid = result.get("hostid")
+            asset.zabbix.host = zbx_host
+            asset.zabbix.name = zbx_name
             asset.zabbix.port = host_data["port"]
             asset.zabbix.snmp_community = host_data["snmp_community"]
             if c_group:
@@ -974,6 +1005,10 @@ async def sync_asset_to_guacamole(
 
     # Se foram passados dados adicionais de formulário na requisição, aplica-os localmente
     if payload:
+        if payload.get("guacamole_connection_name") or payload.get("connection_name"):
+            c_name_val = str(payload.get("guacamole_connection_name") or payload.get("connection_name")).strip()
+            if primary_guac:
+                primary_guac.connection_name = c_name_val
         if payload.get("remote_port") or payload.get("guacamole_port"):
             p_val = str(payload.get("remote_port") or payload.get("guacamole_port")).strip()
             if primary_guac:
@@ -1002,7 +1037,7 @@ async def sync_asset_to_guacamole(
     identifier = raw_id if (raw_id and not str(raw_id).startswith("local-")) else None
 
     c_group = asset.client_group or (asset.host_groups[0] if (asset.host_groups and len(asset.host_groups) > 0) else None)
-    conn_name = asset.name or (primary_guac.connection_name if primary_guac else "Novo Equipamento")
+    conn_name = (primary_guac.connection_name if primary_guac and primary_guac.connection_name else asset.name) or "Novo Equipamento"
     conn_data = {
         "identifier": identifier,
         "name": conn_name,
@@ -1456,9 +1491,15 @@ async def get_asset_guacamole_details(
                 c_name = (c.get("name") or "").strip().lower()
                 c_host = (c.get("hostname") or "").strip().lower()
 
-                if (target_ip and c_host == target_ip) or \
-                   (target_host and c_host == target_host) or \
-                   (target_name and (c_name == target_name or target_name in c_name or c_name in target_name)):
+                matched = False
+                if target_ip and c_host == target_ip:
+                    matched = True
+                elif target_host and c_host == target_host:
+                    matched = True
+                elif target_name and c_name == target_name:
+                    matched = True
+
+                if matched:
                     cid = c.get("client_id") or c_id
                     primary_guac = asset.guacamole[0] if asset.guacamole and len(asset.guacamole) > 0 else None
                     if not primary_guac:
@@ -1561,7 +1602,7 @@ async def get_asset_oxidized_details(
             "timeout": asset.backup_timeout or 30
         }
 
-    node_name = asset.oxidized.node_name if (asset.oxidized and asset.oxidized.node_name) else asset.name
+    node_name = asset.name
     cfg = _get_oxidized_config(db)
 
     try:
@@ -1587,7 +1628,7 @@ async def get_asset_oxidized_details(
         if not ox_rec:
             ox_rec = AssetOxidized(
                 asset_id=asset.id,
-                node_name=details.get("name") or node_name,
+                node_name=asset.name,
                 model=details.get("model") or asset.backup_model or "RouterOS",
                 group=details.get("group") or asset.client_group or "default",
                 status=details.get("status") or "unknown",
@@ -1599,7 +1640,7 @@ async def get_asset_oxidized_details(
             )
             db.add(ox_rec)
         else:
-            ox_rec.node_name = details.get("name") or node_name
+            ox_rec.node_name = asset.name
             ox_rec.model = details.get("model") or ox_rec.model
             ox_rec.group = details.get("group") or ox_rec.group
             ox_rec.status = details.get("status") or ox_rec.status

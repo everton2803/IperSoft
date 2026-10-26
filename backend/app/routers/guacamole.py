@@ -156,30 +156,31 @@ async def sync_guacamole_connections_with_db(db: Session) -> dict:
 
         matched_asset = None
 
-        # 1. Prioridade: Match por connection_id já vinculado
-        for a in all_assets:
-            if a.guacamole_connection_id and str(a.guacamole_connection_id) in (client_id, identifier):
-                matched_asset = a
-                break
-            if a.guacamole and any(str(g.connection_id) in (client_id, identifier) for g in a.guacamole):
-                matched_asset = a
-                break
-
-        # 2. Match exato pelo nome ou hostname técnico
-        if not matched_asset and conn_name:
-            for a in all_assets:
-                if (a.name and a.name.lower() == conn_name.lower()) or \
-                   (a.hostname and a.hostname.lower() == conn_name.lower()):
-                    matched_asset = a
-                    break
-
-        # 3. Match por IP ou DNS (quando válido)
-        if not matched_asset and clean_ip and clean_ip not in ("-", "127.0.0.1", "0.0.0.0", "localhost"):
+        # 1. Prioridade Absoluta: Match por endereço IP primário ou DNS
+        if clean_ip and clean_ip not in ("-", "127.0.0.1", "0.0.0.0", "localhost"):
             for a in all_assets:
                 if a.ip_address and a.ip_address.strip() in (target_ip, clean_ip):
                     matched_asset = a
                     break
                 elif a.dns and a.dns.strip() in (target_ip, clean_ip):
+                    matched_asset = a
+                    break
+
+        # 2. Prioridade Secundária: Match por connection_id já vinculado
+        if not matched_asset:
+            for a in all_assets:
+                if a.guacamole_connection_id and str(a.guacamole_connection_id) in (client_id, identifier):
+                    matched_asset = a
+                    break
+                if a.guacamole and any(str(g.connection_id) in (client_id, identifier) for g in a.guacamole):
+                    matched_asset = a
+                    break
+
+        # 3. Fallback apenas se não houver IP nem connection_id: Match pelo nome ou hostname
+        if not matched_asset and conn_name:
+            for a in all_assets:
+                if (a.name and a.name.lower() == conn_name.lower()) or \
+                   (a.hostname and a.hostname.lower() == conn_name.lower()):
                     matched_asset = a
                     break
 

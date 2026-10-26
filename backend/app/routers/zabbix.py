@@ -189,8 +189,15 @@ async def sync_zabbix_hosts_with_db(db: Session) -> dict:
 
         existing = None
 
-        # 1. Prioridade: Match por hostid (external_id ou AssetZabbix.hostid)
-        if h_ext_id:
+        # 1. Prioridade Absoluta: Match por endereço IP primário
+        if h_ip and h_ip not in ("-", "127.0.0.1", "0.0.0.0", "localhost"):
+            for a in all_assets:
+                if (a.ip_address or "").strip() == h_ip:
+                    existing = a
+                    break
+
+        # 2. Prioridade Secundária: Match por hostid já previamente vinculado
+        if not existing and h_ext_id:
             for a in all_assets:
                 z_hid = str(a.zabbix.hostid).strip() if (a.zabbix and a.zabbix.hostid) else ""
                 a_ext = str(a.external_id or "").strip()
@@ -198,7 +205,7 @@ async def sync_zabbix_hosts_with_db(db: Session) -> dict:
                     existing = a
                     break
 
-        # 2. Match exato por hostname ou name (case-insensitive)
+        # 3. Fallback apenas se não houver IP nem hostid: Match por hostname ou name
         if not existing:
             for a in all_assets:
                 a_host = (a.hostname or "").strip().lower()
@@ -207,16 +214,6 @@ async def sync_zabbix_hosts_with_db(db: Session) -> dict:
                    (h_name and h_name.lower() in (a_host, a_name)):
                     existing = a
                     break
-
-        # 3. Match por endereço IP (caso ainda não tenha outro hostid diferente vinculado)
-        if not existing and h_ip and h_ip not in ("-", "127.0.0.1", "0.0.0.0", "localhost"):
-            ip_candidates = [
-                a for a in all_assets
-                if (a.ip_address or "").strip() == h_ip
-                and not (a.zabbix and a.zabbix.hostid and str(a.zabbix.hostid).strip() != h_ext_id)
-            ]
-            if len(ip_candidates) == 1:
-                existing = ip_candidates[0]
 
         if existing:
             if not existing.name and h_name:
@@ -280,6 +277,8 @@ async def sync_zabbix_hosts_with_db(db: Session) -> dict:
             zbx_entry = AssetZabbix(
                 asset_id=target_asset.id,
                 hostid=h_ext_id,
+                host=h_hostname or None,
+                name=h_name or None,
                 port=h.get("port"),
                 snmp_community=h.get("snmp_community"),
                 host_groups=h_groups,
@@ -290,6 +289,8 @@ async def sync_zabbix_hosts_with_db(db: Session) -> dict:
             db.add(zbx_entry)
         else:
             zbx_entry.hostid = h_ext_id
+            zbx_entry.host = h_hostname or zbx_entry.host
+            zbx_entry.name = h_name or zbx_entry.name
             zbx_entry.port = h.get("port")
             zbx_entry.snmp_community = h.get("snmp_community")
             zbx_entry.host_groups = h_groups

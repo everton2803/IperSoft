@@ -193,22 +193,22 @@ class OxidizedService:
             node_vars = node.get("vars") if isinstance(node.get("vars"), dict) else {}
 
             target_asset = None
-            # 1. Prioridade absoluta: Match exato por nome do nó (ou hostname)
-            if node_name and node_name.lower() in asset_by_name:
-                target_asset = asset_by_name[node_name.lower()]
-            # 2. Match secundário por IP
-            elif node_ip and node_ip in asset_by_ip:
+            # 1. Prioridade Absoluta: Match por endereço IP do nó
+            if node_ip and node_ip in asset_by_ip:
                 candidates = asset_by_ip[node_ip]
                 if len(candidates) == 1:
                     target_asset = candidates[0]
                 else:
-                    # Desempata procurando se o nome do nó contém parte do nome do ativo
+                    # Desempata procurando se o nome do nó coincide com o ativo
                     for c in candidates:
                         if (c.name and c.name.lower() in node_name.lower()) or (node_name.lower() in (c.name or "").lower()):
                             target_asset = c
                             break
                     if not target_asset:
                         target_asset = candidates[0]
+            # 2. Fallback apenas se não houver IP: Match por nome do nó (ou hostname)
+            elif node_name and node_name.lower() in asset_by_name:
+                target_asset = asset_by_name[node_name.lower()]
 
             if target_asset:
                 # SE O BACKUP DESTE ATIVO FOI EXPLICITAMENTE DESATIVADO NO IPERSOFT, RESPEITAR!

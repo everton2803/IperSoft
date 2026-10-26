@@ -93,6 +93,8 @@ Modelo principal do inventário:
 
 ### 4.2. `AssetZabbix` (`asset_zabbix`)
 - `hostid`: ID do host no Zabbix.
+- `host`: Hostname técnico cadastrado no Zabbix Server (ex: `sw-dist-01` ou IP).
+- `name`: Nome visível cadastrado no Zabbix Server (ex: `SW-DIST-01 - Borda`).
 - `port`: Porta do agente/snmp (padrão 10050 ou 161).
 - `snmp_community`: Community SNMP (padrão `ipermonitor`).
 - `host_groups`: JSON list com IDs ou nomes dos grupos no Zabbix.
@@ -139,6 +141,18 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 ---
 
 ## 5. Serviços e Lógicas de Negócio Backend
+
+### 5.0. Parsing e Vinculação Unificada entre Plataformas (Strict IP Matching)
+- **Chave Canônica de Rede (Endereço IP)**: A vinculação e parsing de dispositivos entre o IperSoft, Zabbix Server, Apache Guacamole e Oxidized é realizada **estritamente pelo Endereço IP primário (`ip_address`)** como Prioridade 1.
+- **Hierarquia de Correspondência**:
+  1. **Prioridade 1 (Endereço IP)**: O IperSoft consulta o IP do host/conexão/nó na ferramenta externa e associa diretamente ao ativo que possui o mesmo IP cadastrado.
+  2. **Prioridade 2 (ID de Integração)**: `hostid` (Zabbix) ou `connection_id` (Guacamole), caso o IP tenha sofrido alteração.
+  3. **Fallback nominal (Somente quando não houver IP)**: Se o registro não possuir IP cadastrado, é feito fallback por correspondência exata de nome.
+- **Desacoplamento Completo dos Campos de Nome**:
+  - **IperSoft (Card 1)**: Possui unicamente o campo **Nome do Equipamento** (`name`), sem exigir nem exibir hostname técnico duplicado.
+  - **Zabbix Server (Card 2)**: Possui campos independentes para **Host Técnico no Zabbix** (`zabbix_host`) e **Nome Visível no Zabbix** (`zabbix_name`).
+  - **Apache Guacamole (Card 3)**: Possui campo dedicado para o **Nome da Conexão no Guacamole** (`guacamole_connection_name`).
+  - **Oxidized Daemon (Card 4)**: Consome e espelha **estritamente o Nome do Equipamento no IperSoft** (`asset.name`), assegurando consistência nas árvores Git de backup sem discrepâncias.
 
 ### 5.1. `GuacamoleService` (`app/services/guacamole.py`)
 - **Autenticação**: Post em `/api/tokens` enviando `username` e `password`. Detecta o `dataSource` ativo (`postgresql` ou `mysql`).
@@ -231,7 +245,11 @@ A tela de detalhes do equipamento foi estruturada em **3 abas focadas** com carr
    - **Acesso Rápido**: Cards no topo para **Conectividade & Terminal Remoto Guacamole SSO** (abertura em nova aba ou terminal embutido via iframe, sem login manual) e **Backup de Configurações Oxidized** (status da coleta, visualização imediata da configuração atual e disparo de backup sob demanda).
    - **Monitoramento Zabbix (Alarmes & Itens)**: Lista de triggers ativas do host com severidade, Dado Operacional (`opdata`), reconhecimento (`event.acknowledge`) e encerramento manual; seletor de itens monitorados com busca rápida; e gráfico SVG interativo (`ZabbixNumericChart`) ou linha do tempo textual (`ZabbixTextTimeline`).
 2. **Aba 2 — Cadastro & Parâmetros (IperSoft)**:
-   - Formulário modular em grid 2x2: **1. Identificação Canônica & Rede** (Nome, Hostname, IP, DNS, Grupo/Cliente e seleção de diagnósticos nativos aplicáveis), **2. Monitoramento Zabbix**, **3. Acesso Remoto Apache Guacamole** (Protocolo, Porta Customizada, Usuário e Senha) e **4. Backup Oxidized** (Modelo de SO e Timeout de Coleta em segundos).
+   - Formulário modular em grid 2x2 com campos desacoplados:
+     - **Card 1: 1. Identificação Canônica & Rede (IperSoft)**: Apenas **Nome do Equipamento**, Endereço IP Principal, DNS/Domínio, Empresa/Grupo do Cliente e Diagnósticos Nativos Aplicáveis (Ping, SNMP, Porta).
+     - **Card 2: 2. Monitoramento Zabbix Server**: Toggle de ativação, **Host Técnico no Zabbix**, **Nome Visível no Zabbix**, Community SNMP v2c e Porta.
+     - **Card 3: 3. Acesso Remoto (Apache Guacamole)**: Toggle de ativação, **Nome da Conexão no Guacamole**, Protocolo, Porta Customizada, Usuário e Senha de acesso remoto.
+     - **Card 4: 4. Backup Oxidized**: Toggle de ativação, **Nome do Nó no Oxidized** (campo somente leitura espelhando o nome do IperSoft), Modelo de SO e Timeout de Coleta em segundos.
    - Salvar atualiza exclusivamente o banco local do IperSoft, sem disparar alterações automáticas nos servidores externos.
 3. **Aba 3 — Comparativo & Sincronização Externa**:
    - Alerta de divergências (`differences`) entre o cadastro do IperSoft e as ferramentas externas.

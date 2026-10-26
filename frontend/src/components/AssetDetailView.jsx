@@ -544,6 +544,9 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     port: '10050',
     snmp_community: 'ipermonitor',
     status: 'monitored',
+    zabbix_host: '',
+    zabbix_name: '',
+    guacamole_connection_name: '',
     remote_protocol: 'ssh',
     remote_port: '22',
     remote_username: '',
@@ -584,6 +587,9 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         port: ipData.port || '10050',
         snmp_community: ipData.snmp_community || 'ipermonitor',
         status: ipData.status || 'monitored',
+        zabbix_host: compData.zabbix?.host || compData.zabbix?.hostname || ipData.hostname || ipData.name || '',
+        zabbix_name: compData.zabbix?.name || ipData.name || '',
+        guacamole_connection_name: compData.guacamole?.connection_name || ipData.name || '',
         remote_protocol: ipData.remote_protocol || 'ssh',
         remote_port: ipData.remote_port || '22',
         remote_username: ipData.remote_username || '',
@@ -826,7 +832,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     try {
       await authService.updateAsset(assetId, {
         name: formData.name.trim(),
-        hostname: (formData.hostname || '').trim(),
+        hostname: (formData.zabbix_host || formData.hostname || '').trim(),
+        zabbix_host: (formData.zabbix_host || '').trim(),
+        zabbix_name: (formData.zabbix_name || '').trim(),
+        guacamole_connection_name: (formData.guacamole_connection_name || '').trim(),
         ip_address: (formData.ip_address || '').trim(),
         dns: (formData.dns || '').trim(),
         client_group: (formData.client_group || '').trim(),
@@ -949,6 +958,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     setFeedback(null);
     try {
       const res = await authService.syncAssetToGuacamole(assetId, {
+        guacamole_connection_name: (formData.guacamole_connection_name || '').trim(),
         remote_port: formData.remote_port,
         remote_protocol: formData.remote_protocol,
         remote_username: formData.remote_username,
@@ -1942,27 +1952,15 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 </div>
 
                 <div className="config-section-body">
-                  <div className="form-row">
-                    <div className="form-group flex-2">
-                      <label>Nome do Equipamento (Visível)</label>
-                      <input 
-                        type="text" 
-                        value={formData.name} 
-                        onChange={e => setFormData({ ...formData, name: e.target.value })} 
-                        required 
-                        placeholder="Ex: SW-DIST-01"
-                      />
-                    </div>
-                    <div className="form-group flex-2">
-                      <label>Hostname Técnico</label>
-                      <input 
-                        type="text" 
-                        value={formData.hostname} 
-                        onChange={e => setFormData({ ...formData, hostname: e.target.value })} 
-                        required 
-                        placeholder="Ex: sw-dist-01.local"
-                      />
-                    </div>
+                  <div className="form-group" style={{ marginBottom: '1rem' }}>
+                    <label>Nome do Equipamento</label>
+                    <input 
+                      type="text" 
+                      value={formData.name} 
+                      onChange={e => setFormData({ ...formData, name: e.target.value })} 
+                      required 
+                      placeholder="Ex: SW-DIST-01"
+                    />
                   </div>
 
                   <div className="form-row">
@@ -2058,6 +2056,27 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
 
                 <div className="config-section-body">
                   <div className="form-row">
+                    <div className="form-group flex-1">
+                      <label>Host Técnico no Zabbix</label>
+                      <input 
+                        type="text" 
+                        value={formData.zabbix_host} 
+                        onChange={e => setFormData({ ...formData, zabbix_host: e.target.value })} 
+                        placeholder="Ex: sw-dist-01 ou 192.168.1.10"
+                      />
+                    </div>
+                    <div className="form-group flex-1">
+                      <label>Nome Visível no Zabbix</label>
+                      <input 
+                        type="text" 
+                        value={formData.zabbix_name} 
+                        onChange={e => setFormData({ ...formData, zabbix_name: e.target.value })} 
+                        placeholder="Ex: SW-DIST-01 - Borda"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
                     <div className="form-group flex-2">
                       <label>Community SNMP v2c</label>
                       <input 
@@ -2101,6 +2120,16 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 </div>
 
                 <div className="config-section-body">
+                  <div className="form-group" style={{ marginBottom: '1rem' }}>
+                    <label>Nome da Conexão no Guacamole</label>
+                    <input 
+                      type="text" 
+                      value={formData.guacamole_connection_name} 
+                      onChange={e => setFormData({ ...formData, guacamole_connection_name: e.target.value })} 
+                      placeholder="Ex: SW-DIST-01 (SSH)"
+                    />
+                  </div>
+
                   <div className="form-row">
                     <div className="form-group flex-1">
                       <label>Protocolo Remoto</label>
@@ -2179,6 +2208,20 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 </div>
 
                 <div className="config-section-body">
+                  <div className="form-group" style={{ marginBottom: '1rem' }}>
+                    <label>Nome do Nó no Oxidized</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="text" 
+                        value={formData.name || ''} 
+                        readOnly 
+                        disabled 
+                        style={{ opacity: 0.85, cursor: 'not-allowed', backgroundColor: 'var(--bg-tertiary, #1f2430)' }}
+                      />
+                      <span className="badge-tag-canonical" style={{ whiteSpace: 'nowrap' }}>Espelha IperSoft</span>
+                    </div>
+                  </div>
+
                   <div className="form-row">
                     <div className="form-group flex-2">
                       <label>Modelo de Sistema Operacional</label>
@@ -2368,6 +2411,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     <div className="kv-row">
                       <span>ID Conexão:</span>
                       <code>{comparison?.guacamole?.connection_id || '-'}</code>
+                    </div>
+                    <div className="kv-row">
+                      <span>Nome Conexão:</span>
+                      <strong>{guacDetails.connection_name || guacDetails.name || '-'}</strong>
                     </div>
                     <div className="kv-row">
                       <span>Pasta / Grupo:</span>
