@@ -96,7 +96,7 @@ class VictoriaLogsService:
         hostname: Optional[str] = None,
         search: Optional[str] = None,
         time_range: str = "5m",
-        limit: int = 100,
+        limit: int = 250,
         level: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         base_url = cls.normalize_url(url)
@@ -138,8 +138,8 @@ class VictoriaLogsService:
                 query_parts.append('(level:info OR level:notice OR severity:5 OR severity:6)')
 
         base_query = " AND ".join(query_parts)
-        # Ordena decrescente por tempo e aplica limite
-        final_query = f"{base_query} | sort by (_time) desc | limit {min(limit, 500)}"
+        # Ordena decrescente por tempo e aplica limite (até 5.000 entradas)
+        final_query = f"{base_query} | sort by (_time) desc | limit {min(limit, 5000)}"
 
         logs: List[Dict[str, Any]] = []
         async with httpx.AsyncClient(timeout=15.0) as client:

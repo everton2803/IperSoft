@@ -379,22 +379,24 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   const [deviceLogs, setDeviceLogs] = useState([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [logsTimeRange, setLogsTimeRange] = useState('5m');
+  const [logsLimit, setLogsLimit] = useState(250);
   const [logsSearch, setLogsSearch] = useState('');
   const [logsLevel, setLogsLevel] = useState('');
   const [logsAutoRefresh, setLogsAutoRefresh] = useState(false);
   const [copiedLogIdx, setCopiedLogIdx] = useState(null);
 
-  const fetchDeviceLogs = async (overrideRange, overrideLevel, overrideSearch) => {
+  const fetchDeviceLogs = async (overrideRange, overrideLevel, overrideSearch, overrideLimit) => {
     setIsLoadingLogs(true);
     try {
       const range = overrideRange !== undefined ? overrideRange : logsTimeRange;
       const lvl = overrideLevel !== undefined ? overrideLevel : logsLevel;
       const srch = overrideSearch !== undefined ? overrideSearch : logsSearch;
+      const lim = overrideLimit !== undefined ? overrideLimit : logsLimit;
       const res = await authService.getAssetLogs(assetId, {
         timeRange: range,
         level: lvl,
         search: srch,
-        limit: 100
+        limit: lim
       });
       setDeviceLogs(res.logs || []);
     } catch (err) {
@@ -765,7 +767,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       fetchDeviceLogs();
     }, 15000);
     return () => clearInterval(interval);
-  }, [logsAutoRefresh, activeTab, logsTimeRange, logsLevel, logsSearch]);
+  }, [logsAutoRefresh, activeTab, logsTimeRange, logsLevel, logsSearch, logsLimit]);
 
   // Carregar histórico de um item específico (gráfico ou timeline)
   const handleSelectItem = async (rawItem, period = itemHistoryPeriod, shouldScroll = false) => {
@@ -1730,8 +1732,9 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                   className="select-filter-compact"
                   value={logsTimeRange}
                   onChange={(e) => {
-                    setLogsTimeRange(e.target.value);
-                    fetchDeviceLogs(e.target.value, logsLevel, logsSearch);
+                    const newRange = e.target.value;
+                    setLogsTimeRange(newRange);
+                    fetchDeviceLogs(newRange, logsLevel, logsSearch, logsLimit);
                   }}
                   style={{
                     backgroundColor: '#1e293b',
@@ -1752,6 +1755,34 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                   <option value="7d" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimos 7 dias</option>
                 </select>
 
+                {/* Seletor de Limite de Linhas */}
+                <select
+                  value={logsLimit}
+                  onChange={(e) => {
+                    const newLim = parseInt(e.target.value, 10);
+                    setLogsLimit(newLim);
+                    fetchDeviceLogs(logsTimeRange, logsLevel, logsSearch, newLim);
+                  }}
+                  title="Quantidade máxima de linhas de logs a retornar"
+                  style={{
+                    backgroundColor: '#1e293b',
+                    border: '1px solid #334155',
+                    color: '#f8fafc',
+                    borderRadius: '6px',
+                    padding: '4px 8px',
+                    fontSize: '0.8rem',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value={100} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>100 linhas</option>
+                  <option value={250} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>250 linhas</option>
+                  <option value={500} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>500 linhas</option>
+                  <option value={1000} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>1.000 linhas</option>
+                  <option value={2500} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>2.500 linhas</option>
+                  <option value={5000} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>5.000 linhas</option>
+                </select>
+
                 {/* Filtro de Severidade */}
                 <div className="level-filter-buttons" style={{ display: 'flex', gap: '4px' }}>
                   <button
@@ -1759,7 +1790,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     className={`btn-filter-pill ${logsLevel === '' ? 'active' : ''}`}
                     onClick={() => {
                       setLogsLevel('');
-                      fetchDeviceLogs(logsTimeRange, '', logsSearch);
+                      fetchDeviceLogs(logsTimeRange, '', logsSearch, logsLimit);
                     }}
                   >
                     Todos
@@ -1769,7 +1800,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     className={`btn-filter-pill btn-pill-danger ${logsLevel === 'crit' ? 'active' : ''}`}
                     onClick={() => {
                       setLogsLevel('crit');
-                      fetchDeviceLogs(logsTimeRange, 'crit', logsSearch);
+                      fetchDeviceLogs(logsTimeRange, 'crit', logsSearch, logsLimit);
                     }}
                   >
                     Erros
@@ -1779,7 +1810,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     className={`btn-filter-pill btn-pill-warn ${logsLevel === 'warn' ? 'active' : ''}`}
                     onClick={() => {
                       setLogsLevel('warn');
-                      fetchDeviceLogs(logsTimeRange, 'warn', logsSearch);
+                      fetchDeviceLogs(logsTimeRange, 'warn', logsSearch, logsLimit);
                     }}
                   >
                     Avisos
@@ -1789,7 +1820,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     className={`btn-filter-pill btn-pill-info ${logsLevel === 'info' ? 'active' : ''}`}
                     onClick={() => {
                       setLogsLevel('info');
-                      fetchDeviceLogs(logsTimeRange, 'info', logsSearch);
+                      fetchDeviceLogs(logsTimeRange, 'info', logsSearch, logsLimit);
                     }}
                   >
                     Info
@@ -1832,7 +1863,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    fetchDeviceLogs(logsTimeRange, logsLevel, logsSearch);
+                    fetchDeviceLogs(logsTimeRange, logsLevel, logsSearch, logsLimit);
                   }
                 }}
                 style={{
@@ -1850,15 +1881,32 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                   className="btn-text-subtle"
                   onClick={() => {
                     setLogsSearch('');
-                    fetchDeviceLogs(logsTimeRange, logsLevel, '');
+                    fetchDeviceLogs(logsTimeRange, logsLevel, '', logsLimit);
                   }}
                   style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
                 >
                   Limpar
                 </button>
               )}
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {logsSearch ? `${filteredLogs.length} de ${deviceLogs.length}` : `${deviceLogs.length}`} registro{filteredLogs.length === 1 ? '' : 's'}
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span>
+                  {logsSearch ? `${filteredLogs.length} de ${deviceLogs.length}` : `${deviceLogs.length}`} registro{filteredLogs.length === 1 ? '' : 's'}
+                </span>
+                {deviceLogs.length >= logsLimit && (
+                  <span 
+                    title={`Limite de ${logsLimit} linhas atingido para o período selecionado. Aumente o seletor de linhas para carregar mais entradas.`}
+                    style={{ 
+                      fontSize: '0.68rem', 
+                      background: 'rgba(255, 152, 0, 0.15)', 
+                      color: '#ff9800', 
+                      padding: '1px 5px', 
+                      borderRadius: '4px',
+                      fontWeight: 600
+                    }}
+                  >
+                    limite de {logsLimit} atingido
+                  </span>
+                )}
               </span>
             </div>
 

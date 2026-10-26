@@ -217,7 +217,7 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 
 ### 5.5. `VictoriaLogsService` (`app/services/victorialogs.py`)
 - **Integração com LogsQL**: Consulta direta à API do VictoriaLogs (`GET /select/logsql/query`) via rede privada WireGuard (`http://10.10.1.2:9428`), sem intermediários.
-- **Filtro de Dispositivo por IP/Hostname**: `(remote_ip:"<ip>" OR hostname:"<nome>")` com suporte a filtros de período (`15m`, `1h`, `6h`, `24h`, `7d`), busca de texto (`AND "<termo>"`) e níveis de severidade (crítico, erro, aviso, info).
+- **Filtro de Dispositivo por IP/Hostname**: `(remote_ip:"<ip>" OR hostname:"<nome>")` com suporte a filtros de período (`5m`, `15m`, `1h`, `6h`, `24h`, `7d`), busca textual multi-termo (`AND "<termo>"`), níveis de severidade (crítico, erro, aviso, info) e limite configurável de linhas (100, 250, 500, 1.000, 2.500 e até 5.000 entradas).
 - **Health & Stats**: Métricas de volume de logs em tempo real (`_time:1h | count()`) e health check nativo.
 
 ### 5.6. Stack de Backup de Roteadores & Telecom na Oracle Cloud (`10.10.2.2`)

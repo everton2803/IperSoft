@@ -1673,7 +1673,7 @@ async def get_asset_oxidized_details(
 async def get_asset_logs(
     asset_id: int,
     time_range: str = Query("5m", description="5m, 15m, 1h, 6h, 12h, 24h, 2d, 7d"),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(250, ge=1, le=5000, description="Limite de linhas retornado (1 a 5000)"),
     search: Optional[str] = Query(None, description="Busca textual na mensagem de log"),
     level: Optional[str] = Query(None, description="crit, warn, info"),
     current_user: User = Depends(get_current_user),

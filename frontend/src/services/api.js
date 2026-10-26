@@ -813,7 +813,7 @@ export const authService = {
     return data;
   },
 
-  async getAssetLogs(assetId, { timeRange = '5m', limit = 100, search = '', level = '' } = {}) {
+  async getAssetLogs(assetId, { timeRange = '5m', limit = 250, search = '', level = '' } = {}) {
     if (!assetId || assetId === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
