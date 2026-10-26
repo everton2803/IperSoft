@@ -987,14 +987,18 @@ class ZabbixService:
         itemid: str,
         value_type: int = 0,
         time_from: Optional[int] = None,
-        limit: int = 150,
+        limit: int = 300,
+        period: str = "1h",
         token: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Busca os dados históricos de um item específico do Zabbix (history.get).
-        Para itens numéricos ou de texto/log.
+        Busca os dados históricos de um item específico do Zabbix (history.get ou trend.get).
+        Para 7d numérico, utiliza trend.get para consolidar 1 ponto por hora (~168 pontos)
+        cobrindo a semana inteira de forma precisa e leve.
+        Para 24h, busca pontos detalhados com limite ampliado e downsampling uniforme se > 300 pontos.
+        Retorna os pontos estritamente em ordem cronológica crescente (clock ASC).
         """
         auth_token = token
         if not auth_token and username and password:
@@ -1003,12 +1007,45 @@ class ZabbixService:
         if not auth_token:
             raise ValueError("Autenticação com o Zabbix não configurada.")
 
+        is_numeric = int(value_type) in (0, 3)
+
+        # Se for período de 7 dias e o item for numérico, tenta trend.get primeiro
+        if period.lower() in ("7d", "week") and is_numeric:
+            try:
+                trend_params = {
+                    "itemids": [str(itemid)],
+                    "sortfield": "clock",
+                    "sortorder": "ASC"
+                }
+                if time_from:
+                    trend_params["time_from"] = int(time_from)
+                raw_trend = await cls.call_api(url, "trend.get", params=trend_params, auth=auth_token)
+                if raw_trend and len(raw_trend) > 0:
+                    history = []
+                    for t in raw_trend:
+                        val_str = t.get("value_avg", t.get("value_max", 0))
+                        try:
+                            val = float(val_str)
+                        except (ValueError, TypeError):
+                            val = 0.0
+                        history.append({
+                            "clock": int(t.get("clock", 0)),
+                            "value": val,
+                            "min": float(t.get("value_min", val)) if "value_min" in t else val,
+                            "max": float(t.get("value_max", val)) if "value_max" in t else val
+                        })
+                    return history
+            except Exception as e:
+                logger.warning(f"trend.get falhou para item {itemid}, realizando fallback para history.get: {e}")
+
+        # history.get para períodos menores ou itens de texto
+        query_limit = 2500 if period.lower() in ("24h", "7d") else 1000
         params = {
             "itemids": [str(itemid)],
             "history": int(value_type),
             "sortfield": "clock",
-            "sortorder": "DESC",
-            "limit": limit
+            "sortorder": "ASC",
+            "limit": query_limit
         }
         if time_from:
             params["time_from"] = int(time_from)
@@ -1017,12 +1054,30 @@ class ZabbixService:
         history = []
 
         for h in raw_history or []:
+            val = h.get("value")
+            if is_numeric and val is not None:
+                try:
+                    val = float(val)
+                except (ValueError, TypeError):
+                    pass
             history.append({
                 "clock": int(h.get("clock", 0)),
-                "value": h.get("value")
+                "value": val
             })
 
-        # Retorna em ordem cronológica crescente (do mais antigo para o mais recente) para gráficos
-        history.reverse()
+        # Downsampling uniforme se o número de pontos for muito elevado para renderização fluida
+        target_max = 300
+        if len(history) > target_max:
+            step = len(history) / target_max
+            downsampled = []
+            for i in range(target_max):
+                idx = int(i * step)
+                if idx < len(history):
+                    downsampled.append(history[idx])
+            # Garante a inclusão do último ponto cronológico
+            if history and (not downsampled or downsampled[-1]["clock"] != history[-1]["clock"]):
+                downsampled.append(history[-1])
+            return downsampled
+
         return history
 

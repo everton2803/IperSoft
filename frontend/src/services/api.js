@@ -12,6 +12,52 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+/**
+ * Executa chamadas HTTP de forma resiliente a respostas não-JSON (HTML 404/500/502).
+ * Evita o erro 'Unexpected token < in JSON at position 0' e extrai detalhes de validação legíveis.
+ */
+export async function safeFetchJson(url, options = {}, defaultErrorMsg = 'Erro na requisição') {
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (netErr) {
+    throw new Error(`Falha de conexão com o servidor: ${netErr.message}`);
+  }
+
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (jsonErr) {
+    if (!response.ok) {
+      throw new Error(`${defaultErrorMsg} (HTTP ${response.status}: ${response.statusText || 'Erro no servidor'})`);
+    }
+    throw new Error('A resposta do servidor não é um JSON válido.');
+  }
+
+  if (!response.ok) {
+    let msg = defaultErrorMsg;
+    if (data && data.detail) {
+      if (typeof data.detail === 'string') {
+        msg = data.detail;
+      } else if (Array.isArray(data.detail)) {
+        msg = data.detail.map(d => d.msg || (typeof d === 'object' ? JSON.stringify(d) : String(d))).join('; ');
+      } else {
+        msg = JSON.stringify(data.detail);
+      }
+    } else if (data && data.message) {
+      msg = data.message;
+    } else if (data && data.error) {
+      msg = data.error;
+    } else {
+      msg = `${defaultErrorMsg} (HTTP ${response.status})`;
+    }
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
 
 export const authService = {
   getToken() {
@@ -335,42 +381,37 @@ export const authService = {
   },
 
   async deleteAsset(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.detail || 'Falha ao excluir ativo.');
-    }
-    return true;
+    }, 'Falha ao excluir ativo.');
   },
 
   async updateAsset(id, data) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}`, {
       method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(data)
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Falha ao atualizar ativo.');
-    return result;
+    }, 'Falha ao atualizar ativo.');
   },
 
   async toggleAssetStatus(id, status) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/status`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/status`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -379,10 +420,7 @@ export const authService = {
       body: JSON.stringify({
         status
       })
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Falha ao alterar status do ativo.');
-    return result;
+    }, 'Falha ao alterar status do ativo.');
   },
 
   async toggleZabbixHostStatus(id, isMonitored) {
@@ -393,7 +431,7 @@ export const authService = {
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/bulk-integrations`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/bulk-integrations`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -405,38 +443,32 @@ export const authService = {
         guacamole_enabled,
         oxidized_enabled
       })
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Falha ao atualizar integrações em lote.');
-    return result;
+    }, 'Falha ao atualizar integrações em lote.');
   },
 
   async getAssetComparison(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/comparison`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/comparison`, {
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Falha ao obter comparativo do ativo.');
-    return result;
+    }, 'Falha ao obter comparativo do ativo.');
   },
 
   async syncAssetToZabbix(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/sync-zabbix`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/sync-zabbix`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Falha ao sincronizar com Zabbix.');
-    return result;
+    }, 'Falha ao sincronizar com Zabbix.');
   },
 
   async syncAssetToGuacamole(id, data = null) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
@@ -451,92 +483,78 @@ export const authService = {
       options.body = JSON.stringify(data);
     }
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/sync-guacamole`, options);
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Falha ao sincronizar com Guacamole.');
-    return result;
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/sync-guacamole`, options, 'Falha ao sincronizar com Guacamole.');
   },
 
   async removeAssetFromGuacamole(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/guacamole`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/guacamole`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Falha ao remover do Guacamole.');
-    return result;
+    }, 'Falha ao remover do Guacamole.');
   },
 
   async syncAssetToOxidized(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/sync-oxidized`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/sync-oxidized`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Falha ao sincronizar com Oxidized.');
-    return result;
+    }, 'Falha ao sincronizar com Oxidized.');
   },
 
   async syncAssetToAll(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/sync-all`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/sync-all`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Falha ao sincronizar plataformas.');
-    return result;
+    }, 'Falha ao sincronizar plataformas.');
   },
 
   // Detalhes sob demanda (Lazy Loading) e Monitoramento
   async getAssetZabbixDetails(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/zabbix/details`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/zabbix/details`, {
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Falha ao buscar detalhes do Zabbix.');
-    return data;
+    }, 'Falha ao buscar detalhes do Zabbix.');
   },
 
   async getAssetZabbixProblems(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/zabbix/problems`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/zabbix/problems`, {
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Falha ao buscar alarmes do Zabbix.');
-    return data;
+    }, 'Falha ao buscar alarmes do Zabbix.');
   },
 
   async getAssetZabbixItems(id, search = '') {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
     const url = new URL(`${window.location.origin}${API_BASE_URL}/assets/${id}/zabbix/items`);
     if (search) url.searchParams.append('search', search);
 
-    const response = await fetch(url.toString(), {
+    return safeFetchJson(url.toString(), {
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Falha ao buscar itens do Zabbix.');
-    return data;
+    }, 'Falha ao buscar itens do Zabbix.');
   },
 
   async getAssetZabbixItemHistory(id, itemId, period = '1h', valueType = 0) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
@@ -544,48 +562,39 @@ export const authService = {
     url.searchParams.append('period', period);
     url.searchParams.append('value_type', valueType);
 
-    const response = await fetch(url.toString(), {
+    return safeFetchJson(url.toString(), {
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Falha ao buscar histórico do item.');
-    return data;
+    }, 'Falha ao buscar histórico do item.');
   },
 
   async getAssetGuacamoleDetails(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/guacamole/details`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/guacamole/details`, {
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Falha ao buscar detalhes do Guacamole.');
-    return data;
+    }, 'Falha ao buscar detalhes do Guacamole.');
   },
 
   async getAssetGuacamoleLaunchUrl(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/guacamole/launch-url`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/guacamole/launch-url`, {
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Falha ao gerar sessão do Guacamole.');
-    return data;
+    }, 'Falha ao gerar sessão do Guacamole.');
   },
 
   async getAssetOxidizedDetails(id) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
-    const response = await fetch(`${API_BASE_URL}/assets/${id}/oxidized/details`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/oxidized/details`, {
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Falha ao buscar detalhes do Oxidized.');
-    return data;
+    }, 'Falha ao buscar detalhes do Oxidized.');
   },
 
 
@@ -805,6 +814,7 @@ export const authService = {
   },
 
   async getAssetLogs(assetId, { timeRange = '5m', limit = 100, search = '', level = '' } = {}) {
+    if (!assetId || assetId === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
@@ -814,12 +824,9 @@ export const authService = {
     if (search) params.append('search', search);
     if (level) params.append('level', level);
 
-    const response = await fetch(`${API_BASE_URL}/assets/${assetId}/logs?${params.toString()}`, {
+    return safeFetchJson(`${API_BASE_URL}/assets/${assetId}/logs?${params.toString()}`, {
       headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Falha ao carregar logs do equipamento.');
-    return data;
+    }, 'Falha ao carregar logs do equipamento.');
   }
 };
 

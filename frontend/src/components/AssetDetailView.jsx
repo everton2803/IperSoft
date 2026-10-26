@@ -45,10 +45,13 @@ const ZabbixNumericChart = ({ history, units, period, item }) => {
 
   const points = useMemo(() => {
     if (!history || history.length === 0) return [];
-    return history.map(h => ({
-      clock: h.clock,
-      val: parseFloat(h.value) || 0
-    })).filter(p => !isNaN(p.val));
+    return history
+      .map(h => ({
+        clock: parseInt(h.clock, 10),
+        val: parseFloat(h.value) || 0
+      }))
+      .filter(p => !isNaN(p.val) && !isNaN(p.clock))
+      .sort((a, b) => a.clock - b.clock);
   }, [history]);
 
   const stats = useMemo(() => {
@@ -87,7 +90,7 @@ const ZabbixNumericChart = ({ history, units, period, item }) => {
 
   const minClock = points[0].clock;
   const maxClock = points[points.length - 1].clock;
-  const clockRange = (maxClock - minClock) || 1;
+  const clockRange = Math.max(1, maxClock - minClock);
 
   const coords = points.map(p => {
     const x = padLeft + ((p.clock - minClock) / clockRange) * innerW;
@@ -107,7 +110,18 @@ const ZabbixNumericChart = ({ history, units, period, item }) => {
 
   const formatClock = (clk) => {
     const d = new Date(clk * 1000);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+
+    if (period === '7d') {
+      return `${day}/${month}`;
+    }
+    if (period === '24h') {
+      return `${day}/${month} ${hours}h`;
+    }
+    return `${hours}:${mins}`;
   };
 
   const handleMouseMove = (e) => {
@@ -190,12 +204,18 @@ const ZabbixNumericChart = ({ history, units, period, item }) => {
           <path d={areaD} fill="url(#chartGradient)" />
           <path d={pathD} fill="none" stroke="#00bcd4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 
-          {/* Eixo X Labels */}
+          {/* Eixo X Labels (5 marcas de tempo uniformes) */}
           <text x={padLeft} y={height - 8} fill="var(--text-muted)" fontSize="9" textAnchor="start">
             {formatClock(minClock)}
           </text>
-          <text x={padLeft + innerW / 2} y={height - 8} fill="var(--text-muted)" fontSize="9" textAnchor="middle">
-            {formatClock((minClock + maxClock) / 2)}
+          <text x={padLeft + innerW * 0.25} y={height - 8} fill="var(--text-muted)" fontSize="9" textAnchor="middle">
+            {formatClock(minClock + clockRange * 0.25)}
+          </text>
+          <text x={padLeft + innerW * 0.5} y={height - 8} fill="var(--text-muted)" fontSize="9" textAnchor="middle">
+            {formatClock(minClock + clockRange * 0.5)}
+          </text>
+          <text x={padLeft + innerW * 0.75} y={height - 8} fill="var(--text-muted)" fontSize="9" textAnchor="middle">
+            {formatClock(minClock + clockRange * 0.75)}
           </text>
           <text x={width - padRight} y={height - 8} fill="var(--text-muted)" fontSize="9" textAnchor="end">
             {formatClock(maxClock)}
@@ -792,17 +812,26 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   // Salvar configurações no IperSoft (Apenas banco local, sem sincronização externa automática)
   const handleSaveIpersoft = async (e) => {
     if (e) e.preventDefault();
+    if (!assetId || assetId === 'undefined') {
+      setFeedback({ type: 'error', message: 'ID do equipamento inválido ou não informado.' });
+      return;
+    }
+    if (!formData.name || !formData.name.trim()) {
+      setFeedback({ type: 'error', message: 'O Nome do Equipamento (Visível) é obrigatório.' });
+      return;
+    }
+
     setIsSaving(true);
     setFeedback(null);
     try {
       await authService.updateAsset(assetId, {
-        name: formData.name,
-        hostname: formData.hostname,
-        ip_address: formData.ip_address,
-        dns: formData.dns,
-        client_group: formData.client_group,
-        port: formData.port,
-        snmp_community: formData.snmp_community,
+        name: formData.name.trim(),
+        hostname: (formData.hostname || '').trim(),
+        ip_address: (formData.ip_address || '').trim(),
+        dns: (formData.dns || '').trim(),
+        client_group: (formData.client_group || '').trim(),
+        port: (formData.port || '').trim(),
+        snmp_community: (formData.snmp_community || '').trim(),
         status: formData.status,
         guacamole_protocol: formData.remote_protocol,
         guacamole_port: formData.remote_port,

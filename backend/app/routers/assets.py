@@ -1387,7 +1387,6 @@ async def get_asset_zabbix_item_history(
     }.get(period.lower(), 3600)
 
     time_from = int(time.time()) - period_seconds
-    limit = 300 if period in ("24h", "7d") else 150
 
     cfg = _get_zabbix_config(db)
     try:
@@ -1396,7 +1395,7 @@ async def get_asset_zabbix_item_history(
             itemid=itemid,
             value_type=value_type,
             time_from=time_from,
-            limit=limit,
+            period=period,
             token=cfg.token,
             username=cfg.username,
             password=cfg.password
