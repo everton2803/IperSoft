@@ -543,7 +543,8 @@ class GuacamoleService:
         url: str,
         username: str,
         password: str,
-        identifier: str
+        identifier: str,
+        public_url: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Autentica no Guacamole, gera um authToken temporário e monta a URL pronta
@@ -565,15 +566,26 @@ class GuacamoleService:
         except Exception:
             client_id = identifier
 
+        # Monta a URL pública para o navegador do usuário (evita IP privado e Mixed Content)
+        effective_public = (public_url or "").strip().rstrip("/")
+        if not effective_public:
+            if "10.10.1.2:8086" in base_url or base_url.startswith("http://"):
+                effective_public = "https://guacamoles.iper.net.br/guacamole"
+            else:
+                effective_public = base_url
+
+        if not effective_public.endswith("/guacamole") and "/guacamole/" not in effective_public:
+            effective_public = f"{effective_public}/guacamole"
+
         # Monta a URL parametrizada com o token
         # O Guacamole consome ?token=<auth_token> tanto na query raiz quanto no hash
-        launch_url = f"{base_url}/?token={token}#/client/{client_id}"
+        launch_url = f"{effective_public}/?token={token}#/client/{client_id}"
 
         return {
             "launch_url": launch_url,
             "token": token,
             "client_id": client_id,
-            "base_url": base_url,
+            "base_url": effective_public,
             "identifier": raw_identifier
         }
 

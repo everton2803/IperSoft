@@ -157,6 +157,10 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 ### 5.1. `GuacamoleService` (`app/services/guacamole.py`)
 - **Autenticação**: Post em `/api/tokens` enviando `username` e `password`. Detecta o `dataSource` ativo (`postgresql` ou `mysql`).
 - **Identifier Decodificado**: Guacamole usa identificadores base64 (ex: `MTIzAGMAcG9zdGdyZXNxbA==`). A função `extract_raw_identifier` extrai com segurança a ID numérica real antes de chamar endpoints de atualização.
+- **Acesso Remoto SSO e Resolução de URL Pública (`public_url`)**:
+  - Para abertura de sessão remota (tanto no **Terminal Embutido via iframe** quanto no botão **Abrir em Nova Aba**), o sistema utiliza estritamente a URL externa HTTPS (`https://guacamoles.iper.net.br/guacamole`).
+  - O backend gera o token de autenticação temporário via API e monta a URL com `?token={token}#/client/{client_id}` apontando para o domínio público.
+  - Isso elimina completamente erros de **Conteúdo Misto (Mixed Content)** que bloqueavam o carregamento do iframe em navegadores modernos (`https://ipersoft.iper.net.br` tentando carregar `http://10.10.1.2:8086`) e garante acessibilidade de qualquer rede externa sem depender do IP privado da VPN.
 - **Portas Customizadas (ex: 2200)**: Assegura que tanto ao criar quanto ao sincronizar ou atualizar uma conexão, a porta informada pelo operador seja gravada no objeto `AssetGuacamole` e no dicionário `parameters["port"]` enviado à API do Guacamole.
 - **Preservação de Credenciais**: Quando uma conexão é atualizada, os parâmetros existentes não são apagados; senhas existentes são mantidas caso o usuário não tenha digitado uma nova.
 - **Importação Automática (1h) e Sob Demanda (`sync_guacamole_connections_with_db`)**:

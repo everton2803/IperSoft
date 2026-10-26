@@ -610,7 +610,7 @@ export const authService = {
     return await response.json();
   },
 
-  async saveGuacamoleConfig({ url, username, password }) {
+  async saveGuacamoleConfig({ url, username, password, public_url }) {
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');
 
@@ -620,7 +620,7 @@ export const authService = {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ url, username, password })
+      body: JSON.stringify({ url, username, password, public_url })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'Falha ao salvar configuração do Guacamole.');

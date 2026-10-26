@@ -41,6 +41,7 @@ export const IntegrationsView = ({ isAdmin }) => {
 
   // Guacamole state
   const [guacUrl, setGuacUrl] = useState('');
+  const [guacPublicUrl, setGuacPublicUrl] = useState('https://guacamoles.iper.net.br/guacamole');
   const [guacUsername, setGuacUsername] = useState('');
   const [guacPassword, setGuacPassword] = useState('');
   const [guacHasPassword, setGuacHasPassword] = useState(false);
@@ -104,6 +105,7 @@ export const IntegrationsView = ({ isAdmin }) => {
 
       if (guacCfg) {
         setGuacUrl(guacCfg.url || '');
+        setGuacPublicUrl(guacCfg.public_url || 'https://guacamoles.iper.net.br/guacamole');
         setGuacUsername(guacCfg.username || '');
         setGuacHasPassword(guacCfg.has_password || false);
         setGuacIsConnected(guacCfg.is_active || false);
@@ -248,6 +250,7 @@ export const IntegrationsView = ({ isAdmin }) => {
     try {
       await authService.saveGuacamoleConfig({
         url: guacUrl.trim(),
+        public_url: guacPublicUrl.trim(),
         username: guacUsername.trim(),
         password: guacPassword || undefined
       });
@@ -731,16 +734,32 @@ export const IntegrationsView = ({ isAdmin }) => {
             {showGuacSettings && (
               <form onSubmit={handleSaveGuacamole} className="integration-form" style={{ marginTop: '0.85rem' }}>
                 <div className="form-group">
-                  <label className="form-label">URL do Guacamole</label>
+                  <label className="form-label">URL da API Guacamole (Servidor / Backend)</label>
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="ex: http://ip-da-sua-vps:8080/guacamole"
+                    placeholder="ex: https://guacamoles.iper.net.br/guacamole ou http://10.10.1.2:8086/guacamole"
                     value={guacUrl}
                     onChange={(e) => setGuacUrl(e.target.value)}
                     disabled={!isAdmin || guacLoading || guacMatching}
                     required
                   />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">URL Pública / Externa (Navegador & Terminal Embutido)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="https://guacamoles.iper.net.br/guacamole"
+                    value={guacPublicUrl}
+                    onChange={(e) => setGuacPublicUrl(e.target.value)}
+                    disabled={!isAdmin || guacLoading || guacMatching}
+                    required
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
+                    URL pública HTTPS acessada pelo navegador do operador para login SSO direto e terminal embutido.
+                  </span>
                 </div>
 
                 <div className="form-grid">

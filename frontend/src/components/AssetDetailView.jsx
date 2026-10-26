@@ -609,13 +609,15 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
 
       setIgnoreGuacamole(Boolean(compData?.guacamole?.ignore_guacamole));
 
-      if (guacCfg && guacCfg.url) {
-        let clean = guacCfg.url.trim().replace(/\/+$/, '');
-        if (!clean.endsWith('/guacamole') && !clean.includes('/guacamole/')) {
-          clean = `${clean}/guacamole`;
-        }
-        setGuacBaseUrl(clean);
+      const rawPublicGuac = compData?.guacamole?.public_url || guacCfg?.public_url || guacCfg?.url || 'https://guacamoles.iper.net.br/guacamole';
+      let clean = rawPublicGuac.trim().replace(/\/+$/, '');
+      if (clean.includes('10.10.1.2:8086') || clean.startsWith('http://')) {
+        clean = 'https://guacamoles.iper.net.br/guacamole';
       }
+      if (!clean.endsWith('/guacamole') && !clean.includes('/guacamole/')) {
+        clean = `${clean}/guacamole`;
+      }
+      setGuacBaseUrl(clean);
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Falha ao carregar dados do equipamento.' });
     } finally {
@@ -1316,7 +1318,12 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       <button 
                         type="button" 
                         className="btn-secondary"
-                        onClick={() => setShowEmbeddedTerminal(!showEmbeddedTerminal)}
+                        onClick={() => {
+                          if (!showEmbeddedTerminal && !guacLaunchData) {
+                            fetchGuacamoleLaunchSession();
+                          }
+                          setShowEmbeddedTerminal(!showEmbeddedTerminal);
+                        }}
                       >
                         {showEmbeddedTerminal ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                         <span>{showEmbeddedTerminal ? 'Ocultar Terminal' : 'Terminal Embutido'}</span>
@@ -1399,14 +1406,28 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
           </div>
 
           {/* TERMINAL WEB EMBUTIDO SE ABERTO */}
-          {showEmbeddedTerminal && directGuacUrl && (
-            <div className="embedded-terminal-frame-container" style={{ marginBottom: '1.25rem' }}>
-              <iframe 
-                src={directGuacUrl} 
-                title={`Console Remoto - ${formData.name}`}
-                className="embedded-terminal-iframe"
-                allow="clipboard-read; clipboard-write"
-              />
+          {showEmbeddedTerminal && (
+            <div className="embedded-terminal-frame-container" style={{ marginBottom: '1.25rem', position: 'relative' }}>
+              {isLoadingGuacLaunch ? (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0c1017', color: '#00bcd4', zIndex: 10 }}>
+                  <RefreshCw size={24} className="spin-icon" style={{ marginBottom: '10px' }} />
+                  <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Iniciando sessão remota SSO no Apache Guacamole...</span>
+                </div>
+              ) : directGuacUrl ? (
+                <iframe 
+                  src={directGuacUrl} 
+                  title={`Console Remoto - ${formData.name}`}
+                  className="embedded-terminal-iframe"
+                  allow="clipboard-read; clipboard-write; fullscreen"
+                />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: '10px' }}>
+                  <span>Não foi possível gerar a sessão remota no Guacamole.</span>
+                  <button type="button" className="btn-secondary" onClick={fetchGuacamoleLaunchSession}>
+                    <RefreshCw size={14} /> Tentar Novamente
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

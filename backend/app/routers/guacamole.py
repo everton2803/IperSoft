@@ -20,9 +20,11 @@ class GuacamoleConfigRequest(BaseModel):
     url: str
     username: str
     password: Optional[str] = None
+    public_url: Optional[str] = None
 
 class GuacamoleConfigResponse(BaseModel):
     url: str
+    public_url: Optional[str] = None
     username: str
     has_password: bool
     is_active: bool
@@ -44,6 +46,7 @@ def get_guacamole_config(
         return None
     return {
         "url": cfg.url,
+        "public_url": cfg.public_url or "https://guacamoles.iper.net.br/guacamole",
         "username": cfg.username or "",
         "has_password": bool(cfg.password),
         "is_active": cfg.is_active,
@@ -69,6 +72,7 @@ def save_guacamole_config(
         db.add(cfg)
 
     cfg.url = req.url.strip()
+    cfg.public_url = req.public_url.strip() if req.public_url else "https://guacamoles.iper.net.br/guacamole"
     cfg.username = req.username.strip()
     if req.password:
         cfg.password = req.password
@@ -79,6 +83,7 @@ def save_guacamole_config(
 
     return {
         "url": cfg.url,
+        "public_url": cfg.public_url,
         "username": cfg.username,
         "has_password": bool(cfg.password),
         "is_active": cfg.is_active,

@@ -777,6 +777,7 @@ async def get_asset_comparison(
     guacamole_data = {
         "is_configured": bool(guac_config and guac_config.url),
         "is_synced": is_guac_synced,
+        "public_url": (guac_config.public_url if guac_config and guac_config.public_url else "https://guacamoles.iper.net.br/guacamole"),
         "ignore_guacamole": ignore_guac,
         "folder_name": c_group or "Raiz (ROOT)",
         "connection_id": real_cid,
@@ -1567,12 +1568,14 @@ async def get_asset_guacamole_launch_url(
         raise HTTPException(status_code=404, detail="Nenhuma conexão configurada no Guacamole para este ativo.")
 
     cfg = _get_guacamole_config(db)
+    pub_url = cfg.public_url if (cfg and cfg.public_url) else "https://guacamoles.iper.net.br/guacamole"
     try:
         launch_data = await GuacamoleService.generate_launch_url(
-            cfg.url,
-            cfg.username,
-            cfg.password,
-            cid
+            url=cfg.url,
+            username=cfg.username,
+            password=cfg.password,
+            identifier=cid,
+            public_url=pub_url
         )
         return launch_data
     except Exception as exc:

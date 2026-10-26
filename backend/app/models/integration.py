@@ -8,6 +8,7 @@ class IntegrationConfig(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(50), unique=True, index=True, nullable=False) # ex: 'zabbix'
     url = Column(String(255), nullable=False)
+    public_url = Column(String(255), nullable=True)
     token = Column(String(512), nullable=True)
     username = Column(String(100), nullable=True)
     password = Column(String(255), nullable=True)

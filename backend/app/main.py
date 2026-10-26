@@ -41,6 +41,12 @@ try:
             FROM assets 
             WHERE asset_zabbix.asset_id = assets.id AND asset_zabbix.name IS NULL;
         """))
+        conn.execute(text("ALTER TABLE integration_configs ADD COLUMN IF NOT EXISTS public_url VARCHAR(255);"))
+        conn.execute(text("""
+            UPDATE integration_configs 
+            SET public_url = 'https://guacamoles.iper.net.br/guacamole' 
+            WHERE name = 'guacamole' AND (public_url IS NULL OR public_url = '');
+        """))
         conn.commit()
     logger.info("Migrações de colunas de backup_timeout e campos de nomes do Zabbix verificadas com sucesso.")
     
