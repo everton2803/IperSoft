@@ -1607,7 +1607,13 @@ async def get_asset_oxidized_details(
         details["timeout"] = asset.backup_timeout or 30
         return details
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Erro ao consultar Oxidized: {exc}")
+        logger.warning(f"Oxidized node details não disponível para ativo {asset_id} ({node_name}): {exc}")
+        return {
+            "name": node_name,
+            "status": "not_monitored",
+            "message": "Equipamento não localizado no daemon do Oxidized.",
+            "timeout": asset.backup_timeout or 30
+        }
 
 
 @router.get("/{asset_id}/logs")

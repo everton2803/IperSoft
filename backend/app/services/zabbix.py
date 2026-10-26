@@ -262,7 +262,31 @@ class ZabbixService:
                 logger.warning(f"Erro ao verificar/criar host group '{client_group}' no Zabbix: {grp_err}")
 
         if hostid:
-            # 2. Host existe: atualizar host básico
+            # 2. Host existe: verificar se é um host gerenciado por regra de Descoberta LLD (flags == "4")
+            host_info = await cls.call_api(
+                url, "host.get",
+                {"hostids": [str(hostid)], "output": ["hostid", "host", "name", "flags"]},
+                auth=auth_token
+            )
+            is_discovered = False
+            if host_info and len(host_info) > 0:
+                is_discovered = str(host_info[0].get("flags", "0")) == "4"
+
+            if is_discovered:
+                # Discovered Hosts (VMware/LLD) não permitem alterar host, name, grupos ou interfaces
+                await cls.call_api(
+                    url, "host.update",
+                    {"hostid": str(hostid), "status": status_val},
+                    auth=auth_token
+                )
+                return {
+                    "action": "updated",
+                    "hostid": str(hostid),
+                    "is_discovered": True,
+                    "warning": "Host criado por regra de Descoberta (LLD) no Zabbix. Status de monitoramento atualizado (nome e interfaces são geridos pela regra de descoberta)."
+                }
+
+            # Host normal (manual): atualizar host, nome visível e grupos
             update_params = {
                 "hostid": str(hostid),
                 "host": hostname,
