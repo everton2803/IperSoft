@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useDeferredValue } from 'react';
 import { 
   Search, 
   Filter, 
@@ -322,6 +322,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
   const [presenceFilter, setPresenceFilter] = useState('all'); // 'all' | 'both' | 'missing_guacamole' | 'missing_zabbix'
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'monitored' | 'unmonitored'
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearch = useDeferredValue(searchTerm);
   const [selectedGroup, setSelectedGroup] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState(null);
@@ -478,15 +479,35 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
 
   const displayedAssets = useMemo(() => {
     let list = [...assets];
+
+    // 1. Filtro instantâneo multi-termo em memória (0ms de latência, sem lag de digitação)
+    const query = (deferredSearch || '').trim().toLowerCase();
+    if (query) {
+      const tokens = query.split(/\s+/).filter(Boolean);
+      list = list.filter((asset) => {
+        const zbxName = asset.zabbix?.name || '';
+        const zbxHost = asset.zabbix?.host || '';
+        const guacName = asset.guacamole?.[0]?.connection_name || '';
+        const oxModel = asset.oxidized?.model || asset.backup_model || '';
+
+        const fullText = `${asset.name || ''} ${asset.hostname || ''} ${asset.ip_address || ''} ${asset.dns || ''} ${asset.snmp_community || ''} ${asset.client_group || ''} ${zbxName} ${zbxHost} ${guacName} ${oxModel}`.toLowerCase();
+
+        return tokens.every(token => fullText.includes(token));
+      });
+    }
+
+    // 2. Filtro de IPs duplicados
     if (showOnlyDuplicates) {
       list = list.filter((asset) => {
         const ip = asset.ip_address?.trim();
         return ip && duplicateIpMap[ip] > 1;
       });
     }
+
+    // 3. Ordenação
     list.sort((a, b) => compareAssets(a, b, sortField, sortDirection));
     return list;
-  }, [assets, showOnlyDuplicates, duplicateIpMap, sortField, sortDirection]);
+  }, [assets, deferredSearch, showOnlyDuplicates, duplicateIpMap, sortField, sortDirection]);
 
   const renderSortHeader = (label, field, extraStyle = {}) => {
     const isActive = sortField === field;
@@ -514,11 +535,14 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
   };
 
   useEffect(() => {
-    // Carregar URL base do Guacamole se configurada
+    // Carregar URL base do Guacamole se configurada (preferencialmente HTTPS pública)
     authService.getGuacamoleConfig()
       .then(cfg => {
-        if (cfg && cfg.url) {
-          let clean = cfg.url.trim().replace(/\/+$/, '');
+        if (cfg && (cfg.public_url || cfg.url)) {
+          let clean = (cfg.public_url || cfg.url).trim().replace(/\/+$/, '');
+          if (clean.includes('10.10.1.2:8086') || clean.startsWith('http://')) {
+            clean = 'https://guacamoles.iper.net.br/guacamole';
+          }
           if (!clean.endsWith('/guacamole') && !clean.includes('/guacamole/')) {
             clean = `${clean}/guacamole`;
           }
@@ -542,7 +566,6 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
     try {
       const [assetsData, statsData, guacCfg] = await Promise.all([
         authService.getAssets({ 
-          search: searchTerm, 
           group: selectedGroup,
           status: statusFilter === 'all' ? undefined : statusFilter,
           presence: presenceFilter === 'all' ? undefined : presenceFilter,
@@ -554,8 +577,11 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
       ]);
       setAssets(assetsData);
       setStats(statsData);
-      if (guacCfg && guacCfg.url) {
-        let clean = guacCfg.url.trim().replace(/\/+$/, '');
+      if (guacCfg && (guacCfg.public_url || guacCfg.url)) {
+        let clean = (guacCfg.public_url || guacCfg.url).trim().replace(/\/+$/, '');
+        if (clean.includes('10.10.1.2:8086') || clean.startsWith('http://')) {
+          clean = 'https://guacamoles.iper.net.br/guacamole';
+        }
         if (!clean.endsWith('/guacamole') && !clean.includes('/guacamole/')) {
           clean = `${clean}/guacamole`;
         }
@@ -574,7 +600,6 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    loadData();
   };
 
   const handleToggleStatus = async (asset) => {
@@ -788,8 +813,8 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center', flex: '1', justifyContent: 'flex-end' }}>
           {/* Search */}
-          <form onSubmit={handleSearchSubmit} className="search-box-form" style={{ minWidth: '250px', flex: '1', maxWidth: '360px' }}>
-            <div className="input-wrapper search-wrapper">
+          <form onSubmit={handleSearchSubmit} className="search-box-form" style={{ minWidth: '250px', flex: '1', maxWidth: '380px' }}>
+            <div className="input-wrapper search-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Search size={15} className="input-icon" />
               <input
                 type="text"
@@ -797,7 +822,31 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                 placeholder="Buscar por nome, host, IP ou community..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                style={{ paddingRight: searchTerm ? '65px' : '10px' }}
               />
+              {searchTerm && (
+                <div style={{ position: 'absolute', right: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', background: 'var(--bg-tertiary, #1f2430)', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                    {displayedAssets.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    title="Limpar busca"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      display: 'flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
             </div>
           </form>
 

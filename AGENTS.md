@@ -281,7 +281,11 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
 - **Vermelho**: Equipamento marcado como ativo na integração, porém com falha de conexão, sem sincronização ou ausente na ferramenta externa.
 - **Cinza / Desabilitado**: Integração desmarcada ou desativada no sistema (o usuário não precisa abrir a linha).
 
-### 6.4. `AssetsList.jsx` — Seleção Múltipla e Ações em Lote de Integrações
+### 6.4. `AssetsList.jsx` — Seleção Múltipla, Ações em Lote e Busca Instantânea
+- **Busca Instantânea em Memória e `useDeferredValue`**:
+  - A filtragem por texto é realizada em tempo real no cliente com latência de **0ms**, evitando requisições de rede a cada tecla e eliminando qualquer travamento na digitação.
+  - O hook `useDeferredValue` prioriza a resposta do cursor do teclado no input e realiza a filtragem da tabela em background.
+  - Suporte a busca multi-termo por tokens independentes (nome, IP, hostname, DNS, community, grupo, Zabbix e Guacamole), botão de limpeza rápida (`X`) e badge de contagem de resultados encontrados.
 - Permite seleção individual por checkbox em cada linha e seleção em massa via cabeçalho da tabela.
 - Barra de ações em lote flutuante/topo (`bulk-actions-bar`):
   - Ativar / Desativar monitoramento no Zabbix em lote (atualização local no IperSoft).
