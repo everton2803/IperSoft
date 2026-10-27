@@ -244,13 +244,18 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 ## 6. Frontend: Componentes e Padrões de Interface
 
 ### 6.1. `AssetDetailView.jsx` — Visualizador Organizado em 3 Abas Operacionais
-A tela de detalhes do equipamento possui uma barra superior simplificada contendo apenas o botão de ação **Testar Conectividade** (os botões de sincronização foram concentrados com segurança dentro da Aba 3 para permitir análise prévia de divergências). A navegação é estruturada em **3 abas focadas** com carregamento sob demanda (lazy loading):
+A tela de detalhes do equipamento possui uma barra superior simplificada com ações imediatas:
+- **Botão Acessar Web (Split/Dropdown)**: Abre o IP do equipamento em nova aba do navegador para acesso direto à interface web de gerência (switches, OLTs, roteadores, etc.). O botão exibe o protocolo ativo (`HTTP` ou `HTTPS`), e a seta dropdown permite alternar na hora entre `http://<ip>` e `https://<ip>`, com suporte a portas customizadas (ex: 8080, 8443).
+- **Botão Testar Conectividade**: Executa bateria de testes assíncronos (ICMP, SNMP, Porta Remota).
+- Os botões de sincronização foram concentrados com segurança dentro da Aba 3 para permitir análise prévia de divergências.
+
+A navegação é estruturada em **3 abas focadas** com carregamento sob demanda (lazy loading):
 1. **Aba 1 — Operação & Monitoramento (Padrão ao abrir)**:
-   - **Acesso Rápido**: Cards no topo para **Conectividade & Terminal Remoto Guacamole SSO** (abertura em nova aba ou terminal embutido via iframe, sem login manual) e **Backup de Configurações Oxidized** (status da coleta, visualização imediata da configuração atual e disparo de backup sob demanda).
+   - **Acesso Rápido**: Cards no topo para **Conectividade & Terminal Remoto Guacamole SSO** (com botão rápido para Acessar Web, abertura em nova aba ou terminal embutido via iframe) e **Backup de Configurações Oxidized** (status da coleta, visualização imediata da configuração atual e disparo de backup sob demanda).
    - **Monitoramento Zabbix (Alarmes & Itens)**: Lista de triggers ativas do host com severidade, Dado Operacional (`opdata`), reconhecimento (`event.acknowledge`) e encerramento manual; seletor de itens monitorados com busca rápida; e gráfico SVG interativo (`ZabbixNumericChart`) ou linha do tempo textual (`ZabbixTextTimeline`).
 2. **Aba 2 — Cadastro & Parâmetros (IperSoft)**:
    - Formulário modular em grid 2x2 com campos desacoplados:
-     - **Card 1: 1. Identificação Canônica & Rede (IperSoft)**: Apenas **Nome do Equipamento**, Endereço IP Principal, DNS/Domínio, Empresa/Grupo do Cliente e Diagnósticos Nativos Aplicáveis (Ping, SNMP, Porta).
+     - **Card 1: 1. Identificação Canônica & Rede (IperSoft)**: **Nome do Equipamento**, Endereço IP Principal, DNS/Domínio, Empresa/Grupo do Cliente, **Protocolo Web (HTTP / HTTPS)**, **Porta Web Customizada (opcional)** e Diagnósticos Nativos Aplicáveis (Ping, SNMP, Porta).
      - **Card 2: 2. Monitoramento Zabbix Server**: Toggle de ativação, **Host Técnico no Zabbix**, **Nome Visível no Zabbix**, Community SNMP v2c e Porta.
      - **Card 3: 3. Acesso Remoto (Apache Guacamole)**: Toggle de ativação, **Nome da Conexão no Guacamole** (campo somente leitura espelhando o nome do IperSoft), Protocolo, Porta Customizada, Usuário e Senha de acesso remoto.
      - **Card 4: 4. Backup Oxidized**: Toggle de ativação, **Nome do Nó no Oxidized** (campo somente leitura espelhando o nome do IperSoft), Modelo de SO e Timeout de Coleta em segundos.

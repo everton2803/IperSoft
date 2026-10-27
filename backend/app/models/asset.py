@@ -43,6 +43,14 @@ class Asset(Base):
         return bool((self.raw_data or {}).get("ignore_guacamole", False))
 
     @property
+    def web_protocol(self) -> str:
+        return (self.raw_data or {}).get("web_protocol", "http")
+
+    @property
+    def web_port(self) -> str:
+        return (self.raw_data or {}).get("web_port", "")
+
+    @property
     def guacamole_port(self) -> Optional[str]:
         if self.guacamole and len(self.guacamole) > 0:
             return self.guacamole[0].port

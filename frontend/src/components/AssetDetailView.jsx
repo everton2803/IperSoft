@@ -32,7 +32,9 @@ import {
   Minimize2,
   Info,
   RotateCcw,
-  FileText
+  FileText,
+  Globe,
+  ShieldCheck
 } from 'lucide-react';
 import { authService, diagnosticsService } from '../services/api';
 
@@ -527,6 +529,20 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   const [isLoadingGuacLaunch, setIsLoadingGuacLaunch] = useState(false);
   const [showEmbeddedTerminal, setShowEmbeddedTerminal] = useState(false);
 
+  // Menu Dropdown de Acesso Web (HTTP / HTTPS)
+  const [showWebMenu, setShowWebMenu] = useState(false);
+  const webMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (webMenuRef.current && !webMenuRef.current.contains(event.target)) {
+        setShowWebMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Seleção de testes ativos para este equipamento
   const [enabledTests, setEnabledTests] = useState({
     icmp: true,
@@ -555,7 +571,9 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     remote_password: '',
     backup_model: 'RouterOS',
     backup_enabled: true,
-    backup_timeout: 30
+    backup_timeout: 30,
+    web_protocol: 'http',
+    web_port: ''
   });
 
   // Status de Ativação por Integração (acessíveis em todo o componente e useEffects)
@@ -598,7 +616,9 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         remote_password: ipData.remote_password || '',
         backup_model: ipData.backup_model || 'RouterOS',
         backup_enabled: ipData.backup_enabled !== false,
-        backup_timeout: ipData.backup_timeout || 30
+        backup_timeout: ipData.backup_timeout || 30,
+        web_protocol: ipData.web_protocol || 'http',
+        web_port: ipData.web_port || ''
       });
 
       if (ipData.enabled_tests) {
@@ -854,7 +874,9 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         backup_enabled: formData.backup_enabled,
         backup_timeout: parseInt(formData.backup_timeout, 10) || 30,
         enabled_tests: enabledTests,
-        ignore_guacamole: ignoreGuacamole
+        ignore_guacamole: ignoreGuacamole,
+        web_protocol: formData.web_protocol || 'http',
+        web_port: (formData.web_port || '').trim()
       });
 
       setFeedback({ 
@@ -1152,6 +1174,14 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
 
   const differences = comparison?.differences || [];
 
+  // Resolução de URLs para Acesso Web (HTTP / HTTPS)
+  const targetIP = formData.ip_address || formData.hostname;
+  const webPortCustom = (formData.web_port || '').trim();
+  const webPortSuffix = webPortCustom ? `:${webPortCustom}` : '';
+  const primaryWebUrl = targetIP ? `${formData.web_protocol || 'http'}://${targetIP}${webPortSuffix}` : null;
+  const httpWebUrl = targetIP ? `http://${targetIP}${formData.web_protocol === 'http' && webPortCustom ? `:${webPortCustom}` : ''}` : null;
+  const httpsWebUrl = targetIP ? `https://${targetIP}${formData.web_protocol === 'https' && webPortCustom ? `:${webPortCustom}` : ''}` : null;
+
   return (
     <div className="view-container detail-view-layout">
       {/* 1. CABEÇALHO DO EQUIPAMENTO */}
@@ -1173,6 +1203,68 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         </div>
 
         <div className="detail-header-actions">
+          {targetIP && (
+            <div className="web-btn-dropdown-container" ref={webMenuRef}>
+              <div className="web-btn-group">
+                <a 
+                  href={primaryWebUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="btn-action-web"
+                  title={`Abrir interface web em nova aba (${primaryWebUrl})`}
+                >
+                  <Globe size={15} />
+                  <span>Acessar Web</span>
+                  <span className="web-proto-badge">{(formData.web_protocol || 'http').toUpperCase()}</span>
+                </a>
+                <button 
+                  type="button" 
+                  className="btn-action-web-arrow"
+                  onClick={() => setShowWebMenu(!showWebMenu)}
+                  title="Opções de protocolo Web (HTTP / HTTPS)"
+                >
+                  <ChevronDown size={14} className={showWebMenu ? 'rotate-180' : ''} />
+                </button>
+              </div>
+
+              {showWebMenu && (
+                <div className="web-dropdown-menu">
+                  <div className="web-dropdown-header">
+                    <span>Protocolo de Acesso Web</span>
+                  </div>
+                  <a 
+                    href={httpWebUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="web-dropdown-item"
+                    onClick={() => setShowWebMenu(false)}
+                  >
+                    <Globe size={15} color="#00bcd4" />
+                    <div className="web-dropdown-item-info">
+                      <span className="web-dropdown-item-title">Abrir via HTTP</span>
+                      <code className="web-dropdown-item-url">{httpWebUrl}</code>
+                    </div>
+                    <ExternalLink size={12} className="web-dropdown-item-icon" />
+                  </a>
+                  <a 
+                    href={httpsWebUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="web-dropdown-item"
+                    onClick={() => setShowWebMenu(false)}
+                  >
+                    <ShieldCheck size={15} color="#4caf50" />
+                    <div className="web-dropdown-item-info">
+                      <span className="web-dropdown-item-title">Abrir via HTTPS</span>
+                      <code className="web-dropdown-item-url">{httpsWebUrl}</code>
+                    </div>
+                    <ExternalLink size={12} className="web-dropdown-item-icon" />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
           <button 
             type="button" 
             className="btn-action-test"
@@ -1262,9 +1354,24 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 {!guacActive ? (
                   <div className="operation-card-empty">
                     <span className="text-muted">Acesso remoto via Guacamole está desativado para este equipamento.</span>
-                    <button type="button" className="btn-secondary" onClick={() => setActiveTab('config')}>
-                      Configurar Acesso
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                      {targetIP && (
+                        <a 
+                          href={primaryWebUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="btn-secondary"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          title={`Abrir interface web em nova aba (${primaryWebUrl})`}
+                        >
+                          <Globe size={14} color="#00bcd4" />
+                          <span>Acessar Web ({(formData.web_protocol || 'http').toUpperCase()})</span>
+                        </a>
+                      )}
+                      <button type="button" className="btn-secondary" onClick={() => setActiveTab('config')}>
+                        Configurar Acesso
+                      </button>
+                    </div>
                   </div>
                 ) : guacSynced && directGuacUrl ? (
                   <div className="operation-card-actions-row">
@@ -1273,6 +1380,19 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       <span><code>{formData.ip_address || formData.hostname}:{formData.remote_port}</code> ({formData.remote_protocol.toUpperCase()})</span>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {targetIP && (
+                        <a 
+                          href={primaryWebUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="btn-secondary"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          title={`Abrir interface web em nova aba (${primaryWebUrl})`}
+                        >
+                          <Globe size={14} color="#00bcd4" />
+                          <span>Acessar Web</span>
+                        </a>
+                      )}
                       <a 
                         href={directGuacUrl} 
                         target="_blank" 
@@ -2031,6 +2151,28 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                         <option key={grp} value={grp} />
                       ))}
                     </datalist>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group flex-1">
+                      <label>Protocolo Web (Navegador)</label>
+                      <select
+                        value={formData.web_protocol || 'http'}
+                        onChange={e => setFormData({ ...formData, web_protocol: e.target.value })}
+                      >
+                        <option value="http">HTTP (porta padrão 80)</option>
+                        <option value="https">HTTPS (porta padrão 443)</option>
+                      </select>
+                    </div>
+                    <div className="form-group flex-1">
+                      <label>Porta Web Customizada (opcional)</label>
+                      <input 
+                        type="text" 
+                        value={formData.web_port || ''} 
+                        onChange={e => setFormData({ ...formData, web_port: e.target.value })} 
+                        placeholder="Ex: 8080, 8443, 9443 (vazio = padrão)"
+                      />
+                    </div>
                   </div>
 
                   <div style={{ marginTop: '0.5rem' }}>

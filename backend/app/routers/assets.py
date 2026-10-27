@@ -185,6 +185,8 @@ class AssetResponse(BaseModel):
     guacamole_protocol: Optional[str] = None
     guacamole_port: Optional[str] = None
     ignore_guacamole: Optional[bool] = False
+    web_protocol: Optional[str] = "http"
+    web_port: Optional[str] = ""
 
     class Config:
         from_attributes = True
@@ -211,6 +213,8 @@ class AssetUpdate(BaseModel):
     status: Optional[str] = None
     enabled_tests: Optional[Dict[str, bool]] = None
     ignore_guacamole: Optional[bool] = None
+    web_protocol: Optional[str] = None
+    web_port: Optional[str] = None
 
 class StatusToggleRequest(BaseModel):
     status: str # "monitored" | "unmonitored"
@@ -686,6 +690,14 @@ async def update_asset(
                 NetworkDiagnostic.test_type.in_(["ssh", "telnet", "rdp", "vnc"])
             ).delete(synchronize_session=False)
 
+    if payload.web_protocol is not None or payload.web_port is not None:
+        raw = dict(asset.raw_data or {})
+        if payload.web_protocol is not None:
+            raw["web_protocol"] = payload.web_protocol.strip().lower()
+        if payload.web_port is not None:
+            raw["web_port"] = payload.web_port.strip()
+        asset.raw_data = raw
+
     db.commit()
     db.refresh(asset)
 
@@ -747,6 +759,8 @@ async def get_asset_comparison(
         "remote_password": primary_guac.password if primary_guac else None,
         "has_remote_password": bool(primary_guac.password if primary_guac else None),
         "enabled_tests": (asset.raw_data or {}).get("enabled_tests", {"icmp": True, "snmp": True, "remote": True}),
+        "web_protocol": (asset.raw_data or {}).get("web_protocol", "http"),
+        "web_port": (asset.raw_data or {}).get("web_port", ""),
         "updated_at": asset.updated_at
     }
 
