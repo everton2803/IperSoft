@@ -196,7 +196,7 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
     - **Sincronizar Zabbix**: Envia cadastro/status para a API do Zabbix Server (`POST /api/v1/assets/{id}/sync-zabbix`).
     - **Sincronizar Guacamole**: Envia conexão/credenciais para a API do Apache Guacamole (`POST /api/v1/assets/{id}/sync-guacamole`).
     - **Sincronizar Oxidized**: Atualiza o nó e aciona `POST /api/v1/assets/{id}/sync-oxidized` (que chama `/reload` no daemon do Oxidized).
-  - Há botões dedicados de recarga manual sob demanda na tela de Integrações (**Recarregar Nós no Oxidized**) e diretamente no modal de detalhes do ativo no cabeçalho e na Linha 4 (**Sincronizar com Oxidized**).
+  - Há botões dedicados de recarga manual sob demanda na tela de Integrações (**Recarregar Nós no Oxidized**) e diretamente no modal de detalhes do ativo na Aba 3 (**Comparativo & Sincronização Externa**).
 - **Fornecimento Dinâmico de Inventário (`source: http`)**:
   - Endpoint `GET /api/v1/integrations/oxidized/nodes`: Entrega a lista de nós participantes do backup (`backup_enabled == True`) em formato JSON para consumo dinâmico pelo driver nativo `source: http` do Oxidized.
   - **Suporte a Timeout Ajustável por Dispositivo**: O payload exporta `"timeout": X` tanto como atributo de primeiro nível quanto dentro de `"vars": {"timeout": X}` (com padrão de 30s se não customizado). Isso permite aumentar o tempo limite para leitura de configurações pesadas (ex: switches e roteadores de borda/core) sem afetar o timeout geral de dispositivos mais rápidos.
@@ -244,7 +244,7 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 ## 6. Frontend: Componentes e Padrões de Interface
 
 ### 6.1. `AssetDetailView.jsx` — Visualizador Organizado em 3 Abas Operacionais
-A tela de detalhes do equipamento foi estruturada em **3 abas focadas** com carregamento sob demanda (lazy loading):
+A tela de detalhes do equipamento possui uma barra superior simplificada contendo apenas o botão de ação **Testar Conectividade** (os botões de sincronização foram concentrados com segurança dentro da Aba 3 para permitir análise prévia de divergências). A navegação é estruturada em **3 abas focadas** com carregamento sob demanda (lazy loading):
 1. **Aba 1 — Operação & Monitoramento (Padrão ao abrir)**:
    - **Acesso Rápido**: Cards no topo para **Conectividade & Terminal Remoto Guacamole SSO** (abertura em nova aba ou terminal embutido via iframe, sem login manual) e **Backup de Configurações Oxidized** (status da coleta, visualização imediata da configuração atual e disparo de backup sob demanda).
    - **Monitoramento Zabbix (Alarmes & Itens)**: Lista de triggers ativas do host com severidade, Dado Operacional (`opdata`), reconhecimento (`event.acknowledge`) e encerramento manual; seletor de itens monitorados com busca rápida; e gráfico SVG interativo (`ZabbixNumericChart`) ou linha do tempo textual (`ZabbixTextTimeline`).
@@ -257,7 +257,7 @@ A tela de detalhes do equipamento foi estruturada em **3 abas focadas** com carr
    - Salvar atualiza exclusivamente o banco local do IperSoft, sem disparar alterações automáticas nos servidores externos.
 3. **Aba 3 — Comparativo & Sincronização Externa**:
    - Alerta de divergências (`differences`) entre o cadastro do IperSoft e as ferramentas externas.
-   - Grid comparativo de **3 colunas lado a lado** (**Zabbix Server**, **Apache Guacamole** e **Oxidized Daemon**) exibindo os dados reais consultados nas APIs externas e botões de sincronização manual individual.
+   - Grid comparativo de **3 colunas lado a lado** (**Zabbix Server**, **Apache Guacamole** e **Oxidized Daemon**) exibindo os dados reais consultados nas APIs externas e os botões dedicados de sincronização manual individual (**Sincronizar Zabbix**, **Sincronizar Guacamole**, **Sincronizar Oxidized**), permitindo ao operador avaliar as diferenças antes de aplicar alterações.
 
 ### 6.2. `ZabbixAlarmsView.jsx` — Central de Alarmes Zabbix (Tela Principal)
 Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas do Zabbix Server:

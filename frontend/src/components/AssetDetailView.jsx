@@ -1182,42 +1182,6 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
             <Activity size={16} className={isTesting ? 'spin-icon' : ''} />
             {isTesting ? 'Testando...' : 'Testar Conectividade'}
           </button>
-
-          {/* Botões Manuais Separados por Integração */}
-          <div className="sync-buttons-group">
-            <button 
-              type="button" 
-              className="btn-sync-pill btn-sync-zbx-pill"
-              onClick={handleSyncZabbix}
-              disabled={isSyncingZbx || !isAdmin}
-              title={!isAdmin ? 'Apenas administradores podem sincronizar' : 'Enviar manualmente os dados deste ativo ao Zabbix Server'}
-            >
-              <Radio size={14} className={isSyncingZbx ? 'spin-icon' : ''} />
-              <span>{isSyncingZbx ? 'Sincronizando...' : 'Sincronizar Zabbix'}</span>
-            </button>
-
-            <button 
-              type="button" 
-              className="btn-sync-pill btn-sync-guac-pill"
-              onClick={handleSyncGuacamole}
-              disabled={isSyncingGuac || !isAdmin}
-              title={!isAdmin ? 'Apenas administradores podem sincronizar' : 'Enviar manualmente a conexão deste ativo ao Apache Guacamole'}
-            >
-              <Terminal size={14} className={isSyncingGuac ? 'spin-icon' : ''} />
-              <span>{isSyncingGuac ? 'Sincronizando...' : 'Sincronizar Guacamole'}</span>
-            </button>
-
-            <button 
-              type="button" 
-              className="btn-sync-pill btn-sync-ox-pill"
-              onClick={handleSyncOxidized}
-              disabled={isSyncingOx || !isAdmin}
-              title={!isAdmin ? 'Apenas administradores podem sincronizar' : 'Recarregar manualmente os nós no daemon do Oxidized (/reload)'}
-            >
-              <FileCode size={14} className={isSyncingOx ? 'spin-icon' : ''} />
-              <span>{isSyncingOx ? 'Sincronizando...' : 'Sincronizar Oxidized'}</span>
-            </button>
-          </div>
         </div>
       </div>
 
