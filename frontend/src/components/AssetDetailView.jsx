@@ -591,7 +591,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         status: ipData.status || 'monitored',
         zabbix_host: compData.zabbix?.host || compData.zabbix?.hostname || ipData.hostname || ipData.name || '',
         zabbix_name: compData.zabbix?.name || ipData.name || '',
-        guacamole_connection_name: compData.guacamole?.connection_name || ipData.name || '',
+        guacamole_connection_name: ipData.name || '',
         remote_protocol: ipData.remote_protocol || 'ssh',
         remote_port: ipData.remote_port || '22',
         remote_username: ipData.remote_username || '',
@@ -839,7 +839,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         hostname: (formData.zabbix_host || formData.hostname || '').trim(),
         zabbix_host: (formData.zabbix_host || '').trim(),
         zabbix_name: (formData.zabbix_name || '').trim(),
-        guacamole_connection_name: (formData.guacamole_connection_name || '').trim(),
+        guacamole_connection_name: (formData.name || '').trim(),
         ip_address: (formData.ip_address || '').trim(),
         dns: (formData.dns || '').trim(),
         client_group: (formData.client_group || '').trim(),
@@ -962,7 +962,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     setFeedback(null);
     try {
       const res = await authService.syncAssetToGuacamole(assetId, {
-        guacamole_connection_name: (formData.guacamole_connection_name || '').trim(),
+        guacamole_connection_name: (formData.name || '').trim(),
         remote_port: formData.remote_port,
         remote_protocol: formData.remote_protocol,
         remote_username: formData.remote_username,
@@ -2155,12 +2155,16 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 <div className="config-section-body">
                   <div className="form-group" style={{ marginBottom: '1rem' }}>
                     <label>Nome da Conexão no Guacamole</label>
-                    <input 
-                      type="text" 
-                      value={formData.guacamole_connection_name} 
-                      onChange={e => setFormData({ ...formData, guacamole_connection_name: e.target.value })} 
-                      placeholder="Ex: SW-DIST-01 (SSH)"
-                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="text" 
+                        value={formData.name || ''} 
+                        readOnly 
+                        disabled 
+                        style={{ opacity: 0.85, cursor: 'not-allowed', backgroundColor: 'var(--bg-tertiary, #1f2430)' }}
+                      />
+                      <span className="badge-tag-canonical" style={{ whiteSpace: 'nowrap' }}>Espelha IperSoft</span>
+                    </div>
                   </div>
 
                   <div className="form-row">

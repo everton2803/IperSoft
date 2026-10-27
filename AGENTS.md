@@ -151,7 +151,7 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
 - **Desacoplamento Completo dos Campos de Nome**:
   - **IperSoft (Card 1)**: Possui unicamente o campo **Nome do Equipamento** (`name`), sem exigir nem exibir hostname técnico duplicado.
   - **Zabbix Server (Card 2)**: Possui campos independentes para **Host Técnico no Zabbix** (`zabbix_host`) e **Nome Visível no Zabbix** (`zabbix_name`).
-  - **Apache Guacamole (Card 3)**: Possui campo dedicado para o **Nome da Conexão no Guacamole** (`guacamole_connection_name`).
+  - **Apache Guacamole (Card 3)**: Espelha **estritamente o Nome do Equipamento no IperSoft** (`asset.name`), mantendo identificação visual unificada e sem duplicidade de digitação.
   - **Oxidized Daemon (Card 4)**: Consome e espelha **estritamente o Nome do Equipamento no IperSoft** (`asset.name`), assegurando consistência nas árvores Git de backup sem discrepâncias.
 
 ### 5.1. `GuacamoleService` (`app/services/guacamole.py`)
@@ -252,7 +252,7 @@ A tela de detalhes do equipamento possui uma barra superior simplificada contend
    - Formulário modular em grid 2x2 com campos desacoplados:
      - **Card 1: 1. Identificação Canônica & Rede (IperSoft)**: Apenas **Nome do Equipamento**, Endereço IP Principal, DNS/Domínio, Empresa/Grupo do Cliente e Diagnósticos Nativos Aplicáveis (Ping, SNMP, Porta).
      - **Card 2: 2. Monitoramento Zabbix Server**: Toggle de ativação, **Host Técnico no Zabbix**, **Nome Visível no Zabbix**, Community SNMP v2c e Porta.
-     - **Card 3: 3. Acesso Remoto (Apache Guacamole)**: Toggle de ativação, **Nome da Conexão no Guacamole**, Protocolo, Porta Customizada, Usuário e Senha de acesso remoto.
+     - **Card 3: 3. Acesso Remoto (Apache Guacamole)**: Toggle de ativação, **Nome da Conexão no Guacamole** (campo somente leitura espelhando o nome do IperSoft), Protocolo, Porta Customizada, Usuário e Senha de acesso remoto.
      - **Card 4: 4. Backup Oxidized**: Toggle de ativação, **Nome do Nó no Oxidized** (campo somente leitura espelhando o nome do IperSoft), Modelo de SO e Timeout de Coleta em segundos.
    - Salvar atualiza exclusivamente o banco local do IperSoft, sem disparar alterações automáticas nos servidores externos.
 3. **Aba 3 — Comparativo & Sincronização Externa**:

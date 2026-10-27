@@ -496,6 +496,10 @@ async def update_asset(
         # No Oxidized deve pegar SEMPRE o nome do IperSoft
         if asset.oxidized:
             asset.oxidized.node_name = asset.name
+        # No Guacamole também espelha SEMPRE o nome do IperSoft
+        if asset.guacamole:
+            for g in asset.guacamole:
+                g.connection_name = asset.name
 
     if payload.hostname is not None:
         asset.hostname = payload.hostname.strip()
@@ -514,10 +518,9 @@ async def update_asset(
             asset.zabbix.name = zn_val
 
     if payload.guacamole_connection_name is not None:
-        gcn_val = payload.guacamole_connection_name.strip() or None
         if asset.guacamole:
             for g in asset.guacamole:
-                g.connection_name = gcn_val or asset.name
+                g.connection_name = asset.name
     if payload.client_group is not None:
         cg_val = payload.client_group.strip() or None
         asset.client_group = cg_val
@@ -851,6 +854,13 @@ async def get_asset_comparison(
 
     if not guacamole_data["ignore_guacamole"]:
         if guacamole_data["is_synced"]:
+            if guacamole_data.get("connection_name") and guacamole_data["connection_name"] != ipersoft_data["name"]:
+                differences.append({
+                    "field": "Nome da Conexão (Guacamole)",
+                    "ipersoft": ipersoft_data["name"],
+                    "platform": guacamole_data["connection_name"],
+                    "target": "guacamole"
+                })
             if guacamole_data["hostname"] != ipersoft_data["ip_address"]:
                 differences.append({
                     "field": "IP / Host Guacamole",
@@ -1004,12 +1014,13 @@ async def sync_asset_to_guacamole(
 
     primary_guac = asset.guacamole[0] if asset.guacamole and len(asset.guacamole) > 0 else None
 
+    # Nome da conexão espelha SEMPRE o nome do ativo no IperSoft
+    conn_name = asset.name or "Novo Equipamento"
+    if primary_guac:
+        primary_guac.connection_name = conn_name
+
     # Se foram passados dados adicionais de formulário na requisição, aplica-os localmente
     if payload:
-        if payload.get("guacamole_connection_name") or payload.get("connection_name"):
-            c_name_val = str(payload.get("guacamole_connection_name") or payload.get("connection_name")).strip()
-            if primary_guac:
-                primary_guac.connection_name = c_name_val
         if payload.get("remote_port") or payload.get("guacamole_port"):
             p_val = str(payload.get("remote_port") or payload.get("guacamole_port")).strip()
             if primary_guac:
