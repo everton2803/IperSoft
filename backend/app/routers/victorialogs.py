@@ -98,3 +98,17 @@ async def get_victorialogs_stats(
     url = cfg.url if cfg and cfg.url else "http://10.10.1.2:9428"
     stats = await VictoriaLogsService.get_stats(url)
     return stats
+
+
+@router.get("/activity")
+async def get_victorialogs_activity(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna em lote a lista de IPs que geraram logs nos últimos 15 minutos e contagem em 24h.
+    """
+    cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "victorialogs").first()
+    url = cfg.url if cfg and cfg.url else "http://10.10.1.2:9428"
+    activity = await VictoriaLogsService.get_all_devices_activity(url)
+    return activity

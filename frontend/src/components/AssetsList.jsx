@@ -298,6 +298,54 @@ const getIntegrationBadge = (asset, type) => {
     };
   }
 
+  if (type === 'syslog') {
+    const cleanIp = asset.ip_address?.trim();
+    if (!cleanIp || cleanIp === '-') {
+      return {
+        label: 'Syslog',
+        status: 'disabled',
+        tooltip: 'Syslog: Equipamento sem endereço IP cadastrado',
+        dotColor: 'gray',
+        hasCheck: false,
+        hasAlert: false
+      };
+    }
+
+    const isActiveNow = vlogsActivity?.active_now_ips?.includes(cleanIp);
+    const count24h = vlogsActivity?.counts_24h?.[cleanIp] || 0;
+
+    if (isActiveNow) {
+      return {
+        label: 'Syslog',
+        status: 'ok',
+        tooltip: `Syslog Ativo: recebendo logs em tempo real (${count24h.toLocaleString('pt-BR')} eventos em 24h)`,
+        dotColor: 'green',
+        hasCheck: true,
+        hasAlert: false
+      };
+    }
+
+    if (count24h > 0) {
+      return {
+        label: 'Syslog',
+        status: 'idle',
+        tooltip: `Syslog Inativo no momento: ${count24h.toLocaleString('pt-BR')} logs em 24h, mas sem eventos nos últimos 15 min`,
+        dotColor: 'yellow',
+        hasCheck: false,
+        hasAlert: false
+      };
+    }
+
+    return {
+      label: 'Syslog',
+      status: 'disabled',
+      tooltip: 'Syslog: Nenhum log recebido deste IP nas últimas 24h',
+      dotColor: 'gray',
+      hasCheck: false,
+      hasAlert: false
+    };
+  }
+
   return { label: type, status: 'disabled', tooltip: '', dotColor: 'gray', hasCheck: false, hasAlert: false };
 };
 
@@ -328,6 +376,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
   const [feedbackMsg, setFeedbackMsg] = useState(null);
   const [guacBaseUrl, setGuacBaseUrl] = useState('');
   const [revealedPasswords, setRevealedPasswords] = useState({});
+  const [vlogsActivity, setVlogsActivity] = useState({ active_now_ips: [], counts_24h: {} });
 
   // Ordenação & Duplicados
   const [sortField, setSortField] = useState('name'); // 'name' | 'ip'
@@ -564,7 +613,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [assetsData, statsData, guacCfg] = await Promise.all([
+      const [assetsData, statsData, guacCfg, vlogsAct] = await Promise.all([
         authService.getAssets({ 
           group: selectedGroup,
           status: statusFilter === 'all' ? undefined : statusFilter,
@@ -573,10 +622,14 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
           sort_dir: sortDirection
         }),
         authService.getAssetStats(),
-        authService.getGuacamoleConfig().catch(() => null)
+        authService.getGuacamoleConfig().catch(() => null),
+        authService.getVictoriaLogsActivity().catch(() => null)
       ]);
       setAssets(assetsData);
       setStats(statsData);
+      if (vlogsAct) {
+        setVlogsActivity(vlogsAct);
+      }
       if (guacCfg && (guacCfg.public_url || guacCfg.url)) {
         let clean = (guacCfg.public_url || guacCfg.url).trim().replace(/\/+$/, '');
         if (clean.includes('10.10.1.2:8086') || clean.startsWith('http://')) {
@@ -1121,8 +1174,8 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                         {/* PLATAFORMAS SINCRONIZADAS */}
                         <td>
                           <div className="presence-badge-pair">
-                            {['zabbix', 'guacamole', 'oxidized'].map((itype) => {
-                              const badge = getIntegrationBadge(asset, itype);
+                            {['zabbix', 'guacamole', 'oxidized', 'syslog'].map((itype) => {
+                              const badge = getIntegrationBadge(asset, itype, vlogsActivity);
                               return (
                                 <span 
                                   key={itype}

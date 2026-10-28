@@ -387,6 +387,22 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   const [logsAutoRefresh, setLogsAutoRefresh] = useState(false);
   const [copiedLogIdx, setCopiedLogIdx] = useState(null);
 
+  // Saúde e integridade dos logs (Recepção e Sincronismo de Relógio)
+  const [logsHealth, setLogsHealth] = useState(null);
+  const [isLoadingLogsHealth, setIsLoadingLogsHealth] = useState(false);
+
+  const fetchLogsHealth = async () => {
+    setIsLoadingLogsHealth(true);
+    try {
+      const data = await authService.getAssetLogsHealth(assetId);
+      setLogsHealth(data);
+    } catch (err) {
+      console.warn('Erro ao verificar saúde dos logs:', err.message);
+    } finally {
+      setIsLoadingLogsHealth(false);
+    }
+  };
+
   const fetchDeviceLogs = async (overrideRange, overrideLevel, overrideSearch, overrideLimit) => {
     setIsLoadingLogs(true);
     try {
@@ -401,6 +417,8 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         limit: lim
       });
       setDeviceLogs(res.logs || []);
+      // Atualiza saúde do fluxo e checagem de relógio em segundo plano
+      fetchLogsHealth();
     } catch (err) {
       console.warn('Erro ao carregar logs do VictoriaLogs:', err.message);
     } finally {
@@ -640,6 +658,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         clean = `${clean}/guacamole`;
       }
       setGuacBaseUrl(clean);
+      fetchLogsHealth();
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Falha ao carregar dados do equipamento.' });
     } finally {
@@ -1347,6 +1366,12 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                   <span className={`acc-test-pill ${!enabledTests.remote ? 'pill-disabled' : (remoteDiag?.status === 'ok' ? 'pill-ok' : 'pill-fail')}`}>
                     {formData.remote_protocol.toUpperCase()} ({formData.remote_port}): {enabledTests.remote ? (remoteDiag?.status === 'ok' ? 'Aberta' : remoteDiag?.status || 'Pendente') : 'Desat.'}
                   </span>
+                  <span 
+                    className={`acc-test-pill ${logsHealth?.clock_skew_detected ? 'pill-timeout' : logsHealth?.status === 'active' ? 'pill-ok' : logsHealth?.status === 'idle' ? 'pill-disabled' : 'pill-fail'}`}
+                    title={logsHealth?.clock_skew_detected ? `Alerta: ${logsHealth.clock_drift_human}` : `Status do fluxo Syslog no VictoriaLogs (${logsHealth?.last_log_relative || 'Sem logs'})`}
+                  >
+                    Syslog: {logsHealth?.clock_skew_detected ? '⚠️ Relógio' : logsHealth?.status === 'active' ? 'Ativo' : logsHealth?.status === 'idle' ? 'Inativo' : 'Sem Logs'}
+                  </span>
                 </div>
               </div>
 
@@ -1807,6 +1832,22 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 <span className="badge-tag-canonical" style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81c784', marginLeft: '6px' }}>
                   UDP/TCP 514
                 </span>
+                {logsHealth && (
+                  <span 
+                    className={`badge-status-pill badge-${logsHealth.clock_skew_detected ? 'yellow' : logsHealth.status === 'active' ? 'green' : logsHealth.status === 'idle' ? 'yellow' : 'gray'}`}
+                    style={{ fontSize: '0.72rem', marginLeft: '6px' }}
+                    title={logsHealth.clock_skew_detected ? logsHealth.clock_drift_human : `Último log: ${logsHealth.last_log_relative}`}
+                  >
+                    {logsHealth.clock_skew_detected 
+                      ? '⚠️ Relógio Divergente' 
+                      : (logsHealth.status === 'active' ? `Logs Ativos (${logsHealth.last_log_relative})` : logsHealth.status === 'idle' ? `Inativo (${logsHealth.last_log_relative})` : 'Sem Logs')}
+                  </span>
+                )}
+                {logsHealth?.logs_count_24h > 0 && (
+                  <span className="badge-tag-canonical" style={{ fontSize: '0.7rem', marginLeft: '4px' }}>
+                    {logsHealth.logs_count_24h.toLocaleString('pt-BR')} logs em 24h
+                  </span>
+                )}
               </div>
 
               {/* Filtros e Controles */}
@@ -1935,6 +1976,17 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 </button>
               </div>
             </div>
+
+            {/* Alerta de Divergência de Horário / Relógio Descalibrado */}
+            {logsHealth?.clock_skew_detected && (
+              <div className="notification-banner banner-warning" style={{ margin: '0.75rem 1rem 0.25rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <AlertTriangle size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.82rem' }}>
+                  <strong style={{ color: '#fbbf24' }}>Alerta de Sincronismo Temporal (NTP)</strong>
+                  <span>{logsHealth.clock_drift_human}. O VictoriaLogs está indexando os eventos pelo horário de chegada no servidor para não perder nenhum registro, mas recomendamos corrigir o relógio/NTP no equipamento para manter a rastreabilidade correta dos eventos.</span>
+                </div>
+              </div>
+            )}
 
             {/* Barra de Pesquisa de Texto */}
             <div style={{ padding: '0.5rem 1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '8px', alignItems: 'center' }}>

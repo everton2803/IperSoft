@@ -1734,3 +1734,36 @@ async def get_asset_logs(
     }
 
 
+@router.get("/{asset_id}/logs/health")
+async def get_asset_logs_health(
+    asset_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Verifica a saúde do fluxo de logs do equipamento no VictoriaLogs:
+    - Se estão chegando logs (status: active, idle, inactive, no_logs)
+    - Volume nas últimas 24h
+    - Checagem de divergência de relógio (clock skew / NTP desregulado)
+    """
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+
+    cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "victorialogs").first()
+    url = cfg.url if cfg and cfg.url else "http://10.10.1.2:9428"
+
+    health = await VictoriaLogsService.check_device_log_health(
+        url=url,
+        ip=asset.ip_address,
+        hostname=asset.hostname or asset.name
+    )
+
+    return {
+        "asset_id": asset.id,
+        "asset_name": asset.name,
+        "asset_ip": asset.ip_address,
+        **health
+    }
+
+

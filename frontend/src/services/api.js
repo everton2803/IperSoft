@@ -827,6 +827,25 @@ export const authService = {
     return safeFetchJson(`${API_BASE_URL}/assets/${assetId}/logs?${params.toString()}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     }, 'Falha ao carregar logs do equipamento.');
+  },
+
+  async getAssetLogsHealth(assetId) {
+    if (!assetId || assetId === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    return safeFetchJson(`${API_BASE_URL}/assets/${assetId}/logs/health`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao consultar saúde dos logs do equipamento.');
+  },
+
+  async getVictoriaLogsActivity() {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    return safeFetchJson(`${API_BASE_URL}/integrations/victorialogs/activity`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao consultar atividade global de logs.');
   }
 };
 
