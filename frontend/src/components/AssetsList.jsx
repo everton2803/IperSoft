@@ -81,7 +81,7 @@ const compareAssets = (a, b, field, direction) => {
 };
 
 // Retorna o status visual padronizado de uma integração: 'ok' (verde) | 'disabled' (cinza) | 'divergent' (laranja/âmbar) | 'error' (vermelho)
-const getIntegrationBadge = (asset, type) => {
+const getIntegrationBadge = (asset, type, vlogsActivity = null) => {
   if (type === 'zabbix') {
     // 1. Zabbix: Desativado na integração (Cinza)
     const isZbxDisabled = asset.status === 'unmonitored' || asset.zabbix?.status === 'unmonitored';
@@ -311,8 +311,8 @@ const getIntegrationBadge = (asset, type) => {
       };
     }
 
-    const isActiveNow = vlogsActivity?.active_now_ips?.includes(cleanIp);
-    const count24h = vlogsActivity?.counts_24h?.[cleanIp] || 0;
+    const isActiveNow = Boolean(vlogsActivity?.active_now_ips && Array.isArray(vlogsActivity.active_now_ips) && vlogsActivity.active_now_ips.includes(cleanIp));
+    const count24h = (vlogsActivity?.counts_24h && typeof vlogsActivity.counts_24h === 'object' && vlogsActivity.counts_24h[cleanIp]) || 0;
 
     if (isActiveNow) {
       return {
