@@ -84,7 +84,10 @@ Modelo principal do inventário:
 - `backup_model`: Modelo para backup no Oxidized (ex: `RouterOS`, `Cisco`).
 - `backup_enabled`: Booleano se deve ser feito backup.
 - `backup_timeout`: Tempo limite em segundos para o Oxidized efetuar a leitura completa das configurações (padrão 30s). Configurável por equipamento para atender dispositivos lentos ou com configurações extensas.
-- `raw_data`: JSON flexível com metadados adicionais (ex: `ignore_guacamole`).
+- `raw_data`: JSON flexível com metadados adicionais (ex: `ignore_guacamole`, `web_protocol`, `web_port`, `file_backup_protocol`, `file_backup_folder`, `file_backup_pattern`).
+  - `@property file_backup_protocol`: Protocolo de envio para servidor de arquivos (`disabled`, `ftp`, `tftp`).
+  - `@property file_backup_folder`: Pasta esperada de destino no servidor de backup (Oracle Cloud), com fallback automático para `client_group`.
+  - `@property file_backup_pattern`: Padrão/prefixo do nome do arquivo diário gerado pelo dispositivo (ex: `atm-router-aurin*`, `*.rsc` ou vazio para usar o nome do ativo).
 - **Relacionamentos**:
   - `zabbix` -> `AssetZabbix` (1:1 com cascade delete).
   - `guacamole` -> `AssetGuacamole` (1:N com cascade delete).
@@ -261,7 +264,9 @@ A navegação é estruturada em **3 abas focadas** com carregamento sob demanda 
      - **Card 1: 1. Identificação Canônica & Rede (IperSoft)**: **Nome do Equipamento**, Endereço IP Principal, DNS/Domínio, Empresa/Grupo do Cliente, **Protocolo Web (HTTP / HTTPS)**, **Porta Web Customizada (opcional)** e Diagnósticos Nativos Aplicáveis (Ping, SNMP, Porta).
      - **Card 2: 2. Monitoramento Zabbix Server**: Toggle de ativação, **Host Técnico no Zabbix**, **Nome Visível no Zabbix**, Community SNMP v2c e Porta.
      - **Card 3: 3. Acesso Remoto (Apache Guacamole)**: Toggle de ativação, **Nome da Conexão no Guacamole** (campo somente leitura espelhando o nome do IperSoft), Protocolo, Porta Customizada, Usuário e Senha de acesso remoto.
-     - **Card 4: 4. Backup Oxidized**: Toggle de ativação, **Nome do Nó no Oxidized** (campo somente leitura espelhando o nome do IperSoft), Modelo de SO e Timeout de Coleta em segundos.
+     - **Card 4: 4. Backup de Configurações (Oxidized & FTP/TFTP)**: Card unificado de backups dividido em duas seções claras:
+       - **Coleta Automática Oxidized (Git / Pull)**: Toggle de ativação, **Nome do Nó no Oxidized** (somente leitura espelhando o nome do IperSoft), Modelo de SO e Timeout de Coleta em segundos.
+       - **Envio para Servidor de Arquivos (FTP / TFTP / Push)**: Método de envio (`disabled`, `ftp`, `tftp`), **Pasta de Destino no Servidor** (com datalist das pastas de clientes na Oracle Cloud e grupos do sistema), e **Padrão do Nome do Arquivo** (prefixo ou expressão como `atm-router-aurin*` ou `*.rsc` para rastreamento e auditoria).
    - Salvar atualiza exclusivamente o banco local do IperSoft, sem disparar alterações automáticas nos servidores externos.
 3. **Aba 3 — Comparativo & Sincronização Externa**:
    - Alerta de divergências (`differences`) entre o cadastro do IperSoft e as ferramentas externas.

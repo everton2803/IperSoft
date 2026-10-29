@@ -187,6 +187,9 @@ class AssetResponse(BaseModel):
     ignore_guacamole: Optional[bool] = False
     web_protocol: Optional[str] = "http"
     web_port: Optional[str] = ""
+    file_backup_protocol: Optional[str] = "disabled"
+    file_backup_folder: Optional[str] = ""
+    file_backup_pattern: Optional[str] = ""
 
     class Config:
         from_attributes = True
@@ -215,6 +218,9 @@ class AssetUpdate(BaseModel):
     ignore_guacamole: Optional[bool] = None
     web_protocol: Optional[str] = None
     web_port: Optional[str] = None
+    file_backup_protocol: Optional[str] = None
+    file_backup_folder: Optional[str] = None
+    file_backup_pattern: Optional[str] = None
 
 class StatusToggleRequest(BaseModel):
     status: str # "monitored" | "unmonitored"
@@ -698,6 +704,16 @@ async def update_asset(
             raw["web_port"] = payload.web_port.strip()
         asset.raw_data = raw
 
+    if any(x is not None for x in [payload.file_backup_protocol, payload.file_backup_folder, payload.file_backup_pattern]):
+        raw = dict(asset.raw_data or {})
+        if payload.file_backup_protocol is not None:
+            raw["file_backup_protocol"] = payload.file_backup_protocol.strip().lower()
+        if payload.file_backup_folder is not None:
+            raw["file_backup_folder"] = payload.file_backup_folder.strip()
+        if payload.file_backup_pattern is not None:
+            raw["file_backup_pattern"] = payload.file_backup_pattern.strip()
+        asset.raw_data = raw
+
     db.commit()
     db.refresh(asset)
 
@@ -761,6 +777,9 @@ async def get_asset_comparison(
         "enabled_tests": (asset.raw_data or {}).get("enabled_tests", {"icmp": True, "snmp": True, "remote": True}),
         "web_protocol": (asset.raw_data or {}).get("web_protocol", "http"),
         "web_port": (asset.raw_data or {}).get("web_port", ""),
+        "file_backup_protocol": (asset.raw_data or {}).get("file_backup_protocol", "disabled"),
+        "file_backup_folder": (asset.raw_data or {}).get("file_backup_folder", c_group or ""),
+        "file_backup_pattern": (asset.raw_data or {}).get("file_backup_pattern", ""),
         "updated_at": asset.updated_at
     }
 

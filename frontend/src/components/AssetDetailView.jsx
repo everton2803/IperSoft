@@ -34,7 +34,9 @@ import {
   RotateCcw,
   FileText,
   Globe,
-  ShieldCheck
+  ShieldCheck,
+  Archive,
+  Folder
 } from 'lucide-react';
 import { authService, diagnosticsService } from '../services/api';
 
@@ -591,7 +593,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     backup_enabled: true,
     backup_timeout: 30,
     web_protocol: 'http',
-    web_port: ''
+    web_port: '',
+    file_backup_protocol: 'disabled',
+    file_backup_folder: '',
+    file_backup_pattern: ''
   });
 
   // Status de Ativação por Integração (acessíveis em todo o componente e useEffects)
@@ -636,7 +641,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         backup_enabled: ipData.backup_enabled !== false,
         backup_timeout: ipData.backup_timeout || 30,
         web_protocol: ipData.web_protocol || 'http',
-        web_port: ipData.web_port || ''
+        web_port: ipData.web_port || '',
+        file_backup_protocol: ipData.file_backup_protocol || 'disabled',
+        file_backup_folder: ipData.file_backup_folder || ipData.client_group || '',
+        file_backup_pattern: ipData.file_backup_pattern || ''
       });
 
       if (ipData.enabled_tests) {
@@ -895,7 +903,10 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         enabled_tests: enabledTests,
         ignore_guacamole: ignoreGuacamole,
         web_protocol: formData.web_protocol || 'http',
-        web_port: (formData.web_port || '').trim()
+        web_port: (formData.web_port || '').trim(),
+        file_backup_protocol: formData.file_backup_protocol || 'disabled',
+        file_backup_folder: (formData.file_backup_folder || '').trim(),
+        file_backup_pattern: (formData.file_backup_pattern || '').trim()
       });
 
       setFeedback({ 
@@ -1458,36 +1469,48 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
               </div>
             </div>
 
-            {/* CARD 2: BACKUP DE CONFIGURAÇÕES OXIDIZED */}
+            {/* CARD 2: BACKUP DE CONFIGURAÇÕES (OXIDIZED & FTP/TFTP) */}
             <div className="operation-quick-card">
               <div className="operation-card-header">
                 <div className="operation-card-title">
-                  <FileCode size={16} color="#e91e63" />
-                  <span>Backup de Configurações (Oxidized)</span>
+                  <Archive size={16} color="#e91e63" />
+                  <span>Backup de Configurações</span>
                 </div>
                 <span className={`badge-status-pill badge-${oxColor}`}>
-                  {!oxActive ? 'Desativado' : oxColor === 'green' ? 'Backup em Dia' : oxColor === 'red' ? 'Falha na Coleta' : 'Aguardando Coleta'}
+                  {!oxActive ? 'Oxidized Desativado' : oxColor === 'green' ? 'Backup em Dia' : oxColor === 'red' ? 'Falha na Coleta' : 'Aguardando Coleta'}
                 </span>
               </div>
 
               <div className="operation-card-body">
-                {!oxActive ? (
+                {!oxActive && (!formData.file_backup_protocol || formData.file_backup_protocol === 'disabled') ? (
                   <div className="operation-card-empty">
-                    <span className="text-muted">Coleta de backup no Oxidized desabilitada para este ativo.</span>
+                    <span className="text-muted">Backup de configurações desabilitado para este ativo.</span>
                     <button type="button" className="btn-secondary" onClick={() => setActiveTab('config')}>
-                      Habilitar no Cadastro
+                      Configurar no Cadastro
                     </button>
                   </div>
                 ) : (
                   <div className="operation-card-actions-row">
-                    <div className="remote-meta-info">
-                      <span>Modelo: <code>{oxDetails?.model || formData.backup_model || 'RouterOS'}</code></span>
-                      <span className="text-muted">•</span>
-                      <span>
-                        Último: {oxDetails?.last_backup || comparison?.oxidized?.last_backup
-                          ? new Date(oxDetails?.last_backup || comparison?.oxidized?.last_backup).toLocaleString('pt-BR')
-                          : 'Pendente'}
-                      </span>
+                    <div className="remote-meta-info" style={{ flexWrap: 'wrap', gap: '6px' }}>
+                      {oxActive && (
+                        <>
+                          <span>Oxidized: <code>{oxDetails?.model || formData.backup_model || 'RouterOS'}</code></span>
+                          <span className="text-muted">•</span>
+                          <span>
+                            Último: {oxDetails?.last_backup || comparison?.oxidized?.last_backup
+                              ? new Date(oxDetails?.last_backup || comparison?.oxidized?.last_backup).toLocaleString('pt-BR')
+                              : 'Pendente'}
+                          </span>
+                        </>
+                      )}
+                      {formData.file_backup_protocol && formData.file_backup_protocol !== 'disabled' && (
+                        <>
+                          {oxActive && <span className="text-muted">•</span>}
+                          <span>
+                            Servidor: <code>{formData.file_backup_protocol.toUpperCase()}</code> (pasta: <code>{formData.file_backup_folder || 'raiz'}</code>)
+                          </span>
+                        </>
+                      )}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       <button
@@ -2421,12 +2444,12 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 </div>
               </div>
 
-              {/* BLOCO 4: PARÂMETROS OXIDIZED */}
+              {/* BLOCO 4: PARÂMETROS DE BACKUP (OXIDIZED & FTP/TFTP) */}
               <div className="config-section-card">
                 <div className="config-section-header">
-                  <FileCode size={16} color="#e91e63" />
-                  <h4>4. Backup de Configurações (Oxidized)</h4>
-                  <label className="config-header-toggle">
+                  <Archive size={16} color="#e91e63" />
+                  <h4>4. Backup de Configurações</h4>
+                  <label className="config-header-toggle" title="Habilita ou desativa a inclusão deste ativo no backup automatizado do Oxidized">
                     <input 
                       type="checkbox"
                       className="diag-custom-checkbox"
@@ -2434,12 +2457,23 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       onChange={e => setFormData({ ...formData, backup_enabled: e.target.checked })}
                       disabled={!isAdmin}
                     />
-                    <span>{formData.backup_enabled !== false ? 'Habilitado' : 'Desativado'}</span>
+                    <span>{formData.backup_enabled !== false ? 'Oxidized Habilitado' : 'Oxidized Desativado'}</span>
                   </label>
                 </div>
 
                 <div className="config-section-body">
-                  <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  {/* SUB-SEÇÃO 1: OXIDIZED (GIT / PULL) */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '5px', marginTop: '2px', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <FileCode size={13} color="#e91e63" />
+                      Coleta Automática Oxidized (Git / Pull)
+                    </span>
+                    <span className="badge-tag-canonical" style={{ fontSize: '0.68rem', padding: '2px 6px' }}>
+                      {formData.backup_enabled !== false ? 'Ativo' : 'Pausado'}
+                    </span>
+                  </div>
+
+                  <div className="form-group">
                     <label>Nome do Nó no Oxidized</label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input 
@@ -2464,6 +2498,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                           return formData.backup_model || 'RouterOS';
                         })()}
                         onChange={e => setFormData({ ...formData, backup_model: e.target.value })}
+                        disabled={formData.backup_enabled === false}
                       >
                         <option value="RouterOS">MikroTik (RouterOS)</option>
                         <option value="ios">Cisco (IOS / IOS-XE)</option>
@@ -2486,11 +2521,77 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                         placeholder="30"
                         value={formData.backup_timeout !== undefined ? formData.backup_timeout : 30}
                         onChange={e => setFormData({ ...formData, backup_timeout: e.target.value })}
+                        disabled={formData.backup_enabled === false}
                       />
                     </div>
                   </div>
+
+                  {/* SUB-SEÇÃO 2: SERVIDOR DE ARQUIVOS FTP/TFTP (PUSH) */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '5px', marginTop: '10px', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Folder size={13} color="#3b82f6" />
+                      Envio para Servidor de Arquivos (FTP / TFTP / Push)
+                    </span>
+                    <span className="badge-tag-canonical" style={{ fontSize: '0.68rem', padding: '2px 6px' }}>
+                      {formData.file_backup_protocol && formData.file_backup_protocol !== 'disabled' ? formData.file_backup_protocol.toUpperCase() : 'Desativado'}
+                    </span>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group flex-1">
+                      <label>Método / Protocolo</label>
+                      <select
+                        value={formData.file_backup_protocol || 'disabled'}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setFormData({
+                            ...formData,
+                            file_backup_protocol: val,
+                            file_backup_folder: formData.file_backup_folder || (formData.client_group || '')
+                          });
+                        }}
+                      >
+                        <option value="disabled">Desativado / Sem Envio Diário</option>
+                        <option value="ftp">FTP (Scripts MikroTik / Cisco / Linux)</option>
+                        <option value="tftp">TFTP (Switches Datacom / Huawei / OLTs)</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group flex-1">
+                      <label>Pasta de Destino no Servidor</label>
+                      <input
+                        type="text"
+                        list="backup-server-folders-list"
+                        value={formData.file_backup_folder || ''}
+                        onChange={e => setFormData({ ...formData, file_backup_folder: e.target.value })}
+                        placeholder={formData.client_group ? `Ex: ${formData.client_group}` : 'Ex: atm, inforline, diretrix...'}
+                        disabled={formData.file_backup_protocol === 'disabled'}
+                      />
+                      <datalist id="backup-server-folders-list">
+                        {Array.from(new Set([
+                          'athila', 'atm', 'bkup', 'diretrix', 'fortaleza', 'infonet',
+                          'inforline', 'iper', 'lhtech', 'oestenets', 'rtnet', 'seven', 'taionet',
+                          ...(availableGroups || [])
+                        ])).filter(Boolean).sort().map(folder => (
+                          <option key={folder} value={folder} />
+                        ))}
+                      </datalist>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Padrão do Nome do Arquivo (Opcional)</label>
+                    <input
+                      type="text"
+                      value={formData.file_backup_pattern || ''}
+                      onChange={e => setFormData({ ...formData, file_backup_pattern: e.target.value })}
+                      placeholder="Ex: atm-router-aurin* ou *.rsc (vazio = nome do equipamento)"
+                      disabled={formData.file_backup_protocol === 'disabled'}
+                    />
+                  </div>
+
                   <p className="config-card-hint">
-                    O Oxidized consome as credenciais SSH/Telnet configuradas no bloco ao lado e recarrega a lista quando acionado em <strong>Sincronizar Oxidized</strong>.
+                    Armazena a pasta e padrão de arquivos no servidor de backup para futura auditoria e conferência de backups diários.
                   </p>
                 </div>
               </div>

@@ -51,6 +51,18 @@ class Asset(Base):
         return (self.raw_data or {}).get("web_port", "")
 
     @property
+    def file_backup_protocol(self) -> str:
+        return (self.raw_data or {}).get("file_backup_protocol", "disabled")
+
+    @property
+    def file_backup_folder(self) -> str:
+        return (self.raw_data or {}).get("file_backup_folder", self.client_group or "")
+
+    @property
+    def file_backup_pattern(self) -> str:
+        return (self.raw_data or {}).get("file_backup_pattern", "")
+
+    @property
     def guacamole_port(self) -> Optional[str]:
         if self.guacamole and len(self.guacamole) > 0:
             return self.guacamole[0].port
