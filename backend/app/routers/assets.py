@@ -15,6 +15,7 @@ from app.services.zabbix import ZabbixService
 from app.services.guacamole import GuacamoleService
 from app.services.oxidized import OxidizedService, parse_oxidized_datetime
 from app.services.victorialogs import VictoriaLogsService
+from app.services.os_detection import detect_device_os
 import time
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,7 @@ class AssetResponse(BaseModel):
     file_backup_protocol: Optional[str] = "disabled"
     file_backup_folder: Optional[str] = ""
     file_backup_pattern: Optional[str] = ""
+    os_profile: Optional[str] = "generic_ssh"
 
     class Config:
         from_attributes = True
@@ -221,6 +223,7 @@ class AssetUpdate(BaseModel):
     file_backup_protocol: Optional[str] = None
     file_backup_folder: Optional[str] = None
     file_backup_pattern: Optional[str] = None
+    os_profile: Optional[str] = None
 
 class StatusToggleRequest(BaseModel):
     status: str # "monitored" | "unmonitored"
@@ -230,6 +233,13 @@ class BulkIntegrationsRequest(BaseModel):
     zabbix_enabled: Optional[bool] = None      # True -> monitored, False -> unmonitored
     guacamole_enabled: Optional[bool] = None   # True -> active, False -> ignored
     oxidized_enabled: Optional[bool] = None    # True -> backup_enabled=True, False -> backup_enabled=False
+
+class DetectOSRequest(BaseModel):
+    apply: Optional[bool] = False
+
+class BulkDetectOSRequest(BaseModel):
+    asset_ids: List[int]
+    apply: Optional[bool] = True
 
 
 def _ip_sort_key(ip_val: Optional[str]):
@@ -490,6 +500,136 @@ async def bulk_update_integrations(
     }
 
 
+@router.post("/bulk-detect-os")
+async def bulk_detect_asset_os(
+    payload: BulkDetectOSRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Executa detecção assíncrona em paralelo de SO (SNMP + fallback SSH) para múltiplos equipamentos.
+    """
+    if not payload.asset_ids:
+        raise HTTPException(status_code=400, detail="Nenhum ativo informado.")
+
+    assets = db.query(Asset).filter(Asset.id.in_(payload.asset_ids)).all()
+    if not assets:
+        return {"total": 0, "detected": 0, "results": []}
+
+    sem = asyncio.Semaphore(10)
+
+    async def _detect_single(a: Asset):
+        async with sem:
+            if not a.ip_address:
+                return {
+                    "asset_id": a.id,
+                    "name": a.name,
+                    "success": False,
+                    "message": "Sem IP cadastrado"
+                }
+            primary_guac = a.guacamole[0] if a.guacamole and len(a.guacamole) > 0 else None
+            ssh_user = primary_guac.username if primary_guac else None
+            ssh_pwd = primary_guac.password if primary_guac else None
+            ssh_port = int(primary_guac.port) if (primary_guac and primary_guac.port and str(primary_guac.port).isdigit()) else 22
+            snmp_comm = (a.zabbix.snmp_community if a.zabbix else None) or a.snmp_community or "ipermonitor"
+            snmp_port = int(a.port) if (a.port and str(a.port).isdigit()) else 161
+
+            det = await detect_device_os(
+                ip=a.ip_address,
+                snmp_community=snmp_comm,
+                snmp_port=snmp_port,
+                ssh_user=ssh_user,
+                ssh_password=ssh_pwd,
+                ssh_port=ssh_port,
+                timeout=2.0
+            )
+            return {
+                "asset_id": a.id,
+                "name": a.name,
+                "ip": a.ip_address,
+                **det
+            }
+
+    tasks = [_detect_single(a) for a in assets]
+    detected_list = await asyncio.gather(*tasks)
+
+    success_count = 0
+    if payload.apply:
+        asset_map = {a.id: a for a in assets}
+        for d in detected_list:
+            if d.get("success"):
+                success_count += 1
+                target = asset_map.get(d["asset_id"])
+                if target:
+                    if d.get("os_profile"):
+                        target.os_profile = d["os_profile"]
+                    if d.get("backup_model"):
+                        target.backup_model = d["backup_model"]
+                        if target.oxidized:
+                            target.oxidized.model = d["backup_model"]
+        db.commit()
+
+    return {
+        "total": len(assets),
+        "detected": success_count if payload.apply else sum(1 for d in detected_list if d.get("success")),
+        "results": detected_list
+    }
+
+
+@router.post("/{asset_id}/detect-os")
+async def detect_asset_os_endpoint(
+    asset_id: int,
+    payload: DetectOSRequest = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Executa detecção inteligente do SO do equipamento:
+    1. SNMP sysDescr.0 / mtxrLicVersion (instantâneo, sem risco de credenciais)
+    2. Fallback via SSH se SNMP falhar e houver credenciais.
+    """
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+
+    if not asset.ip_address:
+        return {"success": False, "message": "Ativo não possui endereço IP cadastrado."}
+
+    primary_guac = asset.guacamole[0] if asset.guacamole and len(asset.guacamole) > 0 else None
+    ssh_user = primary_guac.username if primary_guac else None
+    ssh_pwd = primary_guac.password if primary_guac else None
+    ssh_port = int(primary_guac.port) if (primary_guac and primary_guac.port and str(primary_guac.port).isdigit()) else 22
+
+    snmp_comm = (asset.zabbix.snmp_community if asset.zabbix else None) or asset.snmp_community or "ipermonitor"
+    snmp_port = int(asset.port) if (asset.port and str(asset.port).isdigit()) else 161
+
+    res = await detect_device_os(
+        ip=asset.ip_address,
+        snmp_community=snmp_comm,
+        snmp_port=snmp_port,
+        ssh_user=ssh_user,
+        ssh_password=ssh_pwd,
+        ssh_port=ssh_port,
+        timeout=2.5
+    )
+
+    should_apply = payload.apply if payload else False
+    if res and res.get("success") and should_apply:
+        detected_profile = res.get("os_profile")
+        detected_backup = res.get("backup_model")
+        if detected_profile:
+            asset.os_profile = detected_profile
+        if detected_backup:
+            asset.backup_model = detected_backup
+            if asset.oxidized:
+                asset.oxidized.model = detected_backup
+        db.commit()
+        db.refresh(asset)
+        res["applied"] = True
+
+    return res
+
+
 @router.patch("/{asset_id}", response_model=AssetResponse)
 async def update_asset(
     asset_id: int,
@@ -714,6 +854,9 @@ async def update_asset(
             raw["file_backup_pattern"] = payload.file_backup_pattern.strip()
         asset.raw_data = raw
 
+    if payload.os_profile is not None:
+        asset.os_profile = payload.os_profile.strip() or "generic_ssh"
+
     db.commit()
     db.refresh(asset)
 
@@ -780,6 +923,7 @@ async def get_asset_comparison(
         "file_backup_protocol": (asset.raw_data or {}).get("file_backup_protocol", "disabled"),
         "file_backup_folder": (asset.raw_data or {}).get("file_backup_folder", c_group or ""),
         "file_backup_pattern": (asset.raw_data or {}).get("file_backup_pattern", ""),
+        "os_profile": asset.os_profile or "generic_ssh",
         "updated_at": asset.updated_at
     }
 

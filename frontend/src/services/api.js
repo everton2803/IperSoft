@@ -446,6 +446,35 @@ export const authService = {
     }, 'Falha ao atualizar integrações em lote.');
   },
 
+  async detectAssetOS(id, apply = false) {
+    if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    return safeFetchJson(`${API_BASE_URL}/assets/${id}/detect-os`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ apply })
+    }, 'Falha ao detectar SO do ativo.');
+  },
+
+  async bulkDetectAssetOS(asset_ids, apply = true) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    return safeFetchJson(`${API_BASE_URL}/assets/bulk-detect-os`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ asset_ids, apply })
+    }, 'Falha ao executar detecção de SO em lote.');
+  },
+
   async getAssetComparison(id) {
     if (!id || id === 'undefined') throw new Error('ID do ativo não informado ou inválido.');
     const token = this.getToken();

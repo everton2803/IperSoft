@@ -30,7 +30,8 @@ import {
   ArrowUpDown,
   CheckSquare,
   HardDrive,
-  PowerOff
+  PowerOff,
+  Zap
 } from 'lucide-react';
 import { authService, diagnosticsService } from '../services/api';
 
@@ -445,6 +446,32 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
       setFeedbackMsg({
         type: 'error',
         text: err.message || `Erro ao atualizar integração ${integName} em lote.`
+      });
+    } finally {
+      setIsBulkLoading(false);
+    }
+  };
+
+  const handleBulkDetectOS = async () => {
+    if (selectedAssetIds.length === 0) return;
+    const count = selectedAssetIds.length;
+    const confirmMsg = `Deseja executar a detecção inteligente de SO (SNMP + fallback SSH) para os ${count} equipamentos selecionados? Os perfis de SO e modelos de backup detectados serão atualizados automaticamente.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsBulkLoading(true);
+    setFeedbackMsg(null);
+    try {
+      const res = await authService.bulkDetectAssetOS(selectedAssetIds, true);
+      setFeedbackMsg({
+        type: 'success',
+        text: `Detecção de SO concluída: ${res.detected} de ${res.total} equipamentos identificados e atualizados com sucesso!`
+      });
+      setSelectedAssetIds([]);
+      await loadData();
+    } catch (err) {
+      setFeedbackMsg({
+        type: 'error',
+        text: err.message || 'Erro ao executar detecção de SO em lote.'
       });
     } finally {
       setIsBulkLoading(false);
@@ -1054,6 +1081,21 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                 title="Desativar backup e expurgar nós do daemon do Oxidized para os selecionados"
               >
                 <PowerOff size={13} /> Desativar
+              </button>
+            </div>
+
+            {/* Detecção Inteligente de SO */}
+            <div className="bulk-action-group">
+              <span className="bulk-group-label">Sistema:</span>
+              <button 
+                type="button" 
+                className="btn-bulk-action"
+                style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.4)', color: '#fbbf24' }}
+                onClick={handleBulkDetectOS}
+                disabled={isBulkLoading}
+                title="Detectar automaticamente o SO (RouterOS v6/v7, DmOS, VRP, Cisco, ACOS, Linux) via SNMP/SSH e salvar"
+              >
+                <Zap size={13} className={isBulkLoading ? 'spin-icon' : ''} /> Detectar SO ({selectedAssetIds.length})
               </button>
             </div>
           </div>

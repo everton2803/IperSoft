@@ -300,6 +300,15 @@ class OxidizedService:
                 "edgecos": "edgecos",
                 "juniper": "junos",
                 "junos": "junos",
+                "a10": "acos",
+                "acos": "acos",
+                "a10_acos": "acos",
+                "a10 networks": "acos",
+                "fiberhome": "fiberhome",
+                "linux": "linux",
+                "vyos": "vyos",
+                "paloalto": "panos",
+                "panos": "panos"
             }
             model = MODEL_MAP.get(raw_model, raw_model)
             name = a.name.strip() if a.name else (a.hostname.strip() if a.hostname else f"node-{a.id}")

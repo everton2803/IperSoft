@@ -27,6 +27,7 @@ class Asset(Base):
     backup_model = Column(String(50), default="RouterOS", nullable=True) # Modelo no Oxidized (RouterOS, Cisco, etc.)
     backup_enabled = Column(Boolean, default=True, nullable=False) # Se participa do backup do Oxidized
     backup_timeout = Column(Integer, default=30, nullable=True) # Timeout em segundos para o Oxidized ler a config (padrão 30s)
+    os_profile = Column(String(50), default="generic_ssh", nullable=True) # Perfil de SO para automação (mikrotik_v7, mikrotik_v6, datacom_dmos, a10_acos, etc.)
     raw_data = Column(JSON, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

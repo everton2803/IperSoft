@@ -26,6 +26,8 @@ try:
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS backup_timeout INTEGER DEFAULT 30;"))
         conn.execute(text("UPDATE assets SET backup_timeout = 30 WHERE backup_timeout IS NULL;"))
+        conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS os_profile VARCHAR(50) DEFAULT 'generic_ssh';"))
+        conn.execute(text("UPDATE assets SET os_profile = 'generic_ssh' WHERE os_profile IS NULL;"))
         conn.execute(text("ALTER TABLE asset_oxidized ADD COLUMN IF NOT EXISTS timeout INTEGER DEFAULT 30;"))
         conn.execute(text("ALTER TABLE asset_zabbix ADD COLUMN IF NOT EXISTS host VARCHAR(150);"))
         conn.execute(text("ALTER TABLE asset_zabbix ADD COLUMN IF NOT EXISTS name VARCHAR(150);"))

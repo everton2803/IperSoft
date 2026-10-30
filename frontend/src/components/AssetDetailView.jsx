@@ -596,8 +596,11 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
     web_port: '',
     file_backup_protocol: 'disabled',
     file_backup_folder: '',
-    file_backup_pattern: ''
+    file_backup_pattern: '',
+    os_profile: 'generic_ssh'
   });
+
+  const [isDetectingOS, setIsDetectingOS] = useState(false);
 
   // Status de Ativação por Integração (acessíveis em todo o componente e useEffects)
   const zbxActive = formData.status === 'monitored';
@@ -644,7 +647,8 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         web_port: ipData.web_port || '',
         file_backup_protocol: ipData.file_backup_protocol || 'disabled',
         file_backup_folder: ipData.file_backup_folder || ipData.client_group || '',
-        file_backup_pattern: ipData.file_backup_pattern || ''
+        file_backup_pattern: ipData.file_backup_pattern || '',
+        os_profile: ipData.os_profile || 'generic_ssh'
       });
 
       if (ipData.enabled_tests) {
@@ -906,7 +910,8 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         web_port: (formData.web_port || '').trim(),
         file_backup_protocol: formData.file_backup_protocol || 'disabled',
         file_backup_folder: (formData.file_backup_folder || '').trim(),
-        file_backup_pattern: (formData.file_backup_pattern || '').trim()
+        file_backup_pattern: (formData.file_backup_pattern || '').trim(),
+        os_profile: formData.os_profile || 'generic_ssh'
       });
 
       setFeedback({ 
@@ -918,6 +923,39 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
       setFeedback({ type: 'error', message: err.message || 'Erro ao salvar alterações no IperSoft.' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Detecção Inteligente de SO (SNMP sysDescr com fallback para SSH)
+  const handleDetectOS = async () => {
+    if (!assetId || isDetectingOS) return;
+    setIsDetectingOS(true);
+    setFeedback(null);
+    try {
+      const res = await authService.detectAssetOS(assetId, false);
+      if (res && res.success) {
+        setFormData(prev => ({
+          ...prev,
+          os_profile: res.os_profile || prev.os_profile,
+          backup_model: res.backup_model || prev.backup_model
+        }));
+        setFeedback({
+          type: 'success',
+          message: `SO detectado via ${res.method?.toUpperCase()}: ${res.os_name || res.os_profile}. Os campos foram atualizados no formulário (clique em Salvar para persistir).`
+        });
+      } else {
+        setFeedback({
+          type: 'warning',
+          message: res?.message || 'Não foi possível identificar o SO. Verifique se o SNMP v2c está habilitado ou se há credenciais SSH cadastradas.'
+        });
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Erro ao executar detecção de SO do equipamento.'
+      });
+    } finally {
+      setIsDetectingOS(false);
     }
   };
 
@@ -2487,27 +2525,80 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     </div>
                   </div>
 
+                  {/* PERFIL DE SISTEMA OPERACIONAL E BOTÃO DETECTAR SO */}
+                  <div className="form-row" style={{ alignItems: 'flex-end', gap: '8px', marginBottom: '4px' }}>
+                    <div className="form-group flex-2">
+                      <label>Perfil do Sistema Operacional (Automação & Comandos)</label>
+                      <select
+                        value={formData.os_profile || 'generic_ssh'}
+                        onChange={e => {
+                          const val = e.target.value;
+                          let suggestedOx = formData.backup_model;
+                          if (val === 'mikrotik_v7' || val === 'mikrotik_v6') suggestedOx = 'RouterOS';
+                          else if (val === 'datacom_dmos') suggestedOx = 'datacom';
+                          else if (val === 'huawei_vrp') suggestedOx = 'vrp';
+                          else if (val === 'cisco_ios') suggestedOx = 'ios';
+                          else if (val === 'a10_acos') suggestedOx = 'acos';
+                          else if (val === 'fiberhome_olt') suggestedOx = 'fiberhome';
+                          else if (val === 'linux_bash') suggestedOx = 'linux';
+                          setFormData({ ...formData, os_profile: val, backup_model: suggestedOx });
+                        }}
+                      >
+                        <option value="mikrotik_v7">MikroTik RouterOS v7</option>
+                        <option value="mikrotik_v6">MikroTik RouterOS v6</option>
+                        <option value="datacom_dmos">Datacom DmOS</option>
+                        <option value="cisco_ios">Cisco IOS / IOS-XE</option>
+                        <option value="huawei_vrp">Huawei VRP</option>
+                        <option value="a10_acos">A10 Networks (ACOS)</option>
+                        <option value="fiberhome_olt">Fiberhome OLT</option>
+                        <option value="fortios">Fortinet FortiOS</option>
+                        <option value="edgecos">EdgeCore / EdgeOS</option>
+                        <option value="junos">Juniper JunOS</option>
+                        <option value="linux_bash">Linux (Servidores / VMs)</option>
+                        <option value="windows">Windows (Servidor / Desktop)</option>
+                        <option value="generic_ssh">Genérico (CLI SSH Livre)</option>
+                      </select>
+                    </div>
+                    <div className="form-group flex-1">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ height: '38px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', whiteSpace: 'nowrap', borderColor: 'rgba(245, 158, 11, 0.4)', color: '#fbbf24' }}
+                        onClick={handleDetectOS}
+                        disabled={isDetectingOS}
+                        title="Identifica o SO via SNMP sysDescr (rápido) ou SSH automaticamente"
+                      >
+                        <Zap size={14} className={isDetectingOS ? 'spin-icon' : ''} />
+                        <span>{isDetectingOS ? 'Detectando...' : 'Detectar SO'}</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="form-row">
                     <div className="form-group flex-2">
-                      <label>Modelo de Sistema Operacional</label>
-                      <select
-                        value={(() => {
-                          const m = (formData.backup_model || '').toLowerCase();
-                          if (m === 'dmos' || m === 'datacom') return 'datacom';
-                          if (m === 'routeros') return 'RouterOS';
-                          return formData.backup_model || 'RouterOS';
-                        })()}
+                      <label>Modelo de Backup (Oxidized / ACOS / RouterOS / etc.)</label>
+                      <input
+                        type="text"
+                        list="oxidized-models-datalist"
+                        value={formData.backup_model || 'RouterOS'}
                         onChange={e => setFormData({ ...formData, backup_model: e.target.value })}
+                        placeholder="Ex: RouterOS, acos, datacom, ios, vrp..."
                         disabled={formData.backup_enabled === false}
-                      >
+                      />
+                      <datalist id="oxidized-models-datalist">
                         <option value="RouterOS">MikroTik (RouterOS)</option>
-                        <option value="ios">Cisco (IOS / IOS-XE)</option>
+                        <option value="acos">A10 Networks (ACOS)</option>
                         <option value="datacom">Datacom (DmOS)</option>
+                        <option value="ios">Cisco (IOS / IOS-XE)</option>
                         <option value="vrp">Huawei (VRP)</option>
+                        <option value="fiberhome">Fiberhome OLT</option>
                         <option value="fortios">Fortinet (FortiOS)</option>
                         <option value="edgecos">EdgeCore / EdgeOS</option>
                         <option value="junos">Juniper (JunOS)</option>
-                      </select>
+                        <option value="linux">Linux (Ubuntu / Debian / CentOS)</option>
+                        <option value="panos">Palo Alto (PAN-OS)</option>
+                        <option value="vyos">VyOS</option>
+                      </datalist>
                     </div>
                     <div className="form-group flex-1">
                       <label title="Tempo limite em segundos para o Oxidized efetuar a leitura completa das configurações">

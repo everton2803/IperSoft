@@ -84,6 +84,7 @@ Modelo principal do inventário:
 - `backup_model`: Modelo para backup no Oxidized (ex: `RouterOS`, `Cisco`).
 - `backup_enabled`: Booleano se deve ser feito backup.
 - `backup_timeout`: Tempo limite em segundos para o Oxidized efetuar a leitura completa das configurações (padrão 30s). Configurável por equipamento para atender dispositivos lentos ou com configurações extensas.
+- `os_profile`: Perfil do sistema operacional do dispositivo para automação e execução de comandos (`mikrotik_v7`, `mikrotik_v6`, `datacom_dmos`, `cisco_ios`, `huawei_vrp`, `a10_acos`, `fiberhome_olt`, `fortios`, `edgecos`, `junos`, `linux_bash`, `windows`, `generic_ssh`).
 - `raw_data`: JSON flexível com metadados adicionais (ex: `ignore_guacamole`, `web_protocol`, `web_port`, `file_backup_protocol`, `file_backup_folder`, `file_backup_pattern`).
   - `@property file_backup_protocol`: Protocolo de envio para servidor de arquivos (`disabled`, `ftp`, `tftp`).
   - `@property file_backup_folder`: Pasta esperada de destino no servidor de backup (Oracle Cloud), com fallback automático para `client_group`.
@@ -245,6 +246,19 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
   - Comportamento: Para cada pasta de cliente em `data/ftp` e `data/tftp`, compacta todos os arquivos soltos e subpastas (como árvores do UNM Fiberhome) em `_historico/<cliente>_AAAA-MM-DD.tar.gz`. Remove os arquivos arquivados para não sobrescrever nem duplicar, porém **preserva intacta a estrutura de subpastas vazias** para que softwares como UNM2000 nunca quebrem rotinas futuras.
   - Retenção automática de 90 dias com log em `/var/log/backup-archive.log`.
 
+### 5.7. `OSDetectionService` (`app/services/os_detection.py`) — Detecção Inteligente de SO
+Serviço híbrido e ultrarrápido para identificação automática do Sistema Operacional, Perfil de Automação (`os_profile`) e Modelo do Oxidized (`backup_model`):
+- **Estratégia Híbrida (SNMP Prioritário + Fallback SSH)**:
+  1. **Prioridade 1 — Consulta SNMP v2c (`sysDescr.0`)**: 
+     - Execução instantânea (< 500ms via UDP), sem autenticação de terminal e sem risco de expor ou travar credenciais.
+     - Lê `1.3.6.1.2.1.1.1.0` (`sysDescr.0`). Para MikroTik, consulta adicionalmente `1.3.6.1.4.1.14988.1.1.4.4.0` (`mtxrLicVersion.0`) para distinguir precisamente entre **RouterOS v7** (`mikrotik_v7`) e **RouterOS v6** (`mikrotik_v6`).
+     - Detecta nativamente: MikroTik RouterOS v6/v7, Datacom DmOS, Huawei VRP, Cisco IOS/IOS-XE, A10 Networks ACOS (`a10_acos` / `acos`), Fiberhome OLT, Fortinet FortiOS, EdgeCore, Juniper JunOS, Linux e Windows.
+  2. **Prioridade 2 — Fallback SSH (`asyncssh`)**:
+     - Utilizado para servidores Linux, VMs ou dispositivos com SNMP desativado. Conecta utilizando as credenciais salvas no Guacamole e executa sondas não invasivas (`uname -s`, `/system resource print`, `show version`).
+- **Endpoints REST**:
+  - `POST /api/v1/assets/{id}/detect-os`: Detecção individual com opção de aplicar (`apply=True`) diretamente no cadastro.
+  - `POST /api/v1/assets/bulk-detect-os`: Detecção assíncrona em lote com semáforo controlado de 10 conexões simultâneas, atualizando múltiplos equipamentos de uma só vez.
+
 ---
 
 ## 6. Frontend: Componentes e Padrões de Interface
@@ -265,7 +279,7 @@ A navegação é estruturada em **3 abas focadas** com carregamento sob demanda 
      - **Card 2: 2. Monitoramento Zabbix Server**: Toggle de ativação, **Host Técnico no Zabbix**, **Nome Visível no Zabbix**, Community SNMP v2c e Porta.
      - **Card 3: 3. Acesso Remoto (Apache Guacamole)**: Toggle de ativação, **Nome da Conexão no Guacamole** (campo somente leitura espelhando o nome do IperSoft), Protocolo, Porta Customizada, Usuário e Senha de acesso remoto.
      - **Card 4: 4. Backup de Configurações (Oxidized & FTP/TFTP)**: Card unificado de backups dividido em duas seções claras:
-       - **Coleta Automática Oxidized (Git / Pull)**: Toggle de ativação, **Nome do Nó no Oxidized** (somente leitura espelhando o nome do IperSoft), Modelo de SO e Timeout de Coleta em segundos.
+       - **Coleta Automática Oxidized (Git / Pull)**: Toggle de ativação, **Nome do Nó no Oxidized** (somente leitura espelhando o nome do IperSoft), **Perfil de SO (Automação)**, **Botão Detectar SO** (SNMP sysDescr + fallback SSH), **Modelo de SO** (campo aberto com datalist expansível aceitando `acos` A10, `RouterOS`, `datacom`, `ios`, `vrp`, etc.) e Timeout de Coleta em segundos.
        - **Envio para Servidor de Arquivos (FTP / TFTP / Push)**: Método de envio (`disabled`, `ftp`, `tftp`), **Pasta de Destino no Servidor** (com datalist das pastas de clientes na Oracle Cloud e grupos do sistema), e **Padrão do Nome do Arquivo** (prefixo ou expressão como `atm-router-aurin*` ou `*.rsc` para rastreamento e auditoria).
    - Salvar atualiza exclusivamente o banco local do IperSoft, sem disparar alterações automáticas nos servidores externos.
 3. **Aba 3 — Comparativo & Sincronização Externa**:
@@ -304,6 +318,7 @@ Aba e tela inicial padrão do IperSoft dedicada a incidentes e triggers ativas d
   - Ativar / Desativar monitoramento no Zabbix em lote (atualização local no IperSoft).
   - Ativar / Desativar acesso remoto no Apache Guacamole em lote (atualização local de `ignore_guacamole` no IperSoft).
   - Ativar / Desativar backup no Oxidized em lote (atualização local de `backup_enabled` no IperSoft).
+  - **Detectar SO em Lote**: Executa detecção assíncrona em paralelo (SNMP + SSH) para todos os equipamentos selecionados, salvando automaticamente o `os_profile` e `backup_model` correspondentes (`POST /api/v1/assets/bulk-detect-os`).
   - Endpoint dedicado no backend: `POST /api/v1/assets/bulk-integrations` (sem envio automático às plataformas externas).
 
 ---
