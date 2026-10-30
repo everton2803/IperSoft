@@ -2250,6 +2250,55 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     </div>
                   </div>
 
+                  {/* PERFIL DE SISTEMA OPERACIONAL E BOTÃO DETECTAR SO */}
+                  <div className="form-row" style={{ alignItems: 'flex-end', gap: '8px', marginBottom: '0.8rem' }}>
+                    <div className="form-group flex-2">
+                      <label>Perfil do Sistema Operacional (Automação & Comandos)</label>
+                      <select
+                        value={formData.os_profile || 'generic_ssh'}
+                        onChange={e => {
+                          const val = e.target.value;
+                          let suggestedOx = formData.backup_model;
+                          if (val === 'mikrotik_v7' || val === 'mikrotik_v6') suggestedOx = 'RouterOS';
+                          else if (val === 'datacom_dmos') suggestedOx = 'datacom';
+                          else if (val === 'huawei_vrp') suggestedOx = 'vrp';
+                          else if (val === 'cisco_ios') suggestedOx = 'ios';
+                          else if (val === 'a10_acos') suggestedOx = 'acos';
+                          else if (val === 'fiberhome_olt') suggestedOx = 'fiberhome';
+                          else if (val === 'linux_bash') suggestedOx = 'linux';
+                          setFormData({ ...formData, os_profile: val, backup_model: suggestedOx });
+                        }}
+                      >
+                        <option value="mikrotik_v7">MikroTik RouterOS v7</option>
+                        <option value="mikrotik_v6">MikroTik RouterOS v6</option>
+                        <option value="datacom_dmos">Datacom DmOS</option>
+                        <option value="cisco_ios">Cisco IOS / IOS-XE</option>
+                        <option value="huawei_vrp">Huawei VRP</option>
+                        <option value="a10_acos">A10 Networks (ACOS)</option>
+                        <option value="fiberhome_olt">Fiberhome OLT</option>
+                        <option value="fortios">Fortinet FortiOS</option>
+                        <option value="edgecos">EdgeCore / EdgeOS</option>
+                        <option value="junos">Juniper JunOS</option>
+                        <option value="linux_bash">Linux (Servidores / VMs)</option>
+                        <option value="windows">Windows (Servidor / Desktop)</option>
+                        <option value="generic_ssh">Genérico (CLI SSH Livre)</option>
+                      </select>
+                    </div>
+                    <div className="form-group flex-1">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ height: '38px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', whiteSpace: 'nowrap', borderColor: 'rgba(245, 158, 11, 0.4)', color: '#fbbf24' }}
+                        onClick={handleDetectOS}
+                        disabled={isDetectingOS}
+                        title="Identifica o SO via SNMP sysDescr (rápido) ou SSH automaticamente"
+                      >
+                        <Zap size={14} className={isDetectingOS ? 'spin-icon' : ''} />
+                        <span>{isDetectingOS ? 'Detectando...' : 'Detectar SO'}</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="form-group">
                     <label>Empresa / Grupo do Cliente (Host Group Zabbix & Pasta Guacamole)</label>
                     <input 
@@ -2522,55 +2571,6 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                         style={{ opacity: 0.85, cursor: 'not-allowed', backgroundColor: 'var(--bg-tertiary, #1f2430)' }}
                       />
                       <span className="badge-tag-canonical" style={{ whiteSpace: 'nowrap' }}>Espelha IperSoft</span>
-                    </div>
-                  </div>
-
-                  {/* PERFIL DE SISTEMA OPERACIONAL E BOTÃO DETECTAR SO */}
-                  <div className="form-row" style={{ alignItems: 'flex-end', gap: '8px', marginBottom: '4px' }}>
-                    <div className="form-group flex-2">
-                      <label>Perfil do Sistema Operacional (Automação & Comandos)</label>
-                      <select
-                        value={formData.os_profile || 'generic_ssh'}
-                        onChange={e => {
-                          const val = e.target.value;
-                          let suggestedOx = formData.backup_model;
-                          if (val === 'mikrotik_v7' || val === 'mikrotik_v6') suggestedOx = 'RouterOS';
-                          else if (val === 'datacom_dmos') suggestedOx = 'datacom';
-                          else if (val === 'huawei_vrp') suggestedOx = 'vrp';
-                          else if (val === 'cisco_ios') suggestedOx = 'ios';
-                          else if (val === 'a10_acos') suggestedOx = 'acos';
-                          else if (val === 'fiberhome_olt') suggestedOx = 'fiberhome';
-                          else if (val === 'linux_bash') suggestedOx = 'linux';
-                          setFormData({ ...formData, os_profile: val, backup_model: suggestedOx });
-                        }}
-                      >
-                        <option value="mikrotik_v7">MikroTik RouterOS v7</option>
-                        <option value="mikrotik_v6">MikroTik RouterOS v6</option>
-                        <option value="datacom_dmos">Datacom DmOS</option>
-                        <option value="cisco_ios">Cisco IOS / IOS-XE</option>
-                        <option value="huawei_vrp">Huawei VRP</option>
-                        <option value="a10_acos">A10 Networks (ACOS)</option>
-                        <option value="fiberhome_olt">Fiberhome OLT</option>
-                        <option value="fortios">Fortinet FortiOS</option>
-                        <option value="edgecos">EdgeCore / EdgeOS</option>
-                        <option value="junos">Juniper JunOS</option>
-                        <option value="linux_bash">Linux (Servidores / VMs)</option>
-                        <option value="windows">Windows (Servidor / Desktop)</option>
-                        <option value="generic_ssh">Genérico (CLI SSH Livre)</option>
-                      </select>
-                    </div>
-                    <div className="form-group flex-1">
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ height: '38px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', whiteSpace: 'nowrap', borderColor: 'rgba(245, 158, 11, 0.4)', color: '#fbbf24' }}
-                        onClick={handleDetectOS}
-                        disabled={isDetectingOS}
-                        title="Identifica o SO via SNMP sysDescr (rápido) ou SSH automaticamente"
-                      >
-                        <Zap size={14} className={isDetectingOS ? 'spin-icon' : ''} />
-                        <span>{isDetectingOS ? 'Detectando...' : 'Detectar SO'}</span>
-                      </button>
                     </div>
                   </div>
 
