@@ -2374,168 +2374,11 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 </div>
               </div>
 
-              {/* BLOCO 2: PARÂMETROS ZABBIX */}
-              <div className="config-section-card">
-                <div className="config-section-header">
-                  <Radio size={16} color="#e53935" />
-                  <h4>2. Monitoramento Zabbix Server</h4>
-                  <label className="config-header-toggle">
-                    <input 
-                      type="checkbox"
-                      className="diag-custom-checkbox"
-                      checked={formData.status === 'monitored'}
-                      onChange={e => setFormData({ ...formData, status: e.target.checked ? 'monitored' : 'unmonitored' })}
-                      disabled={!isAdmin}
-                    />
-                    <span>{formData.status === 'monitored' ? 'Habilitado' : 'Desativado'}</span>
-                  </label>
-                </div>
-
-                <div className="config-section-body">
-                  <div className="form-row">
-                    <div className="form-group flex-1">
-                      <label>Host Técnico no Zabbix</label>
-                      <input 
-                        type="text" 
-                        value={formData.zabbix_host} 
-                        onChange={e => setFormData({ ...formData, zabbix_host: e.target.value })} 
-                        placeholder="Ex: sw-dist-01 ou 192.168.1.10"
-                      />
-                    </div>
-                    <div className="form-group flex-1">
-                      <label>Nome Visível no Zabbix</label>
-                      <input 
-                        type="text" 
-                        value={formData.zabbix_name} 
-                        onChange={e => setFormData({ ...formData, zabbix_name: e.target.value })} 
-                        placeholder="Ex: SW-DIST-01 - Borda"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group flex-2">
-                      <label>Community SNMP v2c</label>
-                      <input 
-                        type="text" 
-                        value={formData.snmp_community} 
-                        onChange={e => setFormData({ ...formData, snmp_community: e.target.value })} 
-                        placeholder="Ex: ipermonitor"
-                      />
-                    </div>
-                    <div className="form-group flex-1">
-                      <label>Porta Zabbix / SNMP</label>
-                      <input 
-                        type="text" 
-                        value={formData.port} 
-                        onChange={e => setFormData({ ...formData, port: e.target.value })} 
-                        placeholder="161 ou 10050"
-                      />
-                    </div>
-                  </div>
-                  <p className="config-card-hint">
-                    Alterações salvas aqui atualizam o banco local do IperSoft. Para enviar ao Zabbix Server, utilize o botão <strong>Sincronizar Zabbix</strong> no topo.
-                  </p>
-                </div>
-              </div>
-
-              {/* BLOCO 3: PARÂMETROS APACHE GUACAMOLE */}
-              <div className="config-section-card">
-                <div className="config-section-header">
-                  <Terminal size={16} color="#00bcd4" />
-                  <h4>3. Acesso Remoto (Apache Guacamole)</h4>
-                  <label className="config-header-toggle">
-                    <input 
-                      type="checkbox"
-                      className="diag-custom-checkbox"
-                      checked={!ignoreGuacamole}
-                      onChange={e => setIgnoreGuacamole(!e.target.checked)}
-                      disabled={!isAdmin}
-                    />
-                    <span>{!ignoreGuacamole ? 'Habilitado' : 'Ignorado'}</span>
-                  </label>
-                </div>
-
-                <div className="config-section-body">
-                  <div className="form-group" style={{ marginBottom: '1rem' }}>
-                    <label>Nome da Conexão no Guacamole</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <input 
-                        type="text" 
-                        value={formData.name || ''} 
-                        readOnly 
-                        disabled 
-                        style={{ opacity: 0.85, cursor: 'not-allowed', backgroundColor: 'var(--bg-tertiary, #1f2430)' }}
-                      />
-                      <span className="badge-tag-canonical" style={{ whiteSpace: 'nowrap' }}>Espelha IperSoft</span>
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group flex-1">
-                      <label>Protocolo Remoto</label>
-                      <select 
-                        value={formData.remote_protocol} 
-                        onChange={e => {
-                          const proto = e.target.value;
-                          const defaultP = proto === 'ssh' ? '22' : (proto === 'telnet' ? '23' : '3389');
-                          setFormData({ ...formData, remote_protocol: proto, remote_port: defaultP });
-                        }}
-                      >
-                        <option value="ssh">SSH (22)</option>
-                        <option value="telnet">Telnet (23)</option>
-                        <option value="rdp">RDP (3389)</option>
-                      </select>
-                    </div>
-                    <div className="form-group flex-1">
-                      <label>Porta Customizada</label>
-                      <input 
-                        type="text" 
-                        value={formData.remote_port} 
-                        onChange={e => setFormData({ ...formData, remote_port: e.target.value })} 
-                        placeholder="Ex: 22 ou 2200"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group flex-1">
-                      <label>Usuário Remoto</label>
-                      <input 
-                        type="text" 
-                        value={formData.remote_username} 
-                        onChange={e => setFormData({ ...formData, remote_username: e.target.value })} 
-                        placeholder="Ex: admin, root"
-                      />
-                    </div>
-                    <div className="form-group flex-1">
-                      <label>Senha de Acesso Remoto</label>
-                      <div className="password-input-wrapper">
-                        <input 
-                          type={showPassword ? 'text' : 'password'} 
-                          value={formData.remote_password} 
-                          onChange={e => setFormData({ ...formData, remote_password: e.target.value })} 
-                          placeholder={ipersoft?.has_remote_password ? '•••••••• (Preencha para alterar)' : 'Nenhuma senha gravada'}
-                        />
-                        <button 
-                          type="button" 
-                          className="btn-toggle-eye" 
-                          onClick={() => setShowPassword(!showPassword)}
-                          tabIndex="-1"
-                        >
-                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* BLOCO 4: PARÂMETROS DE BACKUP (OXIDIZED & FTP/TFTP) */}
+              {/* BLOCO 2: PARÂMETROS DE BACKUP (OXIDIZED & FTP/TFTP) */}
               <div className="config-section-card">
                 <div className="config-section-header">
                   <Archive size={16} color="#e91e63" />
-                  <h4>4. Backup de Configurações</h4>
+                  <h4>2. Backup de Configurações</h4>
                   <label className="config-header-toggle" title="Habilita ou desativa a inclusão deste ativo no backup automatizado do Oxidized">
                     <input 
                       type="checkbox"
@@ -2683,6 +2526,163 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
 
                   <p className="config-card-hint">
                     Armazena a pasta e padrão de arquivos no servidor de backup para futura auditoria e conferência de backups diários.
+                  </p>
+                </div>
+              </div>
+
+              {/* BLOCO 3: PARÂMETROS APACHE GUACAMOLE */}
+              <div className="config-section-card">
+                <div className="config-section-header">
+                  <Terminal size={16} color="#00bcd4" />
+                  <h4>3. Acesso Remoto (Apache Guacamole)</h4>
+                  <label className="config-header-toggle">
+                    <input 
+                      type="checkbox"
+                      className="diag-custom-checkbox"
+                      checked={!ignoreGuacamole}
+                      onChange={e => setIgnoreGuacamole(!e.target.checked)}
+                      disabled={!isAdmin}
+                    />
+                    <span>{!ignoreGuacamole ? 'Habilitado' : 'Ignorado'}</span>
+                  </label>
+                </div>
+
+                <div className="config-section-body">
+                  <div className="form-group" style={{ marginBottom: '1rem' }}>
+                    <label>Nome da Conexão no Guacamole</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="text" 
+                        value={formData.name || ''} 
+                        readOnly 
+                        disabled 
+                        style={{ opacity: 0.85, cursor: 'not-allowed', backgroundColor: 'var(--bg-tertiary, #1f2430)' }}
+                      />
+                      <span className="badge-tag-canonical" style={{ whiteSpace: 'nowrap' }}>Espelha IperSoft</span>
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group flex-1">
+                      <label>Protocolo Remoto</label>
+                      <select 
+                        value={formData.remote_protocol} 
+                        onChange={e => {
+                          const proto = e.target.value;
+                          const defaultP = proto === 'ssh' ? '22' : (proto === 'telnet' ? '23' : '3389');
+                          setFormData({ ...formData, remote_protocol: proto, remote_port: defaultP });
+                        }}
+                      >
+                        <option value="ssh">SSH (22)</option>
+                        <option value="telnet">Telnet (23)</option>
+                        <option value="rdp">RDP (3389)</option>
+                      </select>
+                    </div>
+                    <div className="form-group flex-1">
+                      <label>Porta Customizada</label>
+                      <input 
+                        type="text" 
+                        value={formData.remote_port} 
+                        onChange={e => setFormData({ ...formData, remote_port: e.target.value })} 
+                        placeholder="Ex: 22 ou 2200"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group flex-1">
+                      <label>Usuário Remoto</label>
+                      <input 
+                        type="text" 
+                        value={formData.remote_username} 
+                        onChange={e => setFormData({ ...formData, remote_username: e.target.value })} 
+                        placeholder="Ex: admin, root"
+                      />
+                    </div>
+                    <div className="form-group flex-1">
+                      <label>Senha de Acesso Remoto</label>
+                      <div className="password-input-wrapper">
+                        <input 
+                          type={showPassword ? 'text' : 'password'} 
+                          value={formData.remote_password} 
+                          onChange={e => setFormData({ ...formData, remote_password: e.target.value })} 
+                          placeholder={ipersoft?.has_remote_password ? '•••••••• (Preencha para alterar)' : 'Nenhuma senha gravada'}
+                        />
+                        <button 
+                          type="button" 
+                          className="btn-toggle-eye" 
+                          onClick={() => setShowPassword(!showPassword)}
+                          tabIndex="-1"
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* BLOCO 4: PARÂMETROS ZABBIX */}
+              <div className="config-section-card">
+                <div className="config-section-header">
+                  <Radio size={16} color="#e53935" />
+                  <h4>4. Monitoramento Zabbix Server</h4>
+                  <label className="config-header-toggle">
+                    <input 
+                      type="checkbox"
+                      className="diag-custom-checkbox"
+                      checked={formData.status === 'monitored'}
+                      onChange={e => setFormData({ ...formData, status: e.target.checked ? 'monitored' : 'unmonitored' })}
+                      disabled={!isAdmin}
+                    />
+                    <span>{formData.status === 'monitored' ? 'Habilitado' : 'Desativado'}</span>
+                  </label>
+                </div>
+
+                <div className="config-section-body">
+                  <div className="form-row">
+                    <div className="form-group flex-1">
+                      <label>Host Técnico no Zabbix</label>
+                      <input 
+                        type="text" 
+                        value={formData.zabbix_host} 
+                        onChange={e => setFormData({ ...formData, zabbix_host: e.target.value })} 
+                        placeholder="Ex: sw-dist-01 ou 192.168.1.10"
+                      />
+                    </div>
+                    <div className="form-group flex-1">
+                      <label>Nome Visível no Zabbix</label>
+                      <input 
+                        type="text" 
+                        value={formData.zabbix_name} 
+                        onChange={e => setFormData({ ...formData, zabbix_name: e.target.value })} 
+                        placeholder="Ex: SW-DIST-01 - Borda"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group flex-2">
+                      <label>Community SNMP v2c</label>
+                      <input 
+                        type="text" 
+                        value={formData.snmp_community} 
+                        onChange={e => setFormData({ ...formData, snmp_community: e.target.value })} 
+                        placeholder="Ex: ipermonitor"
+                      />
+                    </div>
+                    <div className="form-group flex-1">
+                      <label>Porta Zabbix / SNMP</label>
+                      <input 
+                        type="text" 
+                        value={formData.port} 
+                        onChange={e => setFormData({ ...formData, port: e.target.value })} 
+                        placeholder="161 ou 10050"
+                      />
+                    </div>
+                  </div>
+                  <p className="config-card-hint">
+                    Alterações salvas aqui atualizam o banco local do IperSoft. Para enviar ao Zabbix Server, utilize o botão <strong>Sincronizar Zabbix</strong> na Aba 3.
                   </p>
                 </div>
               </div>
