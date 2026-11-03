@@ -152,7 +152,8 @@ async def sync_guacamole_connections_with_db(db: Session) -> dict:
         protocol = conn.get("protocol") or "ssh"
         default_port = "3389" if protocol == "rdp" else ("23" if protocol == "telnet" else ("5900" if protocol == "vnc" else "22"))
         port = str(conn.get("port") or default_port).strip()
-        guac_user = conn.get("username")
+        raw_user = conn.get("username")
+        guac_user = raw_user.split("+")[0] if (raw_user and "+" in raw_user) else raw_user
         guac_pass = conn.get("password")
         folder_group = (conn.get("client_group") or "").strip() or None
 

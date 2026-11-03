@@ -345,7 +345,8 @@ class OxidizedService:
             }
 
             if conn and conn.username:
-                node_entry["username"] = conn.username
+                clean_user = conn.username.split("+")[0] if "+" in conn.username else conn.username
+                node_entry["username"] = clean_user
             if conn and conn.password:
                 node_entry["password"] = conn.password
 

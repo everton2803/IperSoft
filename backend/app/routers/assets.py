@@ -914,7 +914,7 @@ async def get_asset_comparison(
         "backup_timeout": asset.backup_timeout or 30,
         "remote_protocol": (primary_guac.protocol if primary_guac else asset.guacamole_protocol) or "ssh",
         "remote_port": (primary_guac.port if primary_guac else ("22" if (asset.guacamole_protocol or "ssh") == "ssh" else ("23" if asset.guacamole_protocol == "telnet" else "3389"))),
-        "remote_username": primary_guac.username if primary_guac else None,
+        "remote_username": (primary_guac.username.split("+")[0] if (primary_guac and primary_guac.username and "+" in primary_guac.username) else (primary_guac.username if primary_guac else None)),
         "remote_password": primary_guac.password if primary_guac else None,
         "has_remote_password": bool(primary_guac.password if primary_guac else None),
         "enabled_tests": (asset.raw_data or {}).get("enabled_tests", {"icmp": True, "snmp": True, "remote": True}),
@@ -1235,7 +1235,9 @@ async def sync_asset_to_guacamole(
         "port": str(port).strip(),
         "client_group": c_group,
         "username": primary_guac.username if primary_guac else None,
-        "password": primary_guac.password if primary_guac else None
+        "password": primary_guac.password if primary_guac else None,
+        "os_profile": asset.os_profile,
+        "backup_model": asset.backup_model
     }
 
     try:

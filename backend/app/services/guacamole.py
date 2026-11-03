@@ -243,6 +243,11 @@ class GuacamoleService:
         port = str(conn_data.get("port") or ("22" if protocol == "ssh" else ("23" if protocol == "telnet" else "3389"))).strip()
         guac_user = conn_data.get("username")
         guac_pass = conn_data.get("password")
+        os_profile = str(conn_data.get("os_profile") or "").lower()
+        backup_model = str(conn_data.get("backup_model") or "").lower()
+
+        # Identifica se é dispositivo MikroTik (RouterOS)
+        is_mikrotik = "mikrotik" in os_profile or "routeros" in backup_model or "mk" in name.lower()
 
         # Parâmetros de protocolo suportados pelo Guacamole
         parameters = {
@@ -250,7 +255,12 @@ class GuacamoleService:
             "port": port
         }
         if guac_user:
-            parameters["username"] = guac_user
+            if is_mikrotik and protocol == "ssh":
+                # Aplica sufixo +t0h (desativa autodeteção e fixa altura 0 para streaming contínuo sem sobrescrever na última linha)
+                clean_user = guac_user.split("+")[0]
+                parameters["username"] = f"{clean_user}+t0h"
+            else:
+                parameters["username"] = guac_user
         if guac_pass:
             parameters["password"] = guac_pass
 
@@ -261,6 +271,8 @@ class GuacamoleService:
         elif protocol == "ssh":
             parameters["font-size"] = "13"
             parameters["color-scheme"] = "gray-black"
+            if is_mikrotik:
+                parameters["terminal-type"] = "xterm-256color"
 
         headers = {
             "Guacamole-Token": token,
@@ -360,10 +372,17 @@ class GuacamoleService:
                         if not guac_pass and existing_p.get("password"):
                             parameters["password"] = existing_p["password"]
                         if not guac_user and existing_p.get("username"):
-                            parameters["username"] = existing_p["username"]
+                            existing_user = existing_p["username"]
+                            if is_mikrotik and protocol == "ssh":
+                                clean_u = existing_user.split("+")[0]
+                                parameters["username"] = f"{clean_u}+t0h"
+                            else:
+                                parameters["username"] = existing_user
                         for k, v in existing_p.items():
                             if k not in parameters and v is not None:
                                 parameters[k] = v
+                        if is_mikrotik and protocol == "ssh":
+                            parameters["terminal-type"] = "xterm-256color"
                 except Exception as p_err:
                     logger.warning(f"Aviso ao consultar parâmetros existentes no Guacamole: {p_err}")
 

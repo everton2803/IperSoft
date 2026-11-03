@@ -165,6 +165,13 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
   - Para abertura de sessão remota (tanto no **Terminal Embutido via iframe** quanto no botão **Abrir em Nova Aba**), o sistema utiliza estritamente a URL externa HTTPS (`https://guacamoles.iper.net.br/guacamole`).
   - O backend gera o token de autenticação temporário via API e monta a URL com `?token={token}#/client/{client_id}` apontando para o domínio público.
   - Isso elimina completamente erros de **Conteúdo Misto (Mixed Content)** que bloqueavam o carregamento do iframe em navegadores modernos (`https://ipersoft.iper.net.br` tentando carregar `http://10.10.1.2:8086`) e garante acessibilidade de qualquer rede externa sem depender do IP privado da VPN.
+- **Tratamento de Terminal MikroTik RouterOS (`+t0h` e `terminal-type: xterm-256color`)**:
+  - O terminal interativo do MikroTik RouterOS (v6 e v7) tenta autodetetar a altura física da janela do terminal enviando sequências ANSI de Device Status Report (`\x1b[9999B\x1b[6n`).
+  - Como clientes web baseados em WebSocket (como o Apache Guacamole) não respondem a tempo a esse probe de cursor durante o handshake inicial, o RouterOS conclui erroneamente que o terminal possui apenas 1 linha de altura, causando o conhecido bug de **sobrescrita contínua de todo o texto na última linha da tela**.
+  - **Solução Definitiva Adotada**:
+    1. Nas conexões do Guacamole para dispositivos MikroTik (`os_profile` mikrotik ou `backup_model` RouterOS), o IperSoft anexa o modificador nativo `+t0h` ao usuário remoto (ex: `iper+t0h`). O sinalizador `t` desativa a autodetecção de capacidades e `0h` define altura infinita/streaming contínuo sem quebras de paginação.
+    2. O parâmetro de conexão `terminal-type` é explicitamente configurado como `xterm-256color` no Guacamole.
+    3. Para a interface gráfica (UI) do IperSoft e para o daemon do Oxidized, o nome de usuário é preservado/higienizado de forma limpa (ex: `iper`), garantindo total transparência e desacoplamento.
 - **Portas Customizadas (ex: 2200)**: Assegura que tanto ao criar quanto ao sincronizar ou atualizar uma conexão, a porta informada pelo operador seja gravada no objeto `AssetGuacamole` e no dicionário `parameters["port"]` enviado à API do Guacamole.
 - **Preservação de Credenciais**: Quando uma conexão é atualizada, os parâmetros existentes não são apagados; senhas existentes são mantidas caso o usuário não tenha digitado uma nova.
 - **Importação Automática (1h) e Sob Demanda (`sync_guacamole_connections_with_db`)**:
