@@ -507,13 +507,14 @@ class ZabbixService:
         raw_triggers = await cls.call_api(url, "trigger.get", params=params, auth=auth_token)
         problems = []
 
-        # Buscar operational data (opdata) expandido via problem.get em lote
+        # Buscar operational data (opdata) e severidade ajustada via problem.get em lote
         eventids = [
             str(trig["lastEvent"]["eventid"])
             for trig in (raw_triggers or [])
             if trig.get("lastEvent") and trig["lastEvent"].get("eventid") and str(trig.get("value")) == "1"
         ]
         opdata_map = {}
+        severity_prob_map = {}
         if eventids:
             try:
                 probs_data = await cls.call_api(
@@ -521,15 +522,17 @@ class ZabbixService:
                     "problem.get",
                     params={
                         "eventids": eventids,
-                        "output": ["eventid", "opdata"]
+                        "output": ["eventid", "opdata", "severity"]
                     },
                     auth=auth_token
                 )
                 for p in probs_data or []:
                     eid = str(p.get("eventid"))
                     opdata_map[eid] = (p.get("opdata") or "").strip()
+                    if "severity" in p and p.get("severity") is not None:
+                        severity_prob_map[eid] = str(p.get("severity"))
             except Exception as e:
-                logger.warning(f"Não foi possível obter opdata expandido do Zabbix via problem.get: {e}")
+                logger.warning(f"Não foi possível obter opdata/severity expandido do Zabbix via problem.get: {e}")
 
         severity_map = {
             "0": {"label": "Não Classificado", "level": "not_classified", "color": "#9e9e9e"},
@@ -549,11 +552,15 @@ class ZabbixService:
             if str(last_event.get("value")) == "0":
                 continue
 
-            p_val = str(trig.get("priority", "0"))
-            sev = severity_map.get(p_val, severity_map["0"])
-
             eventid = str(last_event.get("eventid")) if last_event.get("eventid") else None
             acknowledged = str(last_event.get("acknowledged")) == "1"
+
+            # Prioriza a severidade ajustada do evento/problema ativo (problem.severity)
+            # com fallback na severidade da trigger (trig.priority)
+            orig_p_val = str(trig.get("priority", "0"))
+            p_val = severity_prob_map.get(eventid) if (eventid and eventid in severity_prob_map) else orig_p_val
+            sev = severity_map.get(p_val, severity_map["0"])
+            orig_sev = severity_map.get(orig_p_val, severity_map["0"])
 
             items = []
             for it in trig.get("items", []):
@@ -592,6 +599,9 @@ class ZabbixService:
                 "opdata": resolved_opdata or "",
                 "comments": trig.get("comments"),
                 "priority": int(p_val),
+                "original_priority": int(orig_p_val),
+                "severity_changed": p_val != orig_p_val,
+                "original_severity_label": orig_sev["label"],
                 "severity_label": sev["label"],
                 "severity_level": sev["level"],
                 "severity_color": sev["color"],
@@ -644,13 +654,14 @@ class ZabbixService:
         raw_triggers = await cls.call_api(url, "trigger.get", params=params, auth=auth_token)
         problems = []
 
-        # Buscar operational data (opdata) expandido via problem.get em lote
+        # Buscar operational data (opdata) e severidade ajustada via problem.get em lote
         eventids = [
             str(trig["lastEvent"]["eventid"])
             for trig in (raw_triggers or [])
             if trig.get("lastEvent") and trig["lastEvent"].get("eventid") and str(trig.get("value")) == "1"
         ]
         opdata_map = {}
+        severity_prob_map = {}
         if eventids:
             try:
                 probs_data = await cls.call_api(
@@ -658,15 +669,17 @@ class ZabbixService:
                     "problem.get",
                     params={
                         "eventids": eventids,
-                        "output": ["eventid", "opdata"]
+                        "output": ["eventid", "opdata", "severity"]
                     },
                     auth=auth_token
                 )
                 for p in probs_data or []:
                     eid = str(p.get("eventid"))
                     opdata_map[eid] = (p.get("opdata") or "").strip()
+                    if "severity" in p and p.get("severity") is not None:
+                        severity_prob_map[eid] = str(p.get("severity"))
             except Exception as e:
-                logger.warning(f"Não foi possível obter opdata expandido do Zabbix via problem.get: {e}")
+                logger.warning(f"Não foi possível obter opdata/severity expandido do Zabbix via problem.get: {e}")
 
         severity_map = {
             "0": {"label": "Não Classificado", "level": "not_classified", "color": "#9e9e9e"},
@@ -686,11 +699,15 @@ class ZabbixService:
             if str(last_event.get("value")) == "0":
                 continue
 
-            p_val = str(trig.get("priority", "0"))
-            sev = severity_map.get(p_val, severity_map["0"])
-
             eventid = str(last_event.get("eventid")) if last_event.get("eventid") else None
             acknowledged = str(last_event.get("acknowledged")) == "1"
+
+            # Prioriza a severidade ajustada do evento/problema ativo (problem.severity)
+            # com fallback na severidade da trigger (trig.priority)
+            orig_p_val = str(trig.get("priority", "0"))
+            p_val = severity_prob_map.get(eventid) if (eventid and eventid in severity_prob_map) else orig_p_val
+            sev = severity_map.get(p_val, severity_map["0"])
+            orig_sev = severity_map.get(orig_p_val, severity_map["0"])
 
             hosts = []
             for h in trig.get("hosts", []):
@@ -737,6 +754,9 @@ class ZabbixService:
                 "opdata": resolved_opdata or "",
                 "comments": trig.get("comments"),
                 "priority": int(p_val),
+                "original_priority": int(orig_p_val),
+                "severity_changed": p_val != orig_p_val,
+                "original_severity_label": orig_sev["label"],
                 "severity_label": sev["label"],
                 "severity_level": sev["level"],
                 "severity_color": sev["color"],
@@ -748,7 +768,69 @@ class ZabbixService:
                 "tags": trig.get("tags") or []
             })
 
+        # Ordena pela severidade efetiva atual (DESC) e depois pelo timestamp mais recente
+        problems.sort(
+            key=lambda x: (x.get("priority", 0), int(x.get("lastchange") or 0)),
+            reverse=True
+        )
+
         return problems
+
+    @classmethod
+    async def change_problem_severity(
+        cls,
+        url: str,
+        severity: int,
+        eventid: Optional[str] = None,
+        triggerid: Optional[str] = None,
+        message: Optional[str] = None,
+        token: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Altera o nível de severidade do status ativo de um problema no Zabbix sem alterar a trigger do template.
+        Usa o método event.acknowledge da API do Zabbix com a ação 8 (change severity) + 4 (add message opcional).
+        """
+        auth_token = token
+        if not auth_token and username and password:
+            auth_token = await cls.authenticate_user(url, username, password)
+
+        if not auth_token:
+            raise ValueError("Autenticação com o Zabbix não configurada.")
+
+        target_eventid = eventid
+
+        # Se não tiver eventid fornecido, busca o evento ativo do triggerid
+        if not target_eventid and triggerid:
+            problems = await cls.call_api(
+                url,
+                "problem.get",
+                {"objectids": [str(triggerid)], "output": ["eventid"]},
+                auth=auth_token
+            )
+            if problems:
+                target_eventid = str(problems[0]["eventid"])
+
+        if not target_eventid:
+            raise ValueError("Nenhum evento ativo encontrado para este alarme no Zabbix.")
+
+        action = 12 if message else 8 # 8: change severity; 4: message
+        params = {
+            "eventids": [str(target_eventid)],
+            "action": action,
+            "severity": int(severity)
+        }
+        if message:
+            params["message"] = message
+
+        res = await cls.call_api(url, "event.acknowledge", params=params, auth=auth_token)
+        return {
+            "success": True,
+            "eventid": str(target_eventid),
+            "severity": int(severity),
+            "result": res
+        }
 
     @classmethod
     async def acknowledge_event(

@@ -23,6 +23,15 @@ import {
 } from 'lucide-react';
 import { authService } from '../services/api';
 
+const SEVERITIES = [
+  { value: 0, label: 'Não Classificado', color: '#9e9e9e' },
+  { value: 1, label: 'Informação', color: '#2196f3' },
+  { value: 2, label: 'Aviso', color: '#ff9800' },
+  { value: 3, label: 'Médio', color: '#f57c00' },
+  { value: 4, label: 'Alto', color: '#e53935' },
+  { value: 5, label: 'Desastre', color: '#b71c1c' }
+];
+
 const TIME_BLOCKS = [
   {
     id: '10m',
@@ -136,8 +145,21 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
   // Acknowledge e Encerramento em andamento por identificador
   const [acknowledgingEvents, setAcknowledgingEvents] = useState({});
   const [closingEvents, setClosingEvents] = useState({});
+  const [changingSeverityEvents, setChangingSeverityEvents] = useState({});
+  const [activeSeverityMenu, setActiveSeverityMenu] = useState(null);
   const [feedbackMsg, setFeedbackMsg] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  // Fecha o popover de alteração de severidade se o usuário clicar fora
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (!e.target.closest('.alarm-sev-dropdown-container')) {
+        setActiveSeverityMenu(null);
+      }
+    };
+    document.addEventListener('click', handleOutsideClick);
+    return () => document.removeEventListener('click', handleOutsideClick);
+  }, []);
 
   const loadProblems = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -293,6 +315,86 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
       });
     } finally {
       setClosingEvents(prev => ({ ...prev, [targetKey]: false }));
+    }
+  };
+
+  // Alteração de Severidade do Alerta Ativo no Zabbix
+  const handleChangeSeverity = async (prob, newSev, e) => {
+    if (e) e.stopPropagation();
+    if (prob.priority === newSev) {
+      setActiveSeverityMenu(null);
+      return;
+    }
+
+    const targetKey = prob.eventid || prob.triggerid;
+    if (!targetKey) {
+      setFeedbackMsg({
+        type: 'error',
+        text: 'Alarme sem identificador de evento no Zabbix.'
+      });
+      return;
+    }
+
+    setChangingSeverityEvents(prev => ({ ...prev, [targetKey]: true }));
+    setActiveSeverityMenu(null);
+
+    const targetSevObj = SEVERITIES.find(s => s.value === newSev) || SEVERITIES[0];
+    const oldSev = prob.priority;
+
+    try {
+      await authService.changeZabbixProblemSeverity({
+        eventid: prob.eventid,
+        triggerid: prob.triggerid,
+        severity: newSev
+      });
+
+      // Atualiza o estado local imediatamente
+      setData(prev => {
+        const nextProblems = (prev.problems || []).map(p => {
+          if (p.triggerid === prob.triggerid || (p.eventid && p.eventid === prob.eventid)) {
+            const origPrio = p.original_priority !== undefined ? p.original_priority : oldSev;
+            return {
+              ...p,
+              priority: newSev,
+              severity_label: targetSevObj.label,
+              severity_color: targetSevObj.color,
+              severity_changed: newSev !== origPrio
+            };
+          }
+          return p;
+        });
+
+        // Atualiza contadores locais
+        const nextStats = { ...prev.stats };
+        const prioKey = (p) => {
+          if (p === 5) return 'disaster';
+          if (p === 4) return 'high';
+          if (p === 3) return 'average';
+          if (p === 2) return 'warning';
+          if (p === 1) return 'info';
+          return 'not_classified';
+        };
+        const oldKey = prioKey(oldSev);
+        const newKey = prioKey(newSev);
+        if (oldKey !== newKey) {
+          nextStats[oldKey] = Math.max(0, (nextStats[oldKey] || 1) - 1);
+          nextStats[newKey] = (nextStats[newKey] || 0) + 1;
+        }
+
+        return { ...prev, problems: nextProblems, stats: nextStats };
+      });
+
+      setFeedbackMsg({
+        type: 'success',
+        text: `Severidade do alarme "${prob.description}" alterada para "${targetSevObj.label}" no Zabbix!`
+      });
+    } catch (err) {
+      setFeedbackMsg({
+        type: 'error',
+        text: err.message || 'Falha ao alterar severidade do alarme no Zabbix.'
+      });
+    } finally {
+      setChangingSeverityEvents(prev => ({ ...prev, [targetKey]: false }));
     }
   };
 
@@ -542,6 +644,7 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
     const targetKey = prob.eventid || prob.triggerid;
     const isAckPending = acknowledgingEvents[targetKey];
     const isClosePending = closingEvents[targetKey];
+    const isSevPending = changingSeverityEvents[targetKey];
     const canNavigate = Boolean(prob.asset_id && onSelectAsset);
 
     return (
@@ -594,14 +697,63 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
           </label>
         </td>
 
-        {/* SEVERIDADE */}
-        <td>
-          <span 
-            className="alarm-sev-badge" 
-            style={{ backgroundColor: prob.severity_color }}
-          >
-            {prob.severity_label}
-          </span>
+        {/* SEVERIDADE COM SELETOR RÁPIDO */}
+        <td onClick={(e) => e.stopPropagation()}>
+          <div className="alarm-sev-dropdown-container">
+            <button
+              type="button"
+              className={`alarm-sev-badge-btn ${prob.severity_changed ? 'has-override' : ''}`}
+              style={{ backgroundColor: prob.severity_color }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveSeverityMenu(activeSeverityMenu === targetKey ? null : targetKey);
+              }}
+              title={
+                prob.severity_changed
+                  ? `Severidade ajustada manualmente (Original da trigger: ${prob.original_severity_label || 'Original'}). Clique para alterar.`
+                  : "Clique para alterar a severidade deste alarme no Zabbix"
+              }
+              disabled={Boolean(isSevPending || prob.is_closed)}
+            >
+              <span className="alarm-sev-btn-text">
+                {isSevPending ? 'Ajustando...' : prob.severity_label}
+              </span>
+              {prob.severity_changed && (
+                <span className="sev-override-tag" title={`Original: ${prob.original_severity_label}`}>
+                  Ajustado
+                </span>
+              )}
+              <ChevronDown size={11} className={`sev-caret ${activeSeverityMenu === targetKey ? 'open' : ''}`} />
+            </button>
+
+            {activeSeverityMenu === targetKey && (
+              <div className="alarm-sev-popover-menu" onClick={(e) => e.stopPropagation()}>
+                <div className="alarm-sev-popover-header">
+                  <span>Alterar Severidade Ativa</span>
+                  {prob.severity_changed && (
+                    <span className="sev-orig-hint">Original: {prob.original_severity_label}</span>
+                  )}
+                </div>
+                <div className="alarm-sev-options-list">
+                  {SEVERITIES.map((s) => {
+                    const isCurrent = prob.priority === s.value;
+                    return (
+                      <button
+                        key={s.value}
+                        type="button"
+                        className={`alarm-sev-option-item ${isCurrent ? 'selected' : ''}`}
+                        onClick={(e) => handleChangeSeverity(prob, s.value, e)}
+                      >
+                        <span className="sev-option-dot" style={{ backgroundColor: s.color }} />
+                        <span className="sev-option-label">{s.label}</span>
+                        {isCurrent && <span className="sev-option-check">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </td>
 
         {/* EQUIPAMENTO */}

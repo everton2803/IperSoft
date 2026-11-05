@@ -1668,8 +1668,17 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                             <div key={prob.triggerid} className={`alarm-active-item ${prob.is_closed ? 'row-closed' : ''}`} style={{ borderLeftColor: prob.severity_color }}>
                               <div className="alarm-item-header">
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                                  <span className="alarm-sev-badge" style={{ backgroundColor: prob.severity_color }}>
+                                  <span 
+                                    className="alarm-sev-badge" 
+                                    style={{ backgroundColor: prob.severity_color }}
+                                    title={prob.severity_changed ? `Severidade ajustada manualmente no Zabbix (Original da trigger: ${prob.original_severity_label})` : undefined}
+                                  >
                                     {prob.severity_label}
+                                    {prob.severity_changed && (
+                                      <span style={{ fontSize: '0.56rem', marginLeft: '5px', padding: '1px 3px', background: 'rgba(0,0,0,0.4)', borderRadius: '3px' }}>
+                                        Ajustado
+                                      </span>
+                                    )}
                                   </span>
                                   
                                   <label 

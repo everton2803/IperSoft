@@ -325,6 +325,28 @@ export const authService = {
     return data;
   },
 
+  async changeZabbixProblemSeverity({ eventid, triggerid, severity, message }) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/zabbix/severity`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        eventid,
+        triggerid,
+        severity: parseInt(severity, 10),
+        message
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao alterar severidade do alarme no Zabbix.');
+    return data;
+  },
+
   async closeZabbixProblem({ eventid, triggerid, message }) {
     const token = this.getToken();
     if (!token) throw new Error('Não autenticado.');

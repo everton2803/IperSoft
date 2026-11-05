@@ -348,6 +348,13 @@ class ZabbixCloseRequest(BaseModel):
     message: Optional[str] = None
 
 
+class ZabbixChangeSeverityRequest(BaseModel):
+    eventid: Optional[str] = None
+    triggerid: Optional[str] = None
+    severity: int
+    message: Optional[str] = None
+
+
 @router.get("/problems")
 async def get_zabbix_global_problems(
     search: Optional[str] = None,
@@ -460,6 +467,9 @@ async def get_zabbix_global_problems(
             "opdata": p.get("opdata", ""),
             "comments": p["comments"],
             "priority": p["priority"],
+            "original_priority": p.get("original_priority", p["priority"]),
+            "severity_changed": p.get("severity_changed", False),
+            "original_severity_label": p.get("original_severity_label", p["severity_label"]),
             "severity_label": p["severity_label"],
             "severity_level": p["severity_level"],
             "severity_color": p["severity_color"],
@@ -579,5 +589,52 @@ async def close_zabbix_problem(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Falha ao encerrar alarme no Zabbix: {exc}"
+        )
+
+
+@router.post("/severity")
+async def change_zabbix_problem_severity(
+    req: ZabbixChangeSeverityRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Altera a severidade do status ativo de um problema no Zabbix (sem modificar a trigger no template).
+    """
+    if req.severity < 0 or req.severity > 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Severidade inválida. Deve estar entre 0 (Não Classificado) e 5 (Desastre)."
+        )
+
+    cfg = db.query(IntegrationConfig).filter(IntegrationConfig.name == "zabbix").first()
+    if not cfg:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Configuração do Zabbix não encontrada."
+        )
+
+    try:
+        user_label = current_user.full_name or current_user.username
+        sev_labels = ["Não Classificado", "Informação", "Aviso", "Médio", "Alto", "Desastre"]
+        sev_name = sev_labels[req.severity] if 0 <= req.severity <= 5 else str(req.severity)
+        default_msg = f"Severidade alterada para '{sev_name}' por {user_label} via IperSoft"
+        msg = req.message or default_msg
+
+        res = await ZabbixService.change_problem_severity(
+            cfg.url,
+            severity=req.severity,
+            eventid=req.eventid,
+            triggerid=req.triggerid,
+            message=msg,
+            token=cfg.token,
+            username=cfg.username,
+            password=cfg.password
+        )
+        return res
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Falha ao alterar severidade no Zabbix: {exc}"
         )
 
