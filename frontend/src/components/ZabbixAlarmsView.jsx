@@ -1186,7 +1186,7 @@ export const ZabbixAlarmsView = ({ onSelectAsset, isAdmin }) => {
                   <span 
                     className="ribbon-pill-count"
                     style={{
-                      backgroundColor: hasItems ? block.color : 'var(--bg-card)',
+                      backgroundColor: hasItems ? block.color : 'var(--bg-surface-elevated)',
                       color: hasItems ? '#ffffff' : 'var(--text-muted)'
                     }}
                   >

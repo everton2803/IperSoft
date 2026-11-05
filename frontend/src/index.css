@@ -31,6 +31,7 @@
   --transition-slow: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Border Radii */
+  --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
@@ -47,15 +48,21 @@
   --bg-surface: #0f141f;
   --bg-surface-elevated: #161e2e;
   --bg-surface-glass: rgba(15, 20, 31, 0.75);
+  --bg-surface-hover: rgba(255, 255, 255, 0.04);
+  --bg-card: #0f141f;
+  --bg-secondary: #161e2e;
+  --bg-tertiary: #1b2438;
   --bg-input: #0b0f17;
   --bg-input-focus: #121824;
 
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-medium: rgba(255, 255, 255, 0.14);
   --border-strong: rgba(255, 255, 255, 0.22);
+  --border-color: rgba(255, 255, 255, 0.08);
   --border-focus: var(--color-primary);
 
   --text-main: #f8fafc;
+  --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
   --text-inverse: #080a0f;
@@ -77,15 +84,21 @@
   --bg-surface: #ffffff;
   --bg-surface-elevated: #f1f5f9;
   --bg-surface-glass: rgba(255, 255, 255, 0.85);
+  --bg-surface-hover: rgba(0, 0, 0, 0.04);
+  --bg-card: #ffffff;
+  --bg-secondary: #f1f5f9;
+  --bg-tertiary: #e2e8f0;
   --bg-input: #ffffff;
   --bg-input-focus: #fafafa;
 
   --border-subtle: #e2e8f0;
   --border-medium: #cbd5e1;
   --border-strong: #94a3b8;
+  --border-color: #e2e8f0;
   --border-focus: var(--color-primary);
 
   --text-main: #0f172a;
+  --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-muted: #64748b;
   --text-inverse: #ffffff;

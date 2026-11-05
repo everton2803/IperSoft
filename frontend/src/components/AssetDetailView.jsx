@@ -1931,27 +1931,19 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     setLogsTimeRange(newRange);
                     fetchDeviceLogs(newRange, logsLevel, logsSearch, logsLimit);
                   }}
-                  style={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    color: '#f8fafc',
-                    borderRadius: '6px',
-                    padding: '4px 8px',
-                    fontSize: '0.8rem',
-                    outline: 'none',
-                    cursor: 'pointer'
-                  }}
+                  title="Intervalo de tempo dos logs"
                 >
-                  <option value="5m" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimos 5 min</option>
-                  <option value="15m" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimos 15 min</option>
-                  <option value="1h" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Última 1 hora</option>
-                  <option value="6h" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimas 6 horas</option>
-                  <option value="24h" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimas 24 horas</option>
-                  <option value="7d" style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>Últimos 7 dias</option>
+                  <option value="5m">Últimos 5 min</option>
+                  <option value="15m">Últimos 15 min</option>
+                  <option value="1h">Última 1 hora</option>
+                  <option value="6h">Últimas 6 horas</option>
+                  <option value="24h">Últimas 24 horas</option>
+                  <option value="7d">Últimos 7 dias</option>
                 </select>
 
                 {/* Seletor de Limite de Linhas */}
                 <select
+                  className="select-filter-compact"
                   value={logsLimit}
                   onChange={(e) => {
                     const newLim = parseInt(e.target.value, 10);
@@ -1959,23 +1951,13 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     fetchDeviceLogs(logsTimeRange, logsLevel, logsSearch, newLim);
                   }}
                   title="Quantidade máxima de linhas de logs a retornar"
-                  style={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    color: '#f8fafc',
-                    borderRadius: '6px',
-                    padding: '4px 8px',
-                    fontSize: '0.8rem',
-                    outline: 'none',
-                    cursor: 'pointer'
-                  }}
                 >
-                  <option value={100} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>100 linhas</option>
-                  <option value={250} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>250 linhas</option>
-                  <option value={500} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>500 linhas</option>
-                  <option value={1000} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>1.000 linhas</option>
-                  <option value={2500} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>2.500 linhas</option>
-                  <option value={5000} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>5.000 linhas</option>
+                  <option value={100}>100 linhas</option>
+                  <option value={250}>250 linhas</option>
+                  <option value={500}>500 linhas</option>
+                  <option value={1000}>1.000 linhas</option>
+                  <option value={2500}>2.500 linhas</option>
+                  <option value={5000}>5.000 linhas</option>
                 </select>
 
                 {/* Filtro de Severidade */}
