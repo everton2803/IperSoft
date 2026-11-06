@@ -22,6 +22,7 @@ import {
   Activity
 } from 'lucide-react';
 import { authService } from '../services/api';
+import { ZabbixTemplatesModal } from './ZabbixTemplatesModal';
 
 export const IntegrationsView = ({ isAdmin }) => {
   // Zabbix state
@@ -38,6 +39,8 @@ export const IntegrationsView = ({ isAdmin }) => {
   const [zbxSyncing, setZbxSyncing] = useState(false);
   const [zbxSyncResult, setZbxSyncResult] = useState(null);
   const [showZbxSettings, setShowZbxSettings] = useState(false);
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+  const [templateUpdatesCount, setTemplateUpdatesCount] = useState(0);
 
   // Guacamole state
   const [guacUrl, setGuacUrl] = useState('');
@@ -101,6 +104,14 @@ export const IntegrationsView = ({ isAdmin }) => {
         setZbxLastSync(zbxCfg.last_sync || null);
         if (zbxCfg.username) setZbxAuthType('userpass');
         if (!zbxCfg.is_active) setShowZbxSettings(true);
+
+        authService.getZabbixTemplateUpdates()
+          .then(data => {
+            if (data && Array.isArray(data)) {
+              setTemplateUpdatesCount(data.filter(t => t.has_update).length);
+            }
+          })
+          .catch(() => {});
       }
 
       if (guacCfg) {
@@ -505,6 +516,42 @@ export const IntegrationsView = ({ isAdmin }) => {
                     <Link size={15} />
                     <span>Sincronizar & Importar Hosts Agora</span>
                   </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                onClick={() => setShowTemplatesModal(true)}
+                title="Monitora e atualiza os templates oficiais do Zabbix diretamente do repositório GitHub"
+              >
+                <Layers size={15} color="#e53935" />
+                <span>Templates Oficiais Zabbix</span>
+                {templateUpdatesCount > 0 ? (
+                  <span style={{ 
+                    background: 'rgba(245, 158, 11, 0.2)', 
+                    color: '#f59e0b', 
+                    border: '1px solid rgba(245, 158, 11, 0.4)',
+                    fontSize: '0.72rem', 
+                    padding: '1px 7px', 
+                    borderRadius: 10, 
+                    fontWeight: 600 
+                  }}>
+                    {templateUpdatesCount} atualização(ões)
+                  </span>
+                ) : (
+                  <span style={{ 
+                    background: 'rgba(16, 185, 129, 0.15)', 
+                    color: '#10b981', 
+                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                    fontSize: '0.72rem', 
+                    padding: '1px 7px', 
+                    borderRadius: 10, 
+                    fontWeight: 500 
+                  }}>
+                    Em dia
+                  </span>
                 )}
               </button>
             </div>
@@ -1131,6 +1178,14 @@ export const IntegrationsView = ({ isAdmin }) => {
           </div>
         </div>
       </div>
+
+      <ZabbixTemplatesModal 
+        isOpen={showTemplatesModal} 
+        onClose={() => { 
+          setShowTemplatesModal(false); 
+          loadConfigs(); 
+        }} 
+      />
     </div>
   );
 };

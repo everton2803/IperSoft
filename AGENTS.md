@@ -200,6 +200,24 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
     - Para `7d`: Consulta prioritariamente `trend.get` (`sortorder: ASC`) para consolidar 1 ponto médio por hora (`value_avg`), cobrindo os 7 dias completos (~168 pontos) com alta precisão e baixo consumo de memória, com fallback transparente para `history.get` caso necessário.
     - **Frontend `ZabbixNumericChart`**: Ordenação estrita crescente (`clock ASC`), 5 marcações temporais uniformes no Eixo X (0%, 25%, 50%, 75%, 100%) formatadas conforme a granularidade (`DD/MM` para 7d, `DD/MM HHh` para 24h, `HH:mm` para 1h/6h) e tooltip fluido com data e hora completas no padrão brasileiro (`toLocaleString('pt-BR')`).
 
+### 5.2.1. Monitoramento e Atualização de Templates Oficiais do Zabbix (`ZabbixTemplateService`)
+- **Problema Resolvido**: Durante upgrades do Zabbix, os templates existentes no banco de dados não são atualizados pela Zabbix SIA para não sobrescrever alterações manuais. O operador fica sem saber quais templates padrão em uso já receberam melhorias ou correções de bugs.
+- **Detecção Inteligente & Filtragem sem Ruído**:
+  - O IperSoft consulta `template.get` no Zabbix Central com `selectHosts: ['hostid']` e monitora **exclusivamente os templates oficiais que possuem hosts vinculados em produção** (`len(hosts) > 0`).
+  - Templates customizados internos (ex: prefixo `IPER ...`) são protegidos e 100% ignorados pelo monitoramento oficial.
+  - O catálogo oficial (`app/data/zabbix_official_templates.json`) mapeia os 356 templates oficiais do Zabbix 7.0 por seu UUID canônico para o respectivo arquivo YAML no Git (`templates/...`).
+- **Verificação via Git / GitHub API (`release/7.0`)**:
+  - Compara a versão do template no banco (`vendor_version`, ex: `7.0-3`) contra a versão mais recente no repositório oficial (`7.0-5`).
+  - Obtém da API do GitHub (`/commits?path=...`) a mensagem de commit (ex: `[DEV-5044] added configurable TLS validation...`), data e link direto para o diff no GitHub.
+- **Importação com 1 Clique (`configuration.import`)**:
+  - Ao clicar em "Atualizar", o backend baixa o arquivo YAML atualizado diretamente do GitHub e dispara `configuration.import` na API do Zabbix Central com as regras `createMissing: true` e `updateExisting: true`, mesclando as novas métricas e itens sem intervenção manual.
+- **Endpoints REST**:
+  - `GET /api/v1/integrations/zabbix/templates/updates`: Lista templates em uso e status de atualização.
+  - `POST /api/v1/integrations/zabbix/templates/check`: Força verificação em tempo real contra o repositório oficial.
+  - `POST /api/v1/integrations/zabbix/templates/{template_id}/import`: Executa o download e a importação do YAML no Zabbix Central.
+- **Interface Gráfica (`ZabbixTemplatesModal.jsx`)**: Modal acessível no card do Zabbix em `IntegrationsView` com tabela de templates, contagem de hosts afetados, badge comparativo de versão, resumo da alteração no Git, link para diff e botão de importação.
+- **Agendador Horário**: Integrado no ciclo do `hourly_diagnostics_scheduler` em `main.py` para verificação automática a cada 1 hora.
+
 ### 5.3. `OxidizedService` (`app/services/oxidized.py`)
 - **Consulta e Sincronização de Status**: Consulta endpoints `/nodes.json`, `/node/fetch/{node}` e `/node/version/{node}` para sincronizar status de backup dos nós com equipamentos do IperSoft.
   - **Prevenção de Colisões e Chaves Duplicadas**: A função `sync_nodes_with_database` utiliza dicionário em memória de registros existentes e dá prioridade absoluta a correspondência exata por nome (`node_name.lower()`), seguida por IP, garantindo que múltiplos nós com mesmo IP (ou NAT/VMs) nunca gerem `UniqueViolation` em `asset_oxidized`.

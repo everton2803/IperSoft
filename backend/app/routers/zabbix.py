@@ -8,8 +8,10 @@ from app.database import get_db
 from app.models.user import User
 from app.models.integration import IntegrationConfig
 from app.models.asset import Asset, AssetZabbix
+from app.models.template_update import ZabbixTemplateUpdate
 from app.routers.auth import get_current_user
 from app.services.zabbix import ZabbixService
+from app.services.zabbix_templates import ZabbixTemplateService
 
 router = APIRouter(prefix="/integrations/zabbix", tags=["Integração Zabbix"])
 
@@ -637,4 +639,66 @@ async def change_zabbix_problem_severity(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Falha ao alterar severidade no Zabbix: {exc}"
         )
+
+
+@router.get("/templates/updates")
+def get_template_updates(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna os templates oficiais em uso no Zabbix Central e seus status
+    de atualização perante o repositório oficial do Zabbix (release/7.0).
+    """
+    updates = db.query(ZabbixTemplateUpdate).order_by(
+        ZabbixTemplateUpdate.has_update.desc(),
+        ZabbixTemplateUpdate.hosts_count.desc(),
+        ZabbixTemplateUpdate.name.asc()
+    ).all()
+    return updates
+
+
+@router.post("/templates/check")
+async def check_template_updates(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Força a verificação dos templates em uso no Zabbix contra o repositório
+    oficial do Zabbix no GitHub e atualiza a tabela zabbix_template_updates.
+    """
+    try:
+        results = await ZabbixTemplateService.check_template_updates(db, force_github=True)
+        return {
+            "success": True,
+            "checked_templates_count": len(results),
+            "updates_available_count": sum(1 for r in results if r.has_update),
+            "templates": results
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Erro ao verificar atualizações de templates: {exc}"
+        )
+
+
+@router.post("/templates/{template_id}/import")
+async def import_template_update(
+    template_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Baixa o arquivo YAML atualizado do GitHub oficial e importa diretamente
+    no Zabbix Central com 1 clique via API configuration.import.
+    """
+    try:
+        res = await ZabbixTemplateService.import_template_from_github(db, template_id=template_id)
+        return res
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Erro ao importar template atualizado do GitHub: {exc}"
+        )
+
 

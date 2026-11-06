@@ -153,6 +153,17 @@ async def hourly_diagnostics_scheduler():
         except Exception as e:
             logger.error(f"Erro no ciclo do agendador horário de diagnósticos: {e}")
 
+        # 4. Verificação periódica de atualizações de templates oficiais do Zabbix (1h)
+        db_tmpl = SessionLocal()
+        try:
+            from app.services.zabbix_templates import ZabbixTemplateService
+            logger.info("Iniciando verificação periódica de atualizações de templates Zabbix...")
+            await ZabbixTemplateService.check_template_updates(db_tmpl, force_github=False)
+        except Exception as tmpl_err:
+            logger.error(f"Erro na verificação periódica de templates Zabbix: {tmpl_err}")
+        finally:
+            db_tmpl.close()
+
         await asyncio.sleep(3600)
 
 @app.on_event("startup")

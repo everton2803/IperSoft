@@ -368,6 +368,45 @@ export const authService = {
     return data;
   },
 
+  // Zabbix Template Updates Monitoring
+  async getZabbixTemplateUpdates() {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/zabbix/templates/updates`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao buscar atualizações de templates.');
+    return data;
+  },
+
+  async checkZabbixTemplateUpdates() {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/zabbix/templates/check`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao verificar templates no GitHub.');
+    return data;
+  },
+
+  async importZabbixTemplateUpdate(templateId) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/integrations/zabbix/templates/${templateId}/import`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao importar template do GitHub.');
+    return data;
+  },
+
   // Assets Management
   async getAssets({ search, group, status, presence, sort_by, sort_dir } = {}) {
     const token = this.getToken();
