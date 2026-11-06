@@ -27,13 +27,46 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-ipersoft_user}:${POSTGRES_PASSWORD:-ipersoft_secret}@db:5432/${POSTGRES_DB:-ipersoft_db}
       SECRET_KEY: ${SECRET_KEY:-ipersoft_super_secret_jwt_key_2026_network_assets}
       ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+      WM_RENDER_DIR: /renders
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - weathermap_renders:/renders
     depends_on:
       db:
         condition: service_healthy
+
+  wm_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ipersoft_wm_worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.weathermap.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-ipersoft_user}:${POSTGRES_PASSWORD:-ipersoft_secret}@db:5432/${POSTGRES_DB:-ipersoft_db}
+      TZ: America/Sao_Paulo
+      WM_INTERVAL_SECONDS: "300"
+      WM_RENDER_DIR: /renders
+    volumes:
+      - ./backend:/app
+      - weathermap_renders:/renders
+    depends_on:
+      db:
+        condition: service_healthy
+
+  wm_public:
+    image: nginx:alpine
+    container_name: ipersoft_wm_public
+    restart: unless-stopped
+    ports:
+      - "8090:80"
+    volumes:
+      - weathermap_renders:/usr/share/nginx/renders:ro
+      - ./infra/weathermap/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - wm_worker
 
   frontend:
     build:
@@ -55,3 +88,4 @@ services:
 
 volumes:
   postgres_data:
+  weathermap_renders:

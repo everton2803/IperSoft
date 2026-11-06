@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { Sun, Moon, Network, LogOut, Users, Server, Layers, Activity, ShieldAlert } from 'lucide-react';
+import { Sun, Moon, Network, LogOut, Users, Server, Layers, Activity, ShieldAlert, Map } from 'lucide-react';
 
 export const Navbar = ({ 
   user, 
@@ -85,6 +85,15 @@ export const Navbar = ({
                   {alarmCount}
                 </span>
               )}
+            </button>
+
+            <button
+              className={`nav-link-btn ${activeNav === 'weathermap' ? 'active' : ''}`}
+              onClick={() => onSelectNav('weathermap')}
+              title="Weathermap: Mapas de topologia e tráfego de enlaces em tempo real"
+            >
+              <Map size={15} />
+              <span>Weathermap</span>
             </button>
 
             <button

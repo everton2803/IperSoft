@@ -1005,4 +1005,152 @@ export const diagnosticsService = {
   }
 };
 
+export const weathermapService = {
+  async listMaps() {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/maps`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao listar mapas do Weathermap.');
+  },
+
+  async getMap(mapId) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/maps/${mapId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao carregar detalhes do mapa.');
+  },
+
+  async createMap(payload) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/maps`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    }, 'Falha ao criar mapa.');
+  },
+
+  async saveMap(mapId, payload) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/maps/${mapId}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    }, 'Falha ao salvar mapa.');
+  },
+
+  async deleteMap(mapId) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/maps/${mapId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao excluir mapa.');
+  },
+
+  async rotateToken(mapId) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/maps/${mapId}/rotate-token`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao rotacionar token público.');
+  },
+
+  async refreshMap(mapId) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/maps/${mapId}/refresh`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao atualizar mapa.');
+  },
+
+  async getInteractiveSvg(mapId, theme = null) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    const q = theme ? `?theme=${encodeURIComponent(theme)}` : '';
+    const response = await fetch(`${API_BASE_URL}/weathermap/maps/${mapId}/render.svg${q}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) {
+      throw new Error(`Falha ao carregar SVG do mapa (HTTP ${response.status}).`);
+    }
+    return await response.text();
+  },
+
+  async getMapState(mapId) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/maps/${mapId}/state`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao obter estado do mapa.');
+  },
+
+  async getLinkHistory(linkId, hours = 24) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/links/${linkId}/history?hours=${hours}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao obter histórico do enlace.');
+  },
+
+  async listZabbixHosts(search = '') {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    const q = search ? `?search=${encodeURIComponent(search)}` : '';
+    return safeFetchJson(`${API_BASE_URL}/weathermap/zabbix/hosts${q}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao listar hosts do Zabbix.');
+  },
+
+  async listHostInterfaces(hostid) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/zabbix/hosts/${encodeURIComponent(hostid)}/interfaces`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao listar interfaces do host no Zabbix.');
+  },
+
+  async listZabbixSysmaps() {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/zabbix/maps`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao listar mapas do Zabbix.');
+  },
+
+  async importZabbixSysmap(sysmapid) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/import/zabbix/${encodeURIComponent(sysmapid)}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao importar mapa do Zabbix.');
+  },
+
+  async importLegacyConfigs(files) {
+    const token = authService.getToken();
+    if (!token) throw new Error('Não autenticado.');
+    return safeFetchJson(`${API_BASE_URL}/weathermap/import/legacy`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ files })
+    }, 'Falha ao importar arquivos .conf legados.');
+  }
+};
+
+
 

@@ -42,6 +42,11 @@ yarn-error.log*
 postgres_data/
 *.log
 
+# Weathermap legacy configs & renders
+*.conf.legacy
+/tmp/wm_legacy
+weathermap_renders/
+
 # IDE & OS
 .vscode/
 .idea/

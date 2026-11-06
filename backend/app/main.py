@@ -29,6 +29,8 @@ try:
         conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS os_profile VARCHAR(50) DEFAULT 'generic_ssh';"))
         conn.execute(text("UPDATE assets SET os_profile = 'generic_ssh' WHERE os_profile IS NULL;"))
         conn.execute(text("ALTER TABLE asset_oxidized ADD COLUMN IF NOT EXISTS timeout INTEGER DEFAULT 30;"))
+        conn.execute(text("ALTER TABLE weathermap_links ADD COLUMN IF NOT EXISTS label_pos_pct INTEGER DEFAULT 50;"))
+        conn.execute(text("UPDATE weathermap_links SET label_pos_pct = 50 WHERE label_pos_pct IS NULL;"))
         conn.execute(text("ALTER TABLE asset_zabbix ADD COLUMN IF NOT EXISTS host VARCHAR(150);"))
         conn.execute(text("ALTER TABLE asset_zabbix ADD COLUMN IF NOT EXISTS name VARCHAR(150);"))
         conn.execute(text("""
@@ -95,6 +97,7 @@ from app.routers.zabbix import sync_zabbix_hosts_with_db
 from app.routers.diagnostics import router as diagnostics_router
 from app.routers.oxidized import router as oxidized_router
 from app.routers.victorialogs import router as victorialogs_router
+from app.routers.weathermap import router as weathermap_router
 from app.services.diagnostics import run_all_diagnostics_batch
 import asyncio
 
@@ -107,6 +110,7 @@ app.include_router(guacamole_router, prefix="/api/v1")
 app.include_router(diagnostics_router, prefix="/api/v1")
 app.include_router(oxidized_router, prefix="/api/v1")
 app.include_router(victorialogs_router, prefix="/api/v1")
+app.include_router(weathermap_router, prefix="/api/v1")
 
 async def hourly_diagnostics_scheduler():
     """Rotina agendada (1h) para importar cadastros do Zabbix e Guacamole e executar diagnósticos de rede."""
