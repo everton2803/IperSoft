@@ -1,0 +1,95 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ipersoft_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ipersoft_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ipersoft_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ipersoft_db}
+    volumes:
+      - ipersoft_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ipersoft_user} -d ${POSTGRES_DB:-ipersoft_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ipersoft_backend
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-ipersoft_user}:${POSTGRES_PASSWORD:-ipersoft_secret}@db:5432/${POSTGRES_DB:-ipersoft_db}
+      SECRET_KEY: ${SECRET_KEY}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://ipersoft.iper.net.br}
+      WEATHERMAP_PUBLIC_BASE_URL: https://weathermap.iper.net.br
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+      - traefik_net
+
+  wm_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ipersoft_wm_worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.weathermap.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-ipersoft_user}:${POSTGRES_PASSWORD:-ipersoft_secret}@db:5432/${POSTGRES_DB:-ipersoft_db}
+      TZ: America/Sao_Paulo
+      WM_INTERVAL_SECONDS: "300"
+      WM_RENDER_DIR: /renders
+    volumes:
+      - weathermap_renders:/renders
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+
+  wm_public:
+    image: nginx:alpine
+    container_name: ipersoft_wm_public
+    restart: unless-stopped
+    volumes:
+      - weathermap_renders:/usr/share/nginx/renders:ro
+      - ./infra/weathermap/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - wm_worker
+    networks:
+      - internal
+      - traefik_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: ipersoft_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - internal
+      - traefik_net
+
+networks:
+  internal:
+    internal: true
+  traefik_net:
+    external: true
+    name: ${TRAEFIK_NETWORK:-infra}
+
+volumes:
+  ipersoft_postgres_data:
+  weathermap_renders:
