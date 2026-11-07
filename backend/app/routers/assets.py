@@ -650,6 +650,9 @@ async def update_asset(
         if asset.guacamole:
             for g in asset.guacamole:
                 g.connection_name = asset.name
+        # No Zabbix também espelha SEMPRE o nome do IperSoft no Nome Visível
+        if asset.zabbix:
+            asset.zabbix.name = asset.name
 
     if payload.hostname is not None:
         asset.hostname = payload.hostname.strip()
@@ -663,9 +666,8 @@ async def update_asset(
             asset.zabbix.host = zh_val
 
     if payload.zabbix_name is not None:
-        zn_val = payload.zabbix_name.strip() or None
         if asset.zabbix:
-            asset.zabbix.name = zn_val
+            asset.zabbix.name = asset.name
 
     if payload.guacamole_connection_name is not None:
         if asset.guacamole:
@@ -1007,6 +1009,13 @@ async def get_asset_comparison(
     # 6. Cálculo de divergências
     differences = []
     if zabbix_data["is_synced"]:
+        if zabbix_data.get("name") and zabbix_data["name"] != ipersoft_data["name"]:
+            differences.append({
+                "field": "Nome Visível (Zabbix)",
+                "ipersoft": ipersoft_data["name"],
+                "platform": zabbix_data["name"],
+                "target": "zabbix"
+            })
         if zabbix_data["ip_address"] != ipersoft_data["ip_address"]:
             differences.append({
                 "field": "IP Zabbix",
@@ -1096,7 +1105,7 @@ async def sync_asset_to_zabbix(
 
     c_group = asset.client_group or (asset.host_groups[0] if (asset.host_groups and len(asset.host_groups) > 0) else None)
     zbx_host = (asset.zabbix.host if asset.zabbix and asset.zabbix.host else None) or asset.hostname or asset.name
-    zbx_name = (asset.zabbix.name if asset.zabbix and asset.zabbix.name else None) or asset.name
+    zbx_name = asset.name  # Replicado estritamente do Nome do Equipamento no IperSoft
 
     host_data = {
         "hostid": asset.zabbix.hostid if asset.zabbix else asset.external_id,

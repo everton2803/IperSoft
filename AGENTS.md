@@ -152,11 +152,11 @@ Configuração de conexão para cada uma das integrações (`zabbix`, `guacamole
   1. **Prioridade 1 (Endereço IP)**: O IperSoft consulta o IP do host/conexão/nó na ferramenta externa e associa diretamente ao ativo que possui o mesmo IP cadastrado.
   2. **Prioridade 2 (ID de Integração)**: `hostid` (Zabbix) ou `connection_id` (Guacamole), caso o IP tenha sofrido alteração.
   3. **Fallback nominal (Somente quando não houver IP)**: Se o registro não possuir IP cadastrado, é feito fallback por correspondência exata de nome.
-- **Desacoplamento Completo dos Campos de Nome**:
-  - **IperSoft (Card 1)**: Possui unicamente o campo **Nome do Equipamento** (`name`), sem exigir nem exibir hostname técnico duplicado.
-  - **Zabbix Server (Card 2)**: Possui campos independentes para **Host Técnico no Zabbix** (`zabbix_host`) e **Nome Visível no Zabbix** (`zabbix_name`).
+- **Desacoplamento e Padronização dos Campos de Nome**:
+  - **IperSoft (Card 1)**: Possui unicamente o campo canônico **Nome do Equipamento** (`name`), sem exigir nem exibir hostname técnico duplicado.
+  - **Zabbix Server (Card 4)**: Possui campo independente para **Host Técnico no Zabbix** (`zabbix_host`), enquanto o **Nome Visível no Zabbix** (`zabbix_name`) espelha **estritamente o Nome do Equipamento no IperSoft** (`asset.name`), unificando a nomenclatura em todas as plataformas.
   - **Apache Guacamole (Card 3)**: Espelha **estritamente o Nome do Equipamento no IperSoft** (`asset.name`), mantendo identificação visual unificada e sem duplicidade de digitação.
-  - **Oxidized Daemon (Card 4)**: Consome e espelha **estritamente o Nome do Equipamento no IperSoft** (`asset.name`), assegurando consistência nas árvores Git de backup sem discrepâncias.
+  - **Oxidized Daemon (Card 2)**: Consome e espelha **estritamente o Nome do Equipamento no IperSoft** (`asset.name`), assegurando consistência nas árvores Git de backup sem discrepâncias.
 
 ### 5.1. `GuacamoleService` (`app/services/guacamole.py`)
 - **Autenticação**: Post em `/api/tokens` enviando `username` e `password`. Detecta o `dataSource` ativo (`postgresql` ou `mysql`).

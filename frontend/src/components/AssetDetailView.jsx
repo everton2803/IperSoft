@@ -634,7 +634,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         snmp_community: ipData.snmp_community || 'ipermonitor',
         status: ipData.status || 'monitored',
         zabbix_host: compData.zabbix?.host || compData.zabbix?.hostname || ipData.hostname || ipData.name || '',
-        zabbix_name: compData.zabbix?.name || ipData.name || '',
+        zabbix_name: ipData.name || compData.zabbix?.name || '',
         guacamole_connection_name: ipData.name || '',
         remote_protocol: ipData.remote_protocol || 'ssh',
         remote_port: ipData.remote_port || '22',
@@ -889,7 +889,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
         name: formData.name.trim(),
         hostname: (formData.zabbix_host || formData.hostname || '').trim(),
         zabbix_host: (formData.zabbix_host || '').trim(),
-        zabbix_name: (formData.zabbix_name || '').trim(),
+        zabbix_name: (formData.name || '').trim(),
         guacamole_connection_name: (formData.name || '').trim(),
         ip_address: (formData.ip_address || '').trim(),
         dns: (formData.dns || '').trim(),
@@ -2643,12 +2643,16 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                     </div>
                     <div className="form-group flex-1">
                       <label>Nome Visível no Zabbix</label>
-                      <input 
-                        type="text" 
-                        value={formData.zabbix_name} 
-                        onChange={e => setFormData({ ...formData, zabbix_name: e.target.value })} 
-                        placeholder="Ex: SW-DIST-01 - Borda"
-                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input 
+                          type="text" 
+                          value={formData.name || ''} 
+                          readOnly 
+                          disabled 
+                          style={{ opacity: 0.85, cursor: 'not-allowed', backgroundColor: 'var(--bg-tertiary, #1f2430)' }}
+                        />
+                        <span className="badge-tag-canonical" style={{ whiteSpace: 'nowrap' }}>Espelha IperSoft</span>
+                      </div>
                     </div>
                   </div>
 
@@ -2705,7 +2709,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                 <ul className="differences-list">
                   {differences.map((diff, idx) => (
                     <li key={idx}>
-                      <strong>{diff.field}:</strong> IperSoft (<code>{String(diff.ipersoft ?? '-')}</code>) vs Externo (<code>{String(diff.external ?? '-')}</code>)
+                      <strong>{diff.field}:</strong> IperSoft (<code>{String(diff.ipersoft ?? '-')}</code>) vs Externo (<code>{String(diff.external ?? diff.platform ?? '-')}</code>)
                     </li>
                   ))}
                 </ul>
