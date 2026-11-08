@@ -10,6 +10,7 @@ class Asset(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(150), index=True, nullable=False) # Nome Canônico / Visível
     hostname = Column(String(150), index=True, nullable=False) # Hostname técnico
+    snmp_hostname = Column(String(150), index=True, nullable=True) # Hostname real obtido via SNMP (sysName)
     ip_address = Column(String(64), index=True, nullable=True) # IP principal
     dns = Column(String(150), nullable=True) # DNS
     status = Column(String(30), default="active", nullable=False) # 'active' / 'inactive'

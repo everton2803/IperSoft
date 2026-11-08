@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.ip_scanner import IPCommunity, IPPrefix, DiscoveredIP
 from app.models.asset import Asset
 from app.routers.auth import get_current_user
+from app.services.diagnostics import sync_discovered_ips_with_assets
 
 logger = logging.getLogger("IPScannerRouter")
 
@@ -259,9 +260,12 @@ async def trigger_prefix_scan(
     devices = scan_data.get("devices", [])
     now = datetime.utcnow()
 
-    # Pre-carregar assets que possam estar nesta subnet
-    all_assets = db.query(Asset).filter(Asset.ip_address.isnot(None)).all()
-    asset_ip_map = {a.ip_address.strip(): a for a in all_assets if a.ip_address}
+    # Pre-carregar todos os assets para associação por IP ou por Hostname SNMP (sysName)
+    all_assets = db.query(Asset).all()
+    asset_ip_map = {a.ip_address.strip(): a for a in all_assets if a.ip_address and a.ip_address.strip()}
+    asset_snmp_host_map = {a.snmp_hostname.strip().lower(): a for a in all_assets if a.snmp_hostname and a.snmp_hostname.strip()}
+    asset_host_map = {a.hostname.strip().lower(): a for a in all_assets if a.hostname and a.hostname.strip()}
+    asset_name_map = {a.name.strip().lower(): a for a in all_assets if a.name and a.name.strip()}
 
     # Carregar IPs existentes deste prefixo
     existing_discovered = {d.ip_address: d for d in pref.discovered_ips}
@@ -283,15 +287,26 @@ async def trigger_prefix_scan(
         elif dev["icmp_alive"]:
             total_icmp_only += 1
 
+        dev_host = (dev.get("hostname") or "").strip()
+        dev_host_low = dev_host.lower() if dev_host else ""
+
         matched_asset = asset_ip_map.get(ip_str)
+        if not matched_asset and dev_host_low:
+            matched_asset = (
+                asset_snmp_host_map.get(dev_host_low)
+                or asset_host_map.get(dev_host_low)
+                or asset_name_map.get(dev_host_low)
+            )
+
         asset_id = matched_asset.id if matched_asset else None
 
-        # Se encontrou ativo no IperSoft e descobriu novo hostname via SNMP, atualiza o ativo!
+        # Se encontrou ativo no IperSoft e descobriu hostname via SNMP, grava no snmp_hostname!
         if matched_asset:
             matched_assets_count += 1
-            if dev.get("hostname") and dev["hostname"] != matched_asset.hostname:
-                matched_asset.hostname = dev["hostname"]
-                logger.info(f"Hostname do ativo '{matched_asset.name}' atualizado para: {dev['hostname']}")
+            if dev_host and dev_host != matched_asset.snmp_hostname:
+                matched_asset.snmp_hostname = dev_host
+                asset_snmp_host_map[dev_host_low] = matched_asset
+                logger.info(f"SNMP Hostname do ativo '{matched_asset.name}' salvo como: {dev_host}")
 
         if ip_str in existing_discovered:
             # Atualiza registro existente
@@ -351,6 +366,10 @@ def list_discovered_ips(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
+    # Garante associação automática de IPs já descobertos caso snmp_hostname tenha sido atualizado
+    if sync_discovered_ips_with_assets(db) > 0:
+        db.commit()
+
     query = db.query(DiscoveredIP).join(IPPrefix, DiscoveredIP.prefix_id == IPPrefix.id)
 
     if client_group and client_group.lower() != "todos":

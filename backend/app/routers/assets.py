@@ -160,6 +160,7 @@ class AssetResponse(BaseModel):
     id: int
     name: str
     hostname: str
+    snmp_hostname: Optional[str] = None
     ip_address: Optional[str] = None
     dns: Optional[str] = None
     status: str
@@ -274,6 +275,7 @@ def list_assets(
             or_(
                 Asset.name.ilike(term),
                 Asset.hostname.ilike(term),
+                Asset.snmp_hostname.ilike(term),
                 Asset.ip_address.ilike(term),
                 Asset.snmp_community.ilike(term)
             )

@@ -9,8 +9,65 @@ from sqlalchemy import or_
 
 from app.database import SessionLocal
 from app.models.asset import Asset, AssetZabbix, AssetGuacamole, NetworkDiagnostic
+from app.models.ip_scanner import DiscoveredIP
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_clean_snmp_hostname(raw_val: Optional[str]) -> Optional[str]:
+    """
+    Extrai o sysName limpo a partir da saída do snmpget.
+    Exemplo: 'SNMP OK: STRING: "RIRU-OLT-Rio-Rufino"' -> 'RIRU-OLT-Rio-Rufino'
+    """
+    if not raw_val:
+        return None
+    val = str(raw_val).strip()
+    if val.upper().startswith("SNMP OK:"):
+        val = val[8:].strip()
+    if "=" in val:
+        val = val.split("=", 1)[-1].strip()
+    val = re.sub(r'^(STRING|OID|IpAddress|Timeticks|INTEGER|Hex-STRING):\s*', '', val, flags=re.IGNORECASE).strip()
+    val = val.strip('"').strip("'").strip()
+    return val if val else None
+
+
+def sync_discovered_ips_with_assets(db: Session) -> int:
+    """
+    Vincula IPs descobertos na tabela discovered_ips aos equipamentos (Asset)
+    usando correspondência por IP principal, snmp_hostname (sysName), hostname ou name.
+    Retorna a quantidade de registros vinculados/atualizados.
+    """
+    assets = db.query(Asset).all()
+    ip_map: Dict[str, Asset] = {}
+    snmp_host_map: Dict[str, Asset] = {}
+    host_map: Dict[str, Asset] = {}
+    name_map: Dict[str, Asset] = {}
+
+    for a in assets:
+        if a.ip_address and a.ip_address.strip():
+            ip_map[a.ip_address.strip()] = a
+        if a.snmp_hostname and a.snmp_hostname.strip():
+            snmp_host_map[a.snmp_hostname.strip().lower()] = a
+        if a.hostname and a.hostname.strip():
+            host_map[a.hostname.strip().lower()] = a
+        if a.name and a.name.strip():
+            name_map[a.name.strip().lower()] = a
+
+    discovered_list = db.query(DiscoveredIP).all()
+    updated_count = 0
+    for d in discovered_list:
+        matched = ip_map.get((d.ip_address or "").strip())
+        if not matched and d.hostname and d.hostname.strip():
+            h_low = d.hostname.strip().lower()
+            matched = snmp_host_map.get(h_low) or host_map.get(h_low) or name_map.get(h_low)
+
+        if matched and d.asset_id != matched.id:
+            d.asset_id = matched.id
+            updated_count += 1
+        if matched and d.hostname and d.hostname.strip() and not matched.snmp_hostname:
+            matched.snmp_hostname = d.hostname.strip()
+
+    return updated_count
 
 # Global diagnostic run state for UI monitoring
 diagnostic_state = {
@@ -93,9 +150,11 @@ async def test_snmp(ip: str, community: str = "ipermonitor", port: int = 161, ti
 
         if proc.returncode == 0:
             val = out_text.split("=", 1)[-1].strip() if "=" in out_text else out_text
+            clean_host = _extract_clean_snmp_hostname(val)
             return {
                 "status": "ok",
                 "latency_ms": latency,
+                "snmp_hostname": clean_host,
                 "message": f"SNMP OK: {val}"
             }
         else:
@@ -267,8 +326,8 @@ async def run_diagnostics_for_asset(
         results["icmp"] = {"status": "disabled", "message": "Teste desativado pelo usuário"}
 
     # 2. SNMP Test
-    if include_snmp and asset.zabbix and target_ip:
-        comm = asset.zabbix.snmp_community or asset.snmp_community or "ipermonitor"
+    if include_snmp and target_ip:
+        comm = (asset.zabbix.snmp_community if asset.zabbix else None) or asset.snmp_community or "ipermonitor"
         snmp_port = 161
         snmp_res = await test_snmp(target_ip, community=comm, port=snmp_port, timeout=2.0)
         results["snmp"] = snmp_res
@@ -276,9 +335,12 @@ async def run_diagnostics_for_asset(
             db, asset.id, "snmp", snmp_res["status"],
             snmp_res["latency_ms"], target_ip, str(snmp_port), snmp_res["message"]
         )
-        asset.zabbix.snmp_status = snmp_res["status"]
-        asset.zabbix.snmp_message = snmp_res["message"]
-        asset.zabbix.last_diagnostics = now
+        if snmp_res.get("status") == "ok" and snmp_res.get("snmp_hostname"):
+            asset.snmp_hostname = snmp_res["snmp_hostname"]
+        if asset.zabbix:
+            asset.zabbix.snmp_status = snmp_res["status"]
+            asset.zabbix.snmp_message = snmp_res["message"]
+            asset.zabbix.last_diagnostics = now
     else:
         db.query(NetworkDiagnostic).filter(
             NetworkDiagnostic.asset_id == asset.id,
@@ -346,6 +408,7 @@ async def run_diagnostics_for_asset(
                 g_conn.tcp_status = "disabled"
         results["guacamole"] = [{"status": "disabled", "message": "Teste de acesso remoto desativado"}]
 
+    sync_discovered_ips_with_assets(db)
     db.commit()
     return results
 
@@ -505,6 +568,10 @@ async def run_all_diagnostics_batch():
                         db_save, aid, "snmp", r["snmp"]["status"],
                         r["snmp"]["latency_ms"], r["target_ip"], "161", r["snmp"]["message"]
                     )
+                    if r["snmp"].get("status") == "ok":
+                        clean_h = r["snmp"].get("snmp_hostname") or _extract_clean_snmp_hostname(r["snmp"].get("message"))
+                        if clean_h:
+                            asset.snmp_hostname = clean_h
                     asset.zabbix.snmp_status = r["snmp"]["status"]
                     asset.zabbix.snmp_message = r["snmp"]["message"]
                     asset.zabbix.last_diagnostics = now
@@ -538,8 +605,9 @@ async def run_all_diagnostics_batch():
                         for g_obj in asset.guacamole:
                             g_obj.tcp_status = "disabled"
 
+            linked_ips = sync_discovered_ips_with_assets(db_save)
             db_save.commit()
-            logger.info("Resultados de diagnósticos salvos no banco com sucesso.")
+            logger.info(f"Resultados de diagnósticos salvos no banco com sucesso (IPs vinculados: {linked_ips}).")
         except Exception as save_err:
             db_save.rollback()
             logger.error(f"Erro ao salvar diagnósticos no banco: {save_err}")

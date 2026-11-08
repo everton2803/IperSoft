@@ -566,7 +566,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
         const guacName = asset.guacamole?.[0]?.connection_name || '';
         const oxModel = asset.oxidized?.model || asset.backup_model || '';
 
-        const fullText = `${asset.name || ''} ${asset.hostname || ''} ${asset.ip_address || ''} ${asset.dns || ''} ${asset.snmp_community || ''} ${asset.client_group || ''} ${zbxName} ${zbxHost} ${guacName} ${oxModel}`.toLowerCase();
+        const fullText = `${asset.name || ''} ${asset.hostname || ''} ${asset.snmp_hostname || ''} ${asset.ip_address || ''} ${asset.dns || ''} ${asset.snmp_community || ''} ${asset.client_group || ''} ${zbxName} ${zbxHost} ${guacName} ${oxModel}`.toLowerCase();
 
         return tokens.every(token => fullText.includes(token));
       });
@@ -1173,10 +1173,26 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                             <span className="asset-visible-name" style={{ fontSize: '0.95rem', fontWeight: 600 }}>
                               {asset.name}
                             </span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                               <span className="asset-hostname" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
                                 {asset.hostname}
                               </span>
+                              {asset.snmp_hostname && asset.snmp_hostname.toLowerCase() !== (asset.hostname || '').toLowerCase() && (
+                                <span
+                                  style={{
+                                    fontSize: '0.68rem',
+                                    fontFamily: 'var(--font-mono)',
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    background: 'rgba(16, 185, 129, 0.12)',
+                                    color: '#10b981',
+                                    fontWeight: 500
+                                  }}
+                                  title="Hostname real obtido via diagnóstico SNMP (sysName)"
+                                >
+                                  SNMP: {asset.snmp_hostname}
+                                </span>
+                              )}
                               {(asset.client_group || (asset.host_groups && asset.host_groups[0])) && (
                                 <span 
                                   style={{ 

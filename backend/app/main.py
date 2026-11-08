@@ -51,12 +51,27 @@ try:
             SET public_url = 'https://guacamoles.iper.net.br/guacamole' 
             WHERE name = 'guacamole' AND (public_url IS NULL OR public_url = '');
         """))
+        conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS snmp_hostname VARCHAR(150);"))
         conn.commit()
-    logger.info("Migrações de colunas de backup_timeout e campos de nomes do Zabbix verificadas com sucesso.")
+    logger.info("Migrações de colunas de backup_timeout, snmp_hostname e campos de nomes do Zabbix verificadas com sucesso.")
     
-    # Auto-seed initial admin if no users exist
+    # Auto-seed initial admin if no users exist & backfill snmp_hostname
     db = SessionLocal()
     try:
+        from app.services.diagnostics import _extract_clean_snmp_hostname, sync_discovered_ips_with_assets
+        assets_all = db.query(Asset).all()
+        backfilled = 0
+        for a in assets_all:
+            if not a.snmp_hostname and a.zabbix and a.zabbix.snmp_status == "ok" and a.zabbix.snmp_message:
+                clean_h = _extract_clean_snmp_hostname(a.zabbix.snmp_message)
+                if clean_h:
+                    a.snmp_hostname = clean_h
+                    backfilled += 1
+        linked_ips = sync_discovered_ips_with_assets(db)
+        if backfilled > 0 or linked_ips > 0:
+            db.commit()
+            logger.info(f"Backfill SNMP Hostname concluído: {backfilled} ativos populados, {linked_ips} IPs descobertos vinculados.")
+
         user_count = db.query(User).count()
         if user_count == 0:
             initial_admin = User(
