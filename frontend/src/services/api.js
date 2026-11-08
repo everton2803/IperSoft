@@ -64,6 +64,11 @@ export const authService = {
     return localStorage.getItem('ipersoft_token');
   },
 
+  getAuthHeaders() {
+    const token = this.getToken();
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+  },
+
   setToken(token) {
     if (token) {
       localStorage.setItem('ipersoft_token', token);
