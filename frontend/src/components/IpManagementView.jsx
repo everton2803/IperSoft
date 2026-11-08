@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Network, 
   Search, 
@@ -20,8 +20,8 @@ import {
 import { ipScannerService } from '../services/api';
 
 export const IpManagementView = ({ onSelectAsset }) => {
-  const [activeTab, setActiveTab] = useState('ips'); // 'ips' | 'prefixes'
   const [selectedClient, setSelectedClient] = useState('todos');
+  const [selectedPrefixId, setSelectedPrefixId] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -33,7 +33,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
     total_icmp_only: 0,
     total_matched_assets: 0
   });
-  const [prefixes, setPrefixes] = useState([]);
+  const [allPrefixes, setAllPrefixes] = useState([]);
   const [discoveredIps, setDiscoveredIps] = useState([]);
   const [communities, setCommunities] = useState([]);
 
@@ -48,32 +48,50 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const [showCommunityModal, setShowCommunityModal] = useState(false);
 
   // Formulários
-  const [newPrefix, setNewPrefix] = useState({ prefix: '', client_group: 'atm', description: '', community_id: '' });
+  const [newPrefix, setNewPrefix] = useState({ prefix: '', client_group: '', description: '', community_id: '' });
   const [newCommunity, setNewCommunity] = useState({ name: '', community: '', version: '2c', port: 161, is_default: false });
 
-  // Lista prévia de clientes para filtro
-  const clientOptions = ['todos', 'atm', 'athila', 'bkup', 'noc', 'transporte'];
+  // Lista dinâmica de clientes: mostra apenas os clientes que possuem prefixo associado
+  const clientOptions = useMemo(() => {
+    const groups = Array.from(
+      new Set(
+        allPrefixes
+          .map((p) => (p.client_group || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+    ).sort();
+    return ['todos', ...groups];
+  }, [allPrefixes]);
+
+  // Prefixos filtrados pelo cliente selecionado
+  const filteredPrefixes = useMemo(() => {
+    if (selectedClient === 'todos') return allPrefixes;
+    return allPrefixes.filter(
+      (p) => (p.client_group || '').trim().toLowerCase() === selectedClient
+    );
+  }, [allPrefixes, selectedClient]);
 
   useEffect(() => {
     loadAllData();
-  }, [selectedClient, statusFilter]);
+  }, [selectedClient, selectedPrefixId, statusFilter]);
 
   const loadAllData = async () => {
     setLoading(true);
     try {
       const [statsData, prefData, commData, ipsData] = await Promise.all([
         ipScannerService.getStats().catch(() => ({})),
-        ipScannerService.getPrefixes(selectedClient).catch(() => []),
+        ipScannerService.getPrefixes('todos').catch(() => []),
         ipScannerService.getCommunities().catch(() => []),
         ipScannerService.getDiscoveredIps({
           clientGroup: selectedClient,
+          prefixId: selectedPrefixId,
           status: statusFilter,
           search: search
         }).catch(() => [])
       ]);
 
       setStats(statsData || {});
-      setPrefixes(prefData || []);
+      setAllPrefixes(prefData || []);
       setCommunities(commData || []);
       setDiscoveredIps(ipsData || []);
     } catch (err) {
@@ -87,6 +105,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
     e.preventDefault();
     ipScannerService.getDiscoveredIps({
       clientGroup: selectedClient,
+      prefixId: selectedPrefixId,
       status: statusFilter,
       search: search
     }).then(res => setDiscoveredIps(res || []));
@@ -102,7 +121,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
         type: 'success',
         message: `Varredura de ${prefixStr} concluída em ${res.duration_seconds}s! Ativos: ${res.total_active} (SNMP: ${res.total_snmp}, Apenas Ping: ${res.total_icmp_only})`
       });
-      loadAllData();
+      await loadAllData();
     } catch (err) {
       setScanResultToast({
         type: 'error',
@@ -117,17 +136,22 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const handleCreatePrefix = async (e) => {
     e.preventDefault();
     setModalError('');
-    if (!newPrefix.prefix.trim()) return;
+    if (!newPrefix.prefix.trim() || !newPrefix.client_group.trim()) return;
     try {
-      await ipScannerService.createPrefix({
+      const created = await ipScannerService.createPrefix({
         prefix: newPrefix.prefix.trim(),
         client_group: newPrefix.client_group.trim().toLowerCase(),
         description: newPrefix.description.trim(),
         community_id: newPrefix.community_id ? parseInt(newPrefix.community_id) : null
       });
       setShowPrefixModal(false);
-      setNewPrefix({ prefix: '', client_group: 'atm', description: '', community_id: '' });
-      loadAllData();
+      setNewPrefix({ prefix: '', client_group: '', description: '', community_id: '' });
+      setSelectedClient('todos');
+      setScanResultToast({
+        type: 'success',
+        message: `Prefixo ${created.prefix} (${created.client_group.toUpperCase()}) cadastrado! Clique em "Escanear Agora" na tabela abaixo para iniciar a descoberta.`
+      });
+      await loadAllData();
     } catch (err) {
       setModalError(err.message || 'Erro ao cadastrar prefixo.');
     }
@@ -141,7 +165,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
     try {
       await ipScannerService.createCommunity(newCommunity);
       setNewCommunity({ name: '', community: '', version: '2c', port: 161, is_default: false });
-      loadAllData();
+      await loadAllData();
     } catch (err) {
       setModalError(err.message || 'Erro ao criar comunidade.');
     }
@@ -152,7 +176,10 @@ export const IpManagementView = ({ onSelectAsset }) => {
     if (!window.confirm(`Deseja realmente remover o prefixo ${prefix} e todos os IPs descobertos dele?`)) return;
     try {
       await ipScannerService.deletePrefix(id);
-      loadAllData();
+      if (String(selectedPrefixId) === String(id)) {
+        setSelectedPrefixId('');
+      }
+      await loadAllData();
     } catch (err) {
       alert(`Erro ao excluir: ${err.message}`);
     }
@@ -163,7 +190,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
     if (!window.confirm(`Excluir a comunidade '${name}'?`)) return;
     try {
       await ipScannerService.deleteCommunity(id);
-      loadAllData();
+      await loadAllData();
     } catch (err) {
       alert(`Erro ao excluir: ${err.message}`);
     }
@@ -237,8 +264,8 @@ export const IpManagementView = ({ onSelectAsset }) => {
             <Layers size={22} />
           </div>
           <div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)' }}>{stats.total_prefixes || 0}</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Prefixos Monitorados</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)' }}>{allPrefixes.length}</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Prefixos Cadastrados</div>
           </div>
         </div>
 
@@ -283,87 +310,165 @@ export const IpManagementView = ({ onSelectAsset }) => {
         </div>
       </div>
 
-      {/* Tabs & Client Filter Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-        {/* Navigation Tabs */}
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button
-            onClick={() => setActiveTab('ips')}
-            style={{
-              padding: '0.55rem 1.1rem',
-              borderRadius: 'var(--radius-sm)',
-              border: activeTab === 'ips' ? '1px solid var(--color-primary)' : '1px solid var(--border-subtle)',
-              background: activeTab === 'ips' ? 'var(--color-primary)' : 'var(--bg-surface)',
-              color: activeTab === 'ips' ? '#fff' : 'var(--text-secondary)',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              fontSize: '0.875rem',
-              transition: 'var(--transition-fast)'
-            }}
-          >
-            <Server size={15} />
-            <span>Tabela Geral de IPs ({discoveredIps.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('prefixes')}
-            style={{
-              padding: '0.55rem 1.1rem',
-              borderRadius: 'var(--radius-sm)',
-              border: activeTab === 'prefixes' ? '1px solid var(--color-primary)' : '1px solid var(--border-subtle)',
-              background: activeTab === 'prefixes' ? 'var(--color-primary)' : 'var(--bg-surface)',
-              color: activeTab === 'prefixes' ? '#fff' : 'var(--text-secondary)',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              fontSize: '0.875rem',
-              transition: 'var(--transition-fast)'
-            }}
-          >
-            <Layers size={15} />
-            <span>Prefixos & Varreduras ({prefixes.length})</span>
-          </button>
-        </div>
-
-        {/* Client Pills */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600, marginRight: '4px' }}>Cliente / Sessão:</span>
+      {/* Filtro Dinâmico de Clientes / Sessões (Mostra apenas os que têm prefixo associado) */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '0.85rem 1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 700, marginRight: '4px' }}>
+            Cliente / Sessão:
+          </span>
           {clientOptions.map((c) => (
             <button
               key={c}
-              onClick={() => setSelectedClient(c)}
+              onClick={() => {
+                setSelectedClient(c);
+                setSelectedPrefixId('');
+              }}
               style={{
-                padding: '4px 12px',
+                padding: '5px 14px',
                 borderRadius: '9999px',
                 border: selectedClient === c ? '1px solid var(--color-primary)' : '1px solid var(--border-medium)',
-                background: selectedClient === c ? 'var(--color-primary)' : 'var(--bg-surface)',
-                color: selectedClient === c ? '#fff' : 'var(--text-secondary)',
-                fontSize: '0.75rem',
+                background: selectedClient === c ? 'var(--color-primary)' : 'var(--bg-secondary)',
+                color: selectedClient === c ? '#fff' : 'var(--text-main)',
+                fontSize: '0.76rem',
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 cursor: 'pointer',
                 transition: 'var(--transition-fast)'
               }}
             >
-              {c}
+              {c === 'todos' ? `TODOS (${allPrefixes.length})` : c}
             </button>
           ))}
         </div>
+
+        {selectedPrefixId && (
+          <button
+            className="btn-secondary"
+            onClick={() => setSelectedPrefixId('')}
+            style={{ fontSize: '0.78rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+          >
+            <X size={13} />
+            <span>Limpar filtro de sub-rede</span>
+          </button>
+        )}
       </div>
 
       {/* ==================================================================== */}
-      {/* TAB 1: TABELA GERAL DE TODOS OS IPS DESCOBERTOS                      */}
+      {/* SEÇÃO 1: PREFIXOS CADASTRADOS & BOTÃO DE SCAN MANUAL                 */}
       {/* ==================================================================== */}
-      {activeTab === 'ips' && (
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '1.25rem', overflowX: 'auto' }}>
-          {/* Filters Bar */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <form onSubmit={handleSearchSubmit} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: '280px', maxWidth: '440px' }}>
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '1.25rem', marginBottom: '1.5rem', overflowX: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Layers size={18} style={{ color: 'var(--color-primary)' }} />
+            <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
+              Sub-redes / Prefixos Cadastrados ({filteredPrefixes.length})
+            </h2>
+          </div>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Clique em <strong>Escanear Agora</strong> para disparar a varredura manual da sub-rede
+          </span>
+        </div>
+
+        <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+          <thead>
+            <tr>
+              <th>Prefixo CIDR</th>
+              <th>Cliente / Sessão</th>
+              <th>Comunidade SNMP</th>
+              <th>Descrição</th>
+              <th>Última Varredura</th>
+              <th>Hosts Ativos</th>
+              <th style={{ textAlign: 'right' }}>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredPrefixes.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                  Nenhum prefixo cadastrado. Clique no botão <strong>"+ Cadastrar Prefixo"</strong> no topo direito.
+                </td>
+              </tr>
+            ) : (
+              filteredPrefixes.map((pref) => (
+                <tr 
+                  key={pref.id} 
+                  style={{ 
+                    background: String(selectedPrefixId) === String(pref.id) ? 'var(--color-primary-subtle)' : 'transparent',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => setSelectedPrefixId(String(selectedPrefixId) === String(pref.id) ? '' : pref.id)}
+                  title="Clique na linha para filtrar os IPs desta sub-rede abaixo"
+                >
+                  <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--color-primary)' }}>
+                    {pref.prefix}
+                  </td>
+
+                  <td>
+                    <span style={{ textTransform: 'uppercase', background: 'var(--color-primary-subtle)', color: 'var(--color-primary)', border: '1px solid var(--color-primary-border)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700 }}>
+                      {pref.client_group}
+                    </span>
+                  </td>
+
+                  <td style={{ color: 'var(--text-main)', fontWeight: 500 }}>
+                    {pref.community_name || 'Padrão (Todas)'}
+                  </td>
+
+                  <td style={{ color: 'var(--text-secondary)' }}>
+                    {pref.description || '-'}
+                  </td>
+
+                  <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                    {pref.last_scan_at ? new Date(pref.last_scan_at).toLocaleString('pt-BR') : 'Nunca escaneado'}
+                  </td>
+
+                  <td style={{ fontWeight: 700 }}>
+                    <span style={{ background: (pref.total_hosts_found || 0) > 0 ? 'var(--color-success-bg)' : 'var(--bg-secondary)', color: (pref.total_hosts_found || 0) > 0 ? 'var(--color-success)' : 'var(--text-muted)', padding: '3px 10px', borderRadius: '9999px', fontSize: '0.75rem' }}>
+                      {pref.total_hosts_found || 0} hosts
+                    </span>
+                  </td>
+
+                  <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                      <button
+                        className="btn-primary"
+                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', padding: '6px 14px' }}
+                        onClick={() => handleScanPrefix(pref.id, pref.prefix)}
+                        disabled={scanningPrefixId === pref.id}
+                      >
+                        <Play size={13} className={scanningPrefixId === pref.id ? 'spin-icon' : ''} />
+                        <span>{scanningPrefixId === pref.id ? 'Escaneando...' : 'Escanear Agora'}</span>
+                      </button>
+
+                      <button
+                        className="btn-delete-user"
+                        onClick={() => handleDeletePrefix(pref.id, pref.prefix)}
+                        title="Remover Prefixo"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ==================================================================== */}
+      {/* SEÇÃO 2: TABELA GERAL DE TODOS OS IPS DESCOBERTOS                    */}
+      {/* ==================================================================== */}
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '1.25rem', overflowX: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Server size={18} style={{ color: 'var(--color-primary)' }} />
+            <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
+              Tabela Geral de IPs Descobertos ({discoveredIps.length})
+            </h2>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <form onSubmit={handleSearchSubmit} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: '280px' }}>
               <div style={{ position: 'relative', width: '100%' }}>
                 <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input
@@ -394,179 +499,95 @@ export const IpManagementView = ({ onSelectAsset }) => {
               </select>
             </div>
           </div>
+        </div>
 
-          {/* Table */}
-          <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-            <thead>
+        {/* Table */}
+        <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Endereço IP</th>
+              <th>Hostname Identificado</th>
+              <th>Modelo / Descrição</th>
+              <th>Cliente / Sessão</th>
+              <th>Sub-rede</th>
+              <th>Ativo no IperSoft</th>
+              <th>Último Visto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {discoveredIps.length === 0 ? (
               <tr>
-                <th>Status</th>
-                <th>Endereço IP</th>
-                <th>Hostname Identificado</th>
-                <th>Modelo / Descrição</th>
-                <th>Cliente / Sessão</th>
-                <th>Sub-rede</th>
-                <th>Ativo no IperSoft</th>
-                <th>Último Visto</th>
+                <td colSpan={8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                  Nenhum IP descoberto ainda para este filtro. Clique em <strong>"Escanear Agora"</strong> no prefixo desejado acima.
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {discoveredIps.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
-                    Nenhum IP encontrado para os filtros selecionados. Vá em "Prefixos & Varreduras" e clique em "Escanear Agora".
+            ) : (
+              discoveredIps.map((ip) => (
+                <tr key={ip.id}>
+                  <td>
+                    {ip.snmp_alive ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-success-bg)', color: 'var(--color-success)', padding: '3px 9px', borderRadius: '9999px', fontSize: '0.73rem', fontWeight: 700 }}>
+                        SNMP + Ping
+                      </span>
+                    ) : ip.icmp_alive ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', padding: '3px 9px', borderRadius: '9999px', fontSize: '0.73rem', fontWeight: 700 }}>
+                        Apenas Ping
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Inativo</span>
+                    )}
+                  </td>
+
+                  <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-main)' }}>
+                    {ip.ip_address}
+                  </td>
+
+                  <td style={{ fontWeight: 600 }}>
+                    {ip.hostname ? (
+                      <span style={{ color: 'var(--text-main)' }}>{ip.hostname}</span>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 400 }}>Sem resposta SNMP</span>
+                    )}
+                  </td>
+
+                  <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', maxWidth: '280px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={ip.description || ''}>
+                    {ip.description || '-'}
+                  </td>
+
+                  <td>
+                    <span style={{ textTransform: 'uppercase', background: 'var(--color-primary-subtle)', color: 'var(--color-primary)', border: '1px solid var(--color-primary-border)', padding: '2px 7px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>
+                      {ip.client_group || 'geral'}
+                    </span>
+                  </td>
+
+                  <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+                    {ip.prefix_str || '-'}
+                  </td>
+
+                  <td>
+                    {ip.asset_id ? (
+                      <button
+                        onClick={() => onSelectAsset && onSelectAsset(ip.asset_id)}
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.8rem' }}
+                      >
+                        <CheckCircle2 size={14} style={{ color: 'var(--color-success)' }} />
+                        <span>{ip.asset_name || `Ativo #${ip.asset_id}`}</span>
+                      </button>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Novo IP</span>
+                    )}
+                  </td>
+
+                  <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                    {ip.last_seen_at ? new Date(ip.last_seen_at).toLocaleString('pt-BR') : '-'}
                   </td>
                 </tr>
-              ) : (
-                discoveredIps.map((ip) => (
-                  <tr key={ip.id}>
-                    <td>
-                      {ip.snmp_alive ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-success-bg)', color: 'var(--color-success)', padding: '3px 9px', borderRadius: '9999px', fontSize: '0.73rem', fontWeight: 700 }}>
-                          SNMP + Ping
-                        </span>
-                      ) : ip.icmp_alive ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', padding: '3px 9px', borderRadius: '9999px', fontSize: '0.73rem', fontWeight: 700 }}>
-                          Apenas Ping
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Inativo</span>
-                      )}
-                    </td>
-
-                    <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-main)' }}>
-                      {ip.ip_address}
-                    </td>
-
-                    <td style={{ fontWeight: 600 }}>
-                      {ip.hostname ? (
-                        <span style={{ color: 'var(--text-main)' }}>{ip.hostname}</span>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 400 }}>Sem resposta SNMP</span>
-                      )}
-                    </td>
-
-                    <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', maxWidth: '280px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={ip.description || ''}>
-                      {ip.description || '-'}
-                    </td>
-
-                    <td>
-                      <span style={{ textTransform: 'uppercase', background: 'var(--color-primary-subtle)', color: 'var(--color-primary)', border: '1px solid var(--color-primary-border)', padding: '2px 7px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>
-                        {ip.client_group || 'geral'}
-                      </span>
-                    </td>
-
-                    <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
-                      {ip.prefix_str || '-'}
-                    </td>
-
-                    <td>
-                      {ip.asset_id ? (
-                        <button
-                          onClick={() => onSelectAsset && onSelectAsset(ip.asset_id)}
-                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.8rem' }}
-                        >
-                          <CheckCircle2 size={14} style={{ color: 'var(--color-success)' }} />
-                          <span>{ip.asset_name || `Ativo #${ip.asset_id}`}</span>
-                        </button>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Novo IP</span>
-                      )}
-                    </td>
-
-                    <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                      {ip.last_seen_at ? new Date(ip.last_seen_at).toLocaleString('pt-BR') : '-'}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ==================================================================== */}
-      {/* TAB 2: PREFIXOS CADASTRADOS & BOTÃO DE SCAN MANUAL                   */}
-      {/* ==================================================================== */}
-      {activeTab === 'prefixes' && (
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '1.25rem', overflowX: 'auto' }}>
-          <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-            <thead>
-              <tr>
-                <th>Prefixo CIDR</th>
-                <th>Cliente / Sessão</th>
-                <th>Comunidade SNMP</th>
-                <th>Descrição</th>
-                <th>Última Varredura</th>
-                <th>Hosts Ativos</th>
-                <th style={{ textAlign: 'right' }}>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {prefixes.length === 0 ? (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
-                    Nenhum prefixo cadastrado ainda. Clique em "Cadastrar Prefixo" acima.
-                  </td>
-                </tr>
-              ) : (
-                prefixes.map((pref) => (
-                  <tr key={pref.id}>
-                    <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--color-primary)' }}>
-                      {pref.prefix}
-                    </td>
-
-                    <td>
-                      <span style={{ textTransform: 'uppercase', background: 'var(--color-primary-subtle)', color: 'var(--color-primary)', border: '1px solid var(--color-primary-border)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700 }}>
-                        {pref.client_group}
-                      </span>
-                    </td>
-
-                    <td style={{ color: 'var(--text-main)', fontWeight: 500 }}>
-                      {pref.community_name}
-                    </td>
-
-                    <td style={{ color: 'var(--text-secondary)' }}>
-                      {pref.description || '-'}
-                    </td>
-
-                    <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                      {pref.last_scan_at ? new Date(pref.last_scan_at).toLocaleString('pt-BR') : 'Nunca escaneado'}
-                    </td>
-
-                    <td style={{ fontWeight: 700 }}>
-                      <span style={{ background: pref.total_hosts_found > 0 ? 'var(--color-success-bg)' : 'var(--bg-secondary)', color: pref.total_hosts_found > 0 ? 'var(--color-success)' : 'var(--text-muted)', padding: '3px 10px', borderRadius: '9999px', fontSize: '0.75rem' }}>
-                        {pref.total_hosts_found} hosts
-                      </span>
-                    </td>
-
-                    <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                        <button
-                          className="btn-primary"
-                          style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', padding: '6px 12px' }}
-                          onClick={() => handleScanPrefix(pref.id, pref.prefix)}
-                          disabled={scanningPrefixId === pref.id}
-                        >
-                          <Play size={13} className={scanningPrefixId === pref.id ? 'spin-icon' : ''} />
-                          <span>{scanningPrefixId === pref.id ? 'Escaneando...' : 'Escanear Agora'}</span>
-                        </button>
-
-                        <button
-                          className="btn-delete-user"
-                          onClick={() => handleDeletePrefix(pref.id, pref.prefix)}
-                          title="Remover Prefixo"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {/* ==================================================================== */}
       {/* MODAL: CADASTRAR PREFIXO (Usando Design System Nativo do IperSoft)   */}
@@ -598,7 +619,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="Ex: 10.90.10.0/24 ou 172.16.50.0/24"
+                    placeholder="Ex: 10.90.10.0/24 ou 192.168.0.0/24"
                     value={newPrefix.prefix}
                     onChange={(e) => setNewPrefix({ ...newPrefix, prefix: e.target.value })}
                     required
@@ -610,7 +631,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="Ex: atm, athila, bkup..."
+                    placeholder="Ex: iper, atm, athila, bkup..."
                     value={newPrefix.client_group}
                     onChange={(e) => setNewPrefix({ ...newPrefix, client_group: e.target.value })}
                     required
@@ -636,7 +657,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="Ex: Switches e OLTs POP Matriz"
+                    placeholder="Ex: Servidores e VMs"
                     value={newPrefix.description}
                     onChange={(e) => setNewPrefix({ ...newPrefix, description: e.target.value })}
                   />

@@ -36,10 +36,10 @@ class CommunityResponse(BaseModel):
     id: int
     name: str
     community: str
-    version: str
-    port: int
-    is_default: bool
-    created_at: Optional[datetime]
+    version: Optional[str] = "2c"
+    port: Optional[int] = 161
+    is_default: Optional[bool] = False
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -56,12 +56,12 @@ class PrefixResponse(BaseModel):
     id: int
     prefix: str
     client_group: str
-    description: Optional[str]
-    community_id: Optional[int]
+    description: Optional[str] = ""
+    community_id: Optional[int] = None
     community_name: Optional[str] = None
-    last_scan_at: Optional[datetime]
-    total_hosts_found: int
-    created_at: Optional[datetime]
+    last_scan_at: Optional[datetime] = None
+    total_hosts_found: Optional[int] = 0
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -152,7 +152,7 @@ def list_prefixes(
     prefixes = query.order_by(IPPrefix.prefix).all()
     results = []
     for p in prefixes:
-        comm_name = p.community_rel.name if p.community_rel else "Padrão"
+        comm_name = p.community_rel.name if p.community_rel else "Padrão (Todas)"
         results.append(PrefixResponse(
             id=p.id,
             prefix=p.prefix,
@@ -161,7 +161,7 @@ def list_prefixes(
             community_id=p.community_id,
             community_name=comm_name,
             last_scan_at=p.last_scan_at,
-            total_hosts_found=p.total_hosts_found,
+            total_hosts_found=p.total_hosts_found or 0,
             created_at=p.created_at
         ))
     return results
