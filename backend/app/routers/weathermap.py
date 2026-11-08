@@ -26,7 +26,6 @@ from app.schemas.weathermap import (
 from app.services.zabbix import ZabbixService
 from app.weathermap.collector import LinkState, _get_zabbix_credentials
 from app.weathermap.import_legacy import import_legacy_conf_to_db
-from app.weathermap.import_zabbix import import_zabbix_sysmap
 from app.weathermap.publisher import reconcile_render_dir
 from app.weathermap.renderer import render_svg
 from app.weathermap.scale import DEFAULT_SCALE, parse_bandwidth
@@ -839,23 +838,6 @@ async def list_zabbix_host_interfaces(
     return out_list
 
 
-@router.get("/zabbix/maps")
-async def list_zabbix_sysmaps(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    url, token = await _get_zabbix_credentials(db)
-    raw = await ZabbixService.call_api(
-        url,
-        "map.get",
-        {"output": ["sysmapid", "name", "width", "height"]},
-        auth=token,
-    )
-    if not isinstance(raw, list):
-        return []
-    return sorted(raw, key=lambda m: (m.get("name") or "").lower())
-
-
 @router.post("/import/legacy", response_model=List[WeathermapMapSummary])
 async def import_legacy_configs_endpoint(
     req: LegacyConfImportRequest,
@@ -874,24 +856,3 @@ async def import_legacy_configs_endpoint(
             logger.warning("Aviso ao renderizar mapa importado %s: %s", wm_map.name, exc)
         imported.append(_build_map_summary(wm_map))
     return imported
-
-
-@router.post("/import/zabbix/{sysmapid}", response_model=WeathermapMapFull)
-async def import_zabbix_sysmap_endpoint(
-    sysmapid: str,
-    db: Session = Depends(get_db),
-    admin_user: User = Depends(_require_admin),
-):
-    try:
-        wm_map = await import_zabbix_sysmap(db, sysmapid)
-    except ValueError as ve:
-        raise HTTPException(status_code=404, detail=str(ve))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Erro ao importar sysmap do Zabbix: {exc}")
-
-    try:
-        await render_and_publish_single_map(db, wm_map, render_dir=DEFAULT_RENDER_DIR)
-    except Exception as exc:
-        logger.warning("Aviso ao renderizar sysmap importado %s: %s", wm_map.name, exc)
-
-    return _build_map_full(db, wm_map)

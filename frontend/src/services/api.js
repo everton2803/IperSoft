@@ -1121,23 +1121,6 @@ export const weathermapService = {
     }, 'Falha ao listar interfaces do host no Zabbix.');
   },
 
-  async listZabbixSysmaps() {
-    const token = authService.getToken();
-    if (!token) throw new Error('Não autenticado.');
-    return safeFetchJson(`${API_BASE_URL}/weathermap/zabbix/maps`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    }, 'Falha ao listar mapas do Zabbix.');
-  },
-
-  async importZabbixSysmap(sysmapid) {
-    const token = authService.getToken();
-    if (!token) throw new Error('Não autenticado.');
-    return safeFetchJson(`${API_BASE_URL}/weathermap/import/zabbix/${encodeURIComponent(sysmapid)}`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` }
-    }, 'Falha ao importar mapa do Zabbix.');
-  },
-
   async importLegacyConfigs(files) {
     const token = authService.getToken();
     if (!token) throw new Error('Não autenticado.');

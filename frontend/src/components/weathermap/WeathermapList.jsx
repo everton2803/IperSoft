@@ -9,7 +9,6 @@ import {
   Edit3,
   Trash2,
   KeyRound,
-  DownloadCloud,
   Upload,
   Eye,
   ExternalLink,
@@ -110,12 +109,6 @@ export const WeathermapList = ({
     theme: 'light',
   });
 
-  // Import Zabbix Modal
-  const [isZabbixModalOpen, setIsZabbixModalOpen] = useState(false);
-  const [zabbixMaps, setZabbixMaps] = useState([]);
-  const [loadingZabbixMaps, setLoadingZabbixMaps] = useState(false);
-  const [importingSysmapId, setImportingSysmapId] = useState(null);
-
   const fetchMaps = useCallback(async () => {
     try {
       setLoading(true);
@@ -209,32 +202,6 @@ export const WeathermapList = ({
     }
   };
 
-  const openZabbixImportModal = async () => {
-    setIsZabbixModalOpen(true);
-    setLoadingZabbixMaps(true);
-    try {
-      const list = await weathermapService.listZabbixSysmaps();
-      setZabbixMaps(list || []);
-    } catch (err) {
-      alert(err.message || 'Erro ao consultar sysmaps do Zabbix.');
-    } finally {
-      setLoadingZabbixMaps(false);
-    }
-  };
-
-  const handleImportZabbixSysmap = async (sysmapid) => {
-    try {
-      setImportingSysmapId(sysmapid);
-      await weathermapService.importZabbixSysmap(sysmapid);
-      setIsZabbixModalOpen(false);
-      await fetchMaps();
-    } catch (err) {
-      alert(err.message || 'Erro ao importar sysmap.');
-    } finally {
-      setImportingSysmapId(null);
-    }
-  };
-
   const handleUploadLegacyFiles = async (e) => {
     const fileList = Array.from(e.target.files || []);
     if (!fileList.length) return;
@@ -310,15 +277,6 @@ export const WeathermapList = ({
                   style={{ display: 'none' }}
                 />
               </label>
-
-              <button
-                className="btn-secondary"
-                onClick={openZabbixImportModal}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <DownloadCloud size={15} />
-                <span>Importar do Zabbix</span>
-              </button>
 
               <button
                 className="btn-primary"
@@ -645,57 +603,6 @@ export const WeathermapList = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Importar Sysmap do Zabbix */}
-      {isZabbixModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsZabbixModalOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px', width: '100%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '1.05rem' }}>Importar Mapa do Zabbix 7.0</h3>
-              <button className="btn-icon" onClick={() => setIsZabbixModalOpen(false)}>
-                <X size={18} />
-              </button>
-            </div>
-            {loadingZabbixMaps ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                Consultando sysmaps no Zabbix...
-              </div>
-            ) : (
-              <div style={{ maxHeight: '360px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {zabbixMaps.map((zm) => (
-                  <div
-                    key={zm.sysmapid}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '10px 12px',
-                      borderRadius: '8px',
-                      border: '1px solid var(--border-subtle)',
-                      background: 'var(--bg-elevated)',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{zm.name}</div>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        sysmapid #{zm.sysmapid} · {zm.width}×{zm.height}px
-                      </div>
-                    </div>
-                    <button
-                      className="btn-primary"
-                      disabled={importingSysmapId === zm.sysmapid}
-                      onClick={() => handleImportZabbixSysmap(zm.sysmapid)}
-                      style={{ fontSize: '0.78rem', padding: '6px 12px' }}
-                    >
-                      {importingSysmapId === zm.sysmapid ? 'Importando...' : 'Importar'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}
