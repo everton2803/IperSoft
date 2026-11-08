@@ -64,6 +64,15 @@ export const Navbar = ({
             </button>
 
             <button
+              className={`nav-link-btn ${activeNav === 'ips' ? 'active' : ''}`}
+              onClick={() => onSelectNav('ips')}
+              title="Gestão de Prefixos & Varredura de IPs (SNMP + ICMP) e matching de ativos"
+            >
+              <Network size={15} />
+              <span>Gestão de IPs</span>
+            </button>
+
+            <button
               className={`nav-link-btn ${activeNav === 'alarms' ? 'active' : ''}`}
               onClick={() => onSelectNav('alarms')}
               style={{ position: 'relative' }}

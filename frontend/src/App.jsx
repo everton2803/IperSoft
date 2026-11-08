@@ -8,6 +8,7 @@ import { IntegrationsView } from './components/IntegrationsView';
 import { AlarmsView } from './components/AlarmsView';
 import { ZabbixAlarmsView } from './components/ZabbixAlarmsView';
 import { WeathermapView } from './components/weathermap/WeathermapView';
+import { IpManagementView } from './components/IpManagementView';
 import { UserManagementModal } from './components/UserManagementModal';
 import { authService, diagnosticsService } from './services/api';
 import { ThemeProvider } from './context/ThemeContext';
@@ -138,6 +139,15 @@ function AppContent() {
             {activeNav === 'weathermap' && (
               <WeathermapView
                 isAdmin={currentUser.role === 'admin'}
+                onSelectAsset={(id) => {
+                  setSelectedAssetId(id);
+                  setActiveNav('assets');
+                }}
+              />
+            )}
+
+            {activeNav === 'ips' && (
+              <IpManagementView 
                 onSelectAsset={(id) => {
                   setSelectedAssetId(id);
                   setActiveNav('assets');

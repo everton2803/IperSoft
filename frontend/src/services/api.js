@@ -1135,5 +1135,76 @@ export const weathermapService = {
   }
 };
 
+export const ipScannerService = {
+  getCommunities: async () => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/communities`, {
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao carregar comunidades SNMP');
+  },
+
+  createCommunity: async (data) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/communities`, {
+      method: 'POST',
+      headers: { ...authService.getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }, 'Erro ao criar comunidade SNMP');
+  },
+
+  deleteCommunity: async (id) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/communities/${id}`, {
+      method: 'DELETE',
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao excluir comunidade SNMP');
+  },
+
+  getPrefixes: async (clientGroup = '') => {
+    const q = clientGroup && clientGroup !== 'todos' ? `?client_group=${encodeURIComponent(clientGroup)}` : '';
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/prefixes${q}`, {
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao carregar prefixos');
+  },
+
+  createPrefix: async (data) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/prefixes`, {
+      method: 'POST',
+      headers: { ...authService.getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }, 'Erro ao cadastrar prefixo');
+  },
+
+  deletePrefix: async (id) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/prefixes/${id}`, {
+      method: 'DELETE',
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao excluir prefixo');
+  },
+
+  scanPrefix: async (id) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/prefixes/${id}/scan`, {
+      method: 'POST',
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao executar varredura do prefixo');
+  },
+
+  getDiscoveredIps: async ({ clientGroup = '', prefixId = '', status = '', search = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (clientGroup && clientGroup !== 'todos') params.append('client_group', clientGroup);
+    if (prefixId) params.append('prefix_id', prefixId);
+    if (status && status !== 'all') params.append('status_filter', status);
+    if (search) params.append('search', search);
+
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/ips${queryStr}`, {
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao listar IPs descobertos');
+  },
+
+  getStats: async () => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/stats`, {
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao obter estatísticas de IPs');
+  }
+};
+
 
 

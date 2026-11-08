@@ -31,6 +31,7 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://ipersoft.iper.net.br}
       WEATHERMAP_PUBLIC_BASE_URL: https://weathermap.iper.net.br
+      SCANNER_PROBE_URL: ${SCANNER_PROBE_URL:-http://scanner:8005}
     depends_on:
       db:
         condition: service_healthy
@@ -83,9 +84,17 @@ services:
       - internal
       - traefik_net
 
+  scanner:
+    build:
+      context: ./scanner
+      dockerfile: Dockerfile
+    container_name: ipersoft_scanner
+    restart: unless-stopped
+    networks:
+      - internal
+
 networks:
   internal:
-    internal: true
   traefik_net:
     external: true
     name: ${TRAEFIK_NETWORK:-infra}

@@ -28,6 +28,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:-ipersoft_super_secret_jwt_key_2026_network_assets}
       ACCESS_TOKEN_EXPIRE_MINUTES: 1440
       WM_RENDER_DIR: /renders
+      SCANNER_PROBE_URL: ${SCANNER_PROBE_URL:-http://scanner:8005}
     ports:
       - "8000:8000"
     volumes:
@@ -85,6 +86,13 @@ services:
       - /app/node_modules
     depends_on:
       - backend
+
+  scanner:
+    build:
+      context: ./scanner
+      dockerfile: Dockerfile
+    container_name: ipersoft_scanner
+    restart: unless-stopped
 
 volumes:
   postgres_data:

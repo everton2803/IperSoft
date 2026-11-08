@@ -98,6 +98,7 @@ from app.routers.diagnostics import router as diagnostics_router
 from app.routers.oxidized import router as oxidized_router
 from app.routers.victorialogs import router as victorialogs_router
 from app.routers.weathermap import router as weathermap_router
+from app.routers.ip_scanner import router as ip_scanner_router
 from app.services.diagnostics import run_all_diagnostics_batch
 import asyncio
 
@@ -111,6 +112,7 @@ app.include_router(diagnostics_router, prefix="/api/v1")
 app.include_router(oxidized_router, prefix="/api/v1")
 app.include_router(victorialogs_router, prefix="/api/v1")
 app.include_router(weathermap_router, prefix="/api/v1")
+app.include_router(ip_scanner_router, prefix="/api/v1")
 
 async def hourly_diagnostics_scheduler():
     """Rotina agendada (1h) para importar cadastros do Zabbix e Guacamole e executar diagnósticos de rede."""
