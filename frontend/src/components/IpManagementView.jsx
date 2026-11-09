@@ -42,6 +42,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
   // Estados de Carregamento
   const [loading, setLoading] = useState(false);
   const [scanningPrefixId, setScanningPrefixId] = useState(null);
+  const [syncingPhpIpam, setSyncingPhpIpam] = useState(false);
   const [testingProbeId, setTestingProbeId] = useState(null);
   const [probeTestResults, setProbeTestResults] = useState({});
   const [scanResultToast, setScanResultToast] = useState(null);
@@ -128,9 +129,12 @@ export const IpManagementView = ({ onSelectAsset }) => {
     setScanResultToast(null);
     try {
       const res = await ipScannerService.scanPrefix(prefixId);
+      const syncMsg = res.phpipam_synced
+        ? ` | Sincronizado no phpIPAM (${res.phpipam_stats?.ips_linked_to_devices || 0} IPs vinculados a equipamentos)`
+        : '';
       setScanResultToast({
         type: 'success',
-        message: `Varredura de ${prefixStr} concluída em ${res.duration_seconds}s! Ativos: ${res.total_active} (SNMP: ${res.total_snmp}, Apenas Ping: ${res.total_icmp_only})`
+        message: `Varredura de ${prefixStr} concluída em ${res.duration_seconds}s! Ativos: ${res.total_active} (SNMP: ${res.total_snmp}, Apenas Ping: ${res.total_icmp_only}, Vinculados: ${res.matched_assets || 0})${syncMsg}`
       });
       await loadAllData();
     } catch (err) {
@@ -140,6 +144,28 @@ export const IpManagementView = ({ onSelectAsset }) => {
       });
     } finally {
       setScanningPrefixId(null);
+    }
+  };
+
+  // Sincronizar Equipamentos, Prefixos e IPs Descobertos com o phpIPAM
+  const handleSyncPhpIpam = async () => {
+    setSyncingPhpIpam(true);
+    setScanResultToast(null);
+    try {
+      const res = await ipScannerService.syncPhpIpam({ clientGroup: selectedClient });
+      const st = res.stats || {};
+      setScanResultToast({
+        type: 'success',
+        message: `phpIPAM sincronizado! Equipamentos: +${st.devices_created || 0} criados / ${st.devices_updated || 0} atualizados | Sub-redes: +${st.subnets_created || 0} criadas / ${st.subnets_updated || 0} atualizadas | IPs: +${st.ips_created || 0} criados / ${st.ips_updated || 0} atualizados (${st.ips_linked_to_devices || 0} associados a equipamentos).`
+      });
+      await loadAllData();
+    } catch (err) {
+      setScanResultToast({
+        type: 'error',
+        message: `Falha ao sincronizar com phpIPAM: ${err.message}`
+      });
+    } finally {
+      setSyncingPhpIpam(false);
     }
   };
 
@@ -366,6 +392,17 @@ export const IpManagementView = ({ onSelectAsset }) => {
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button 
+            className="btn-secondary" 
+            onClick={handleSyncPhpIpam}
+            disabled={syncingPhpIpam}
+            title="Envia equipamentos, sub-redes e associa os IPs descobertos aos equipamentos no phpIPAM"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', borderColor: 'rgba(16, 185, 129, 0.45)', color: '#10b981' }}
+          >
+            <RefreshCw size={15} className={syncingPhpIpam ? 'spin-icon' : ''} />
+            <span>{syncingPhpIpam ? 'Sincronizando phpIPAM...' : 'Sincronizar phpIPAM'}</span>
+          </button>
+
           <button 
             className="btn-secondary" 
             onClick={() => {

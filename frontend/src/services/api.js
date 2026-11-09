@@ -1260,6 +1260,17 @@ export const ipScannerService = {
     return safeFetchJson(`${API_BASE_URL}/ip-scanner/stats`, {
       headers: authService.getAuthHeaders(),
     }, 'Erro ao obter estatísticas de IPs');
+  },
+
+  syncPhpIpam: async ({ clientGroup = '', prefixId = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (clientGroup && clientGroup !== 'todos') params.append('client_group', clientGroup);
+    if (prefixId) params.append('prefix_id', prefixId);
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/sync-phpipam${queryStr}`, {
+      method: 'POST',
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao sincronizar dados com o phpIPAM');
   }
 };
 

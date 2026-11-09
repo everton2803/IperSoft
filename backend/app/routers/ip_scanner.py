@@ -14,6 +14,7 @@ from app.models.ip_scanner import IPScannerProbe, IPCommunity, IPPrefix, Discove
 from app.models.asset import Asset
 from app.routers.auth import get_current_user
 from app.services.diagnostics import sync_discovered_ips_with_assets
+from app.services.phpipam_sync import sync_ipersoft_to_phpipam
 
 logger = logging.getLogger("IPScannerRouter")
 
@@ -149,6 +150,8 @@ class ScanTriggerResponse(BaseModel):
     total_snmp: int
     total_icmp_only: int
     matched_assets: int
+    phpipam_synced: bool = False
+    phpipam_stats: Optional[dict] = None
 
 
 # ==============================================================================
@@ -445,6 +448,11 @@ def create_prefix(item: PrefixCreate, db: Session = Depends(get_db), current_use
     db.commit()
     db.refresh(new_pref)
 
+    try:
+        sync_ipersoft_to_phpipam(db, prefix_id=new_pref.id)
+    except Exception as e:
+        logger.warning(f"Aviso ao sincronizar novo prefixo com phpIPAM: {e}")
+
     probes = _ensure_default_probe(db)
     comm_map = {c.id: c for c in db.query(IPCommunity).all()}
     return _build_prefix_response(new_pref, comm_map, probes)
@@ -495,6 +503,11 @@ def update_prefix(
 
     db.commit()
     db.refresh(pref)
+
+    try:
+        sync_ipersoft_to_phpipam(db, prefix_id=pref.id)
+    except Exception as e:
+        logger.warning(f"Aviso ao sincronizar prefixo atualizado com phpIPAM: {e}")
 
     probes = _ensure_default_probe(db)
     comm_map = {c.id: c for c in db.query(IPCommunity).all()}
@@ -658,6 +671,14 @@ async def trigger_prefix_scan(
     pref.total_hosts_found = total_active
     db.commit()
 
+    phpipam_synced = False
+    phpipam_stats = None
+    try:
+        phpipam_stats = sync_ipersoft_to_phpipam(db, prefix_id=pref.id)
+        phpipam_synced = True
+    except Exception as e:
+        logger.warning(f"Scan concluído, mas houve falha ao sincronizar automaticamente com phpIPAM: {e}")
+
     return ScanTriggerResponse(
         prefix=pref.prefix,
         duration_seconds=scan_data.get("duration_seconds", 0.0),
@@ -665,8 +686,32 @@ async def trigger_prefix_scan(
         total_active=total_active,
         total_snmp=total_snmp,
         total_icmp_only=total_icmp_only,
-        matched_assets=matched_assets_count
+        matched_assets=matched_assets_count,
+        phpipam_synced=phpipam_synced,
+        phpipam_stats=phpipam_stats
     )
+
+
+@router.post("/sync-phpipam")
+def trigger_phpipam_sync(
+    prefix_id: Optional[int] = None,
+    client_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Sincroniza equipamentos (devices), seções (sections), prefixos (subnets) e
+    IPs descobertos + vínculo com equipamentos (ipaddresses.switch) do IperSoft para o phpIPAM.
+    """
+    try:
+        stats = sync_ipersoft_to_phpipam(db, prefix_id=prefix_id, client_group=client_group)
+        return {
+            "status": "ok",
+            "message": "Sincronização com phpIPAM concluída com sucesso!",
+            "stats": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Falha ao sincronizar com phpIPAM: {e}")
 
 
 # ==============================================================================
