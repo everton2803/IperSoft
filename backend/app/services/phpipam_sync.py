@@ -227,7 +227,12 @@ def sync_ipersoft_to_phpipam(
             }
 
             # Coletar todos os client_groups relevantes de Assets e IPPrefixes
-            all_assets = db.query(Asset).filter(Asset.status == "active").all()
+            all_assets = (
+                db.query(Asset)
+                .filter(Asset.status.in_(["active", "monitored"]))
+                .order_by(Asset.id)
+                .all()
+            )
             prefixes_query = db.query(IPPrefix)
             if prefix_id:
                 prefixes_query = prefixes_query.filter(IPPrefix.id == prefix_id)
@@ -301,6 +306,7 @@ def sync_ipersoft_to_phpipam(
                     ip_to_existing_switch[ip_s] = sw_id
 
             asset_to_device_id: Dict[int, int] = {}
+            claimed_device_ids: Set[int] = set()
 
             for asset in all_assets:
                 sec_name = _normalize_section_name(asset.client_group)
@@ -314,12 +320,8 @@ def sync_ipersoft_to_phpipam(
                 saved_dev_id = raw_data.get("phpipam_device_id")
 
                 matched_dev = None
-                if saved_dev_id and int(saved_dev_id) in device_by_id:
+                if saved_dev_id and int(saved_dev_id) in device_by_id and int(saved_dev_id) not in claimed_device_ids:
                     matched_dev = device_by_id[int(saved_dev_id)]
-                elif ip_str and ip_str in device_by_ip:
-                    matched_dev = device_by_ip[ip_str]
-                elif ip_str and ip_str in ip_to_existing_switch:
-                    matched_dev = device_by_id.get(ip_to_existing_switch[ip_str])
                 else:
                     norm_candidates = [
                         _normalize_match_key(asset.name or ""),
@@ -327,9 +329,16 @@ def sync_ipersoft_to_phpipam(
                         _normalize_match_key(_format_phpipam_device_hostname(asset, sec_name)),
                     ]
                     for nk in norm_candidates:
-                        if nk and nk in device_by_norm_name:
-                            matched_dev = device_by_norm_name[nk]
+                        cand = device_by_norm_name.get(nk) if nk else None
+                        if cand and int(cand["id"]) not in claimed_device_ids:
+                            matched_dev = cand
                             break
+
+                    if not matched_dev and ip_str:
+                        if ip_str in device_by_ip and int(device_by_ip[ip_str]["id"]) not in claimed_device_ids:
+                            matched_dev = device_by_ip[ip_str]
+                        elif ip_str in ip_to_existing_switch and ip_to_existing_switch[ip_str] not in claimed_device_ids:
+                            matched_dev = device_by_id.get(ip_to_existing_switch[ip_str])
 
                 # Calcular lista de seções do device (seção nativa + seções onde tem IPs descobertos)
                 native_sec_id = section_map[sec_name]
@@ -411,6 +420,7 @@ def sync_ipersoft_to_phpipam(
                     stats["devices_created"] += 1
 
                 asset_to_device_id[asset.id] = dev_id
+                claimed_device_ids.add(dev_id)
                 if raw_data.get("phpipam_device_id") != dev_id:
                     raw_data["phpipam_device_id"] = dev_id
                     asset.raw_data = raw_data
