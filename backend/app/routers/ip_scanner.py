@@ -529,15 +529,10 @@ def delete_prefix(prefix_id: int, db: Session = Depends(get_db), current_user=De
 
 
 # ==============================================================================
-# DISPARO MANUAL DE SCAN NO CONTAINER DO PROBE
+# DISPARO MANUAL E EM LOTE DE SCAN NOS CONTAINERS DOS PROBES
 # ==============================================================================
 
-@router.post("/prefixes/{prefix_id}/scan", response_model=ScanTriggerResponse)
-async def trigger_prefix_scan(
-    prefix_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
-):
+async def scan_single_prefix_by_id(prefix_id: int, db: Session) -> ScanTriggerResponse:
     pref = db.query(IPPrefix).filter(IPPrefix.id == prefix_id).first()
     if not pref:
         raise HTTPException(status_code=404, detail="Prefixo não encontrado.")
@@ -586,6 +581,8 @@ async def trigger_prefix_scan(
             if resp.status_code != 200:
                 raise HTTPException(status_code=502, detail=f"Erro no {probe_name}: {resp.text}")
             scan_data = resp.json()
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Falha ao conectar no {probe_name} ({probe_url}): {e}")
         raise HTTPException(status_code=502, detail=f"Não foi possível conectar ao {probe_name} em {probe_url}. Detalhe: {e}")
@@ -684,6 +681,77 @@ async def trigger_prefix_scan(
         total_icmp_only=total_icmp_only,
         matched_assets=matched_assets_count
     )
+
+
+async def scan_all_prefixes_batch(db: Session, client_group: Optional[str] = None) -> dict:
+    """
+    Executa a varredura em todos os prefixos cadastrados (ou filtrados por client_group)
+    utilizando o Scanner Probe associado a cada prefixo.
+    """
+    import time
+    t0 = time.perf_counter()
+
+    query = db.query(IPPrefix)
+    if client_group and client_group.strip().lower() != "todos":
+        query = query.filter(IPPrefix.client_group == client_group.strip().lower())
+
+    prefixes = query.order_by(IPPrefix.id).all()
+    stats = {
+        "total_prefixes": len(prefixes),
+        "prefixes_scanned": 0,
+        "prefixes_failed": 0,
+        "total_active": 0,
+        "total_snmp": 0,
+        "total_icmp_only": 0,
+        "matched_assets": 0,
+        "duration_seconds": 0.0,
+        "errors": []
+    }
+
+    for pref in prefixes:
+        try:
+            res = await scan_single_prefix_by_id(pref.id, db)
+            stats["prefixes_scanned"] += 1
+            stats["total_active"] += res.total_active
+            stats["total_snmp"] += res.total_snmp
+            stats["total_icmp_only"] += res.total_icmp_only
+            stats["matched_assets"] += res.matched_assets
+        except HTTPException as he:
+            stats["prefixes_failed"] += 1
+            err_msg = f"{pref.prefix} ({pref.client_group}): {he.detail}"
+            logger.warning(f"Falha ao escanear prefixo {err_msg}")
+            stats["errors"].append(err_msg)
+        except Exception as e:
+            stats["prefixes_failed"] += 1
+            err_msg = f"{pref.prefix} ({pref.client_group}): {str(e)}"
+            logger.warning(f"Falha inesperada ao escanear prefixo {err_msg}")
+            stats["errors"].append(err_msg)
+
+    stats["duration_seconds"] = round(time.perf_counter() - t0, 2)
+    return stats
+
+
+@router.post("/prefixes/scan-all")
+async def trigger_all_prefixes_scan(
+    client_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    stats = await scan_all_prefixes_batch(db, client_group=client_group)
+    return {
+        "status": "ok",
+        "message": "Varredura em lote de prefixos concluída!",
+        "stats": stats
+    }
+
+
+@router.post("/prefixes/{prefix_id}/scan", response_model=ScanTriggerResponse)
+async def trigger_prefix_scan(
+    prefix_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    return await scan_single_prefix_by_id(prefix_id, db)
 
 
 @router.post("/vlans/extract-oxidized")

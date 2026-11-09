@@ -45,6 +45,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
   // Estados de Carregamento
   const [loading, setLoading] = useState(false);
   const [scanningPrefixId, setScanningPrefixId] = useState(null);
+  const [scanningAllPrefixes, setScanningAllPrefixes] = useState(false);
   const [extractingVlans, setExtractingVlans] = useState(false);
   const [syncingPhpIpam, setSyncingPhpIpam] = useState(false);
   const [testingProbeId, setTestingProbeId] = useState(null);
@@ -150,6 +151,29 @@ export const IpManagementView = ({ onSelectAsset }) => {
       });
     } finally {
       setScanningPrefixId(null);
+    }
+  };
+
+  // Disparar Varredura Manual de Todos os Prefixos (via Scanner Probes)
+  const handleScanAllPrefixes = async () => {
+    setScanningAllPrefixes(true);
+    setScanResultToast(null);
+    try {
+      const res = await ipScannerService.scanAllPrefixes({ clientGroup: selectedClient });
+      const st = res.stats || {};
+      setActiveTab('ips');
+      setScanResultToast({
+        type: 'success',
+        message: `Varredura em lote concluída em ${st.duration_seconds || 0}s! Prefixos escaneados: ${st.prefixes_scanned || 0}/${st.total_prefixes || 0} | Ativos: ${st.total_active || 0} (SNMP: ${st.total_snmp || 0}, Apenas Ping: ${st.total_icmp_only || 0}, Vinculados: ${st.matched_assets || 0})`
+      });
+      await loadAllData();
+    } catch (err) {
+      setScanResultToast({
+        type: 'error',
+        message: `Falha na varredura em lote dos prefixos: ${err.message}`
+      });
+    } finally {
+      setScanningAllPrefixes(false);
     }
   };
 
@@ -411,7 +435,23 @@ export const IpManagementView = ({ onSelectAsset }) => {
               <Network size={22} />
             </div>
             <div>
-              <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-main)' }}>Gestão de Prefixos & Varredura de IPs</h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-main)' }}>Gestão de Prefixos & Varredura de IPs</h1>
+                <span
+                  title="A descoberta pelos Scanner Probes e a varredura dos backups no Oxidized rodam automaticamente todos os dias às 04:00h da madrugada (horário de Brasília), além de poderem ser acionadas manualmente nos botões ao lado."
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    padding: '3px 9px',
+                    borderRadius: '9999px',
+                    background: 'rgba(16, 185, 129, 0.14)',
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                    color: '#10b981'
+                  }}
+                >
+                  Automático: 04:00h (Probes + Oxidized)
+                </span>
+              </div>
               <p style={{ margin: '2px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
                 Descoberta de rede via ICMP e SNMP com matching automático de equipamentos e sessões
               </p>
@@ -421,6 +461,17 @@ export const IpManagementView = ({ onSelectAsset }) => {
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button 
+            className="btn-secondary" 
+            onClick={handleScanAllPrefixes}
+            disabled={scanningAllPrefixes || allPrefixes.length === 0}
+            title="Dispara manualmente agora a descoberta de IPs em todos os prefixos (ou do cliente selecionado) através dos Scanner Probes"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', borderColor: 'rgba(245, 158, 11, 0.45)', color: '#f59e0b' }}
+          >
+            <Play size={15} className={scanningAllPrefixes ? 'spin-icon' : ''} />
+            <span>{scanningAllPrefixes ? 'Escaneando Probes...' : 'Escanear Todos os Prefixos'}</span>
+          </button>
+
           <button 
             className="btn-secondary" 
             onClick={handleExtractOxidizedVlans}

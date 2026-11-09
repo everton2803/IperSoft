@@ -115,8 +115,11 @@ from app.routers.diagnostics import router as diagnostics_router
 from app.routers.oxidized import router as oxidized_router
 from app.routers.victorialogs import router as victorialogs_router
 from app.routers.weathermap import router as weathermap_router
-from app.routers.ip_scanner import router as ip_scanner_router
+from app.routers.ip_scanner import router as ip_scanner_router, scan_all_prefixes_batch
 from app.services.diagnostics import run_all_diagnostics_batch
+from app.services.oxidized_vlan_extractor import extract_vlans_from_oxidized
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import asyncio
 
 # Routers
@@ -189,9 +192,69 @@ async def hourly_diagnostics_scheduler():
 
         await asyncio.sleep(3600)
 
+
+async def daily_4am_network_discovery_scheduler():
+    """
+    Rotina agendada diária às 04:00 da madrugada (America/Sao_Paulo) para:
+      1. Executar a descoberta de IPs em todos os prefixos cadastrados via Scanner Probes.
+      2. Varrer os backups de configuração no Oxidized para extrair/atualizar as VLANs.
+    """
+    tz_sp = ZoneInfo("America/Sao_Paulo")
+    logger.info("Agendador diário (04:00h BRT) de Descoberta de Prefixos (Probes) e Extração de VLANs (Oxidized) ativo.")
+
+    while True:
+        now_sp = datetime.now(tz_sp)
+        next_run = now_sp.replace(hour=4, minute=0, second=0, microsecond=0)
+        if now_sp >= next_run:
+            next_run = next_run + timedelta(days=1)
+
+        wait_seconds = max(1.0, (next_run - now_sp).total_seconds())
+        logger.info(
+            f"[Agendador 04:00h] Próxima varredura automática de Probes e Backups Oxidized agendada para "
+            f"{next_run.strftime('%d/%m/%Y %H:%M:%S %Z')} (em {round(wait_seconds / 3600, 2)}h)."
+        )
+        await asyncio.sleep(wait_seconds)
+
+        # 1. Varredura de todos os prefixos cadastrados nos Scanner Probes
+        db_scan = SessionLocal()
+        try:
+            logger.info("[Agendador 04:00h] Iniciando varredura automática de todos os prefixos via Scanner Probes...")
+            scan_stats = await scan_all_prefixes_batch(db_scan)
+            logger.info(
+                f"[Agendador 04:00h] Varredura de prefixos concluída em {scan_stats.get('duration_seconds')}s: "
+                f"{scan_stats.get('prefixes_scanned')}/{scan_stats.get('total_prefixes')} prefixos | "
+                f"Ativos: {scan_stats.get('total_active')} (SNMP: {scan_stats.get('total_snmp')}, "
+                f"Vinculados: {scan_stats.get('matched_assets')})"
+            )
+        except Exception as scan_err:
+            logger.error(f"[Agendador 04:00h] Erro na varredura automática de prefixos: {scan_err}")
+        finally:
+            db_scan.close()
+
+        # 2. Varredura dos backups de configuração no Oxidized para extração de VLANs
+        db_vlan = SessionLocal()
+        try:
+            logger.info("[Agendador 04:00h] Iniciando extração automática de VLANs dos backups no Oxidized...")
+            vlan_stats = await extract_vlans_from_oxidized(db_vlan)
+            logger.info(
+                f"[Agendador 04:00h] Extração de VLANs do Oxidized concluída: "
+                f"{vlan_stats.get('scanned_devices')} backups lidos, "
+                f"{vlan_stats.get('total_vlans_extracted')} VLANs identificadas "
+                f"(+{vlan_stats.get('vlans_created')} novas / {vlan_stats.get('vlans_updated')} atualizadas)."
+            )
+        except Exception as vlan_err:
+            logger.error(f"[Agendador 04:00h] Erro na extração automática de VLANs do Oxidized: {vlan_err}")
+        finally:
+            db_vlan.close()
+
+        # Pausa de segurança de 60s para evitar duplo disparo no mesmo minuto
+        await asyncio.sleep(60)
+
+
 @app.on_event("startup")
 async def startup_scheduler():
     asyncio.create_task(hourly_diagnostics_scheduler())
+    asyncio.create_task(daily_4am_network_discovery_scheduler())
 
 @app.get("/")
 def root():

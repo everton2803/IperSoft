@@ -1243,6 +1243,16 @@ export const ipScannerService = {
     }, 'Erro ao executar varredura do prefixo');
   },
 
+  scanAllPrefixes: async ({ clientGroup = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (clientGroup && clientGroup !== 'todos') params.append('client_group', clientGroup);
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/prefixes/scan-all${queryStr}`, {
+      method: 'POST',
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao executar varredura de todos os prefixos');
+  },
+
   getDiscoveredIps: async ({ clientGroup = '', prefixId = '', status = '', search = '' } = {}) => {
     const params = new URLSearchParams();
     if (clientGroup && clientGroup !== 'todos') params.append('client_group', clientGroup);
