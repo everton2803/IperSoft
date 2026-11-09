@@ -25,9 +25,8 @@ import {
 } from 'lucide-react';
 import { authService } from '../services/api';
 import { ZabbixTemplatesModal } from './ZabbixTemplatesModal';
-import { FirmwaresModal } from './FirmwaresModal';
 
-export const IntegrationsView = ({ isAdmin }) => {
+export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
   // Zabbix state
   const [zbxUrl, setZbxUrl] = useState('');
   const [zbxToken, setZbxToken] = useState('');
@@ -90,7 +89,6 @@ export const IntegrationsView = ({ isAdmin }) => {
   const [fwTesting, setFwTesting] = useState(false);
   const [fwFilesData, setFwFilesData] = useState(null);
   const [showFwSettings, setShowFwSettings] = useState(false);
-  const [showFwModal, setShowFwModal] = useState(false);
 
   // Global feedback
   const [feedback, setFeedback] = useState(null);
@@ -1310,8 +1308,8 @@ export const IntegrationsView = ({ isAdmin }) => {
               type="button"
               className="btn-primary"
               style={{ flex: '1 1 auto', justifyContent: 'center' }}
-              onClick={() => setShowFwModal(true)}
-              title="Abre o explorador integrado de firmwares para copiar URLs e comandos CLI"
+              onClick={() => onSelectNav && onSelectNav('firmwares')}
+              title="Abre a tela completa do Servidor de Firmwares para copiar URLs e comandos CLI"
             >
               <HardDrive size={15} />
               <span>Explorar Firmwares & Comandos</span>
@@ -1448,14 +1446,6 @@ export const IntegrationsView = ({ isAdmin }) => {
           setShowTemplatesModal(false); 
           loadConfigs(); 
         }} 
-      />
-
-      <FirmwaresModal
-        isOpen={showFwModal}
-        onClose={() => {
-          setShowFwModal(false);
-          loadConfigs();
-        }}
       />
     </div>
   );

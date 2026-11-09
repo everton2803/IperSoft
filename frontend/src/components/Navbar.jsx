@@ -8,7 +8,6 @@ export const Navbar = ({
   onSelectNav, 
   onLogout, 
   onOpenUserManagement,
-  onOpenFirmwares,
   alarmCount = 0,
   zabbixAlarmCount = 0
 }) => {
@@ -107,6 +106,15 @@ export const Navbar = ({
             </button>
 
             <button
+              className={`nav-link-btn ${activeNav === 'firmwares' ? 'active' : ''}`}
+              onClick={() => onSelectNav('firmwares')}
+              title="Servidor de Firmwares: Upload Web e download direto HTTP para equipamentos de rede"
+            >
+              <HardDrive size={15} />
+              <span>Firmwares</span>
+            </button>
+
+            <button
               className={`nav-link-btn ${activeNav === 'integrations' ? 'active' : ''}`}
               onClick={() => onSelectNav('integrations')}
               title="Sincronização e credenciais do Zabbix, Guacamole e Oxidized"
@@ -133,17 +141,6 @@ export const Navbar = ({
           {/* User profile & actions if logged in */}
           {user && (
             <div className="user-nav-box">
-              <button
-                id="navbar-firmwares-btn"
-                className="btn-secondary"
-                onClick={onOpenFirmwares}
-                title="Servidor de Firmwares: Upload Web e download direto HTTP para equipamentos de rede"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <HardDrive size={15} color="#00bcd4" />
-                <span>Firmwares</span>
-              </button>
-
               {user.role === 'admin' && (
                 <button
                   id="admin-users-btn"

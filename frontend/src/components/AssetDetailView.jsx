@@ -40,7 +40,6 @@ import {
   HardDrive
 } from 'lucide-react';
 import { authService, diagnosticsService } from '../services/api';
-import { FirmwaresModal } from './FirmwaresModal';
 
 // =========================================================================
 // SUB-COMPONENTE: GRÁFICO INTERATIVO SVG PARA ITENS NUMÉRICOS DO ZABBIX
@@ -333,7 +332,7 @@ const ZabbixTextTimeline = ({ history, item }) => {
 // =========================================================================
 // COMPONENTE PRINCIPAL: ASSET DETAIL VIEW
 // =========================================================================
-export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
+export const AssetDetailView = ({ assetId, onBack, isAdmin, onSelectNav }) => {
   const [comparison, setComparison] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [feedback, setFeedback] = useState(null);
@@ -550,7 +549,6 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
   const [guacLaunchData, setGuacLaunchData] = useState(null);
   const [isLoadingGuacLaunch, setIsLoadingGuacLaunch] = useState(false);
   const [showEmbeddedTerminal, setShowEmbeddedTerminal] = useState(false);
-  const [showFirmwaresModal, setShowFirmwaresModal] = useState(false);
 
   // Menu Dropdown de Acesso Web (HTTP / HTTPS)
   const [showWebMenu, setShowWebMenu] = useState(false);
@@ -1494,8 +1492,8 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
                       <button 
                         type="button" 
                         className="btn-secondary"
-                        onClick={() => setShowFirmwaresModal(true)}
-                        title="Servidor de Firmwares: Upload Web e comandos de upgrade para este equipamento"
+                        onClick={() => onSelectNav && onSelectNav('firmwares')}
+                        title="Abrir o frame do Servidor de Firmwares e comandos de upgrade"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                       >
                         <HardDrive size={14} color="#00bcd4" />
@@ -3040,13 +3038,6 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin }) => {
           </div>
         </div>
       )}
-
-      {/* Modal de Firmwares & Arquivos */}
-      <FirmwaresModal
-        isOpen={showFirmwaresModal}
-        onClose={() => setShowFirmwaresModal(false)}
-        asset={formData}
-      />
 
     </div>
   );

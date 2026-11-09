@@ -10,7 +10,7 @@ import { ZabbixAlarmsView } from './components/ZabbixAlarmsView';
 import { WeathermapView } from './components/weathermap/WeathermapView';
 import { IpManagementView } from './components/IpManagementView';
 import { UserManagementModal } from './components/UserManagementModal';
-import { FirmwaresModal } from './components/FirmwaresModal';
+import { FirmwaresView } from './components/FirmwaresView';
 import { authService, diagnosticsService } from './services/api';
 import { ThemeProvider } from './context/ThemeContext';
 import { Loader2 } from 'lucide-react';
@@ -25,7 +25,6 @@ function AppContent() {
   
   // Admin user modal
   const [isUserMgmtOpen, setIsUserMgmtOpen] = useState(false);
-  const [isFirmwaresModalOpen, setIsFirmwaresModalOpen] = useState(false);
 
   const fetchAlarmCount = async () => {
     try {
@@ -96,7 +95,6 @@ function AppContent() {
         }}
         onLogout={handleLogout} 
         onOpenUserManagement={() => setIsUserMgmtOpen(true)}
-        onOpenFirmwares={() => setIsFirmwaresModalOpen(true)}
         alarmCount={alarmCount}
         zabbixAlarmCount={zabbixAlarmCount}
       />
@@ -114,6 +112,7 @@ function AppContent() {
                   assetId={selectedAssetId}
                   onBack={() => setSelectedAssetId(null)}
                   isAdmin={currentUser.role === 'admin'}
+                  onSelectNav={(nav) => setActiveNav(nav)}
                 />
               ) : (
                 <AssetsList 
@@ -161,14 +160,15 @@ function AppContent() {
             {activeNav === 'integrations' && (
               <IntegrationsView 
                 isAdmin={currentUser.role === 'admin'}
+                onSelectNav={(nav) => setActiveNav(nav)}
               />
             )}
 
-            {/* Servidor de Firmwares Modal */}
-            <FirmwaresModal
-              isOpen={isFirmwaresModalOpen}
-              onClose={() => setIsFirmwaresModalOpen(false)}
-            />
+            {activeNav === 'firmwares' && (
+              <FirmwaresView 
+                isAdmin={currentUser.role === 'admin'}
+              />
+            )}
 
             {/* Admin User Management Modal */}
             {currentUser.role === 'admin' && (
