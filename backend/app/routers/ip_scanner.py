@@ -51,6 +51,15 @@ class PrefixCreate(BaseModel):
     client_group: str = Field(..., example="atm")
     description: Optional[str] = Field(default="", example="Switches de agregação Matriz")
     community_id: Optional[int] = None
+    community_ids: Optional[List[int]] = Field(default_factory=list)
+
+
+class PrefixUpdate(BaseModel):
+    prefix: Optional[str] = None
+    client_group: Optional[str] = None
+    description: Optional[str] = None
+    community_id: Optional[int] = None
+    community_ids: Optional[List[int]] = None
 
 
 class PrefixResponse(BaseModel):
@@ -59,6 +68,8 @@ class PrefixResponse(BaseModel):
     client_group: str
     description: Optional[str] = ""
     community_id: Optional[int] = None
+    community_ids: List[int] = []
+    community_names: List[str] = []
     community_name: Optional[str] = None
     last_scan_at: Optional[datetime] = None
     total_hosts_found: Optional[int] = 0
@@ -140,32 +151,54 @@ def delete_community(comm_id: int, db: Session = Depends(get_db), current_user=D
 # ROTAS DE PREFIXOS
 # ==============================================================================
 
+def _resolve_prefix_community_ids(p: IPPrefix) -> List[int]:
+    raw_ids = p.community_ids if isinstance(p.community_ids, list) else []
+    clean_ids = []
+    for cid in raw_ids:
+        try:
+            val = int(cid)
+            if val not in clean_ids:
+                clean_ids.append(val)
+        except (ValueError, TypeError):
+            pass
+    if not clean_ids and p.community_id:
+        clean_ids = [int(p.community_id)]
+    return clean_ids
+
+
+def _build_prefix_response(p: IPPrefix, comm_map: dict) -> PrefixResponse:
+    c_ids = _resolve_prefix_community_ids(p)
+    valid_ids = [cid for cid in c_ids if cid in comm_map]
+    c_names = [comm_map[cid].name for cid in valid_ids]
+    comm_label = ", ".join(c_names) if c_names else "Todas cadastradas"
+    return PrefixResponse(
+        id=p.id,
+        prefix=p.prefix,
+        client_group=p.client_group,
+        description=p.description or "",
+        community_id=valid_ids[0] if valid_ids else None,
+        community_ids=valid_ids,
+        community_names=c_names,
+        community_name=comm_label,
+        last_scan_at=p.last_scan_at,
+        total_hosts_found=p.total_hosts_found or 0,
+        created_at=p.created_at
+    )
+
+
 @router.get("/prefixes", response_model=List[PrefixResponse])
 def list_prefixes(
     client_group: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
+    comm_map = {c.id: c for c in db.query(IPCommunity).all()}
     query = db.query(IPPrefix)
     if client_group and client_group.lower() != "todos":
         query = query.filter(IPPrefix.client_group == client_group)
     
     prefixes = query.order_by(IPPrefix.prefix).all()
-    results = []
-    for p in prefixes:
-        comm_name = p.community_rel.name if p.community_rel else "Padrão (Todas)"
-        results.append(PrefixResponse(
-            id=p.id,
-            prefix=p.prefix,
-            client_group=p.client_group,
-            description=p.description,
-            community_id=p.community_id,
-            community_name=comm_name,
-            last_scan_at=p.last_scan_at,
-            total_hosts_found=p.total_hosts_found or 0,
-            created_at=p.created_at
-        ))
-    return results
+    return [_build_prefix_response(p, comm_map) for p in prefixes]
 
 
 @router.post("/prefixes", response_model=PrefixResponse)
@@ -174,28 +207,74 @@ def create_prefix(item: PrefixCreate, db: Session = Depends(get_db), current_use
     if exists:
         raise HTTPException(status_code=400, detail="Este prefixo já está cadastrado.")
 
+    c_ids = []
+    if item.community_ids:
+        for cid in item.community_ids:
+            if int(cid) not in c_ids:
+                c_ids.append(int(cid))
+    elif item.community_id:
+        c_ids = [int(item.community_id)]
+
     new_pref = IPPrefix(
         prefix=item.prefix.strip(),
         client_group=item.client_group.strip().lower(),
         description=item.description,
-        community_id=item.community_id
+        community_id=c_ids[0] if c_ids else None,
+        community_ids=c_ids
     )
     db.add(new_pref)
     db.commit()
     db.refresh(new_pref)
-    
-    comm_name = new_pref.community_rel.name if new_pref.community_rel else "Padrão"
-    return PrefixResponse(
-        id=new_pref.id,
-        prefix=new_pref.prefix,
-        client_group=new_pref.client_group,
-        description=new_pref.description,
-        community_id=new_pref.community_id,
-        community_name=comm_name,
-        last_scan_at=new_pref.last_scan_at,
-        total_hosts_found=0,
-        created_at=new_pref.created_at
-    )
+
+    comm_map = {c.id: c for c in db.query(IPCommunity).all()}
+    return _build_prefix_response(new_pref, comm_map)
+
+
+@router.put("/prefixes/{prefix_id}", response_model=PrefixResponse)
+def update_prefix(
+    prefix_id: int,
+    item: PrefixUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    pref = db.query(IPPrefix).filter(IPPrefix.id == prefix_id).first()
+    if not pref:
+        raise HTTPException(status_code=404, detail="Prefixo não encontrado.")
+
+    if item.prefix is not None and item.prefix.strip():
+        new_cidr = item.prefix.strip()
+        if new_cidr != pref.prefix:
+            exists = db.query(IPPrefix).filter(IPPrefix.prefix == new_cidr, IPPrefix.id != prefix_id).first()
+            if exists:
+                raise HTTPException(status_code=400, detail="Já existe outro prefixo cadastrado com este CIDR.")
+            pref.prefix = new_cidr
+
+    if item.client_group is not None and item.client_group.strip():
+        pref.client_group = item.client_group.strip().lower()
+
+    if item.description is not None:
+        pref.description = item.description.strip()
+
+    if item.community_ids is not None:
+        c_ids = []
+        for cid in item.community_ids:
+            try:
+                val = int(cid)
+                if val not in c_ids:
+                    c_ids.append(val)
+            except (ValueError, TypeError):
+                pass
+        pref.community_ids = c_ids
+        pref.community_id = c_ids[0] if c_ids else None
+    elif item.community_id is not None:
+        pref.community_id = int(item.community_id) if item.community_id else None
+        pref.community_ids = [int(item.community_id)] if item.community_id else []
+
+    db.commit()
+    db.refresh(pref)
+
+    comm_map = {c.id: c for c in db.query(IPCommunity).all()}
+    return _build_prefix_response(pref, comm_map)
 
 
 @router.delete("/prefixes/{prefix_id}")
@@ -222,16 +301,24 @@ async def trigger_prefix_scan(
     if not pref:
         raise HTTPException(status_code=404, detail="Prefixo não encontrado.")
 
-    # Obter lista de comunidades para testar
-    communities_to_try = []
-    if pref.community_rel:
-        communities_to_try.append(pref.community_rel.community)
-    
-    # Adicionar comunidades padrão
+    # Obter lista de comunidades para testar:
+    # Se o prefixo possui comunidades específicas associadas, testa APENAS elas.
+    # Caso contrário (nenhuma específica selecionada), testa todas as cadastradas.
     all_comms = db.query(IPCommunity).all()
-    for c in all_comms:
-        if c.community not in communities_to_try:
-            communities_to_try.append(c.community)
+    comm_map = {c.id: c for c in all_comms}
+    selected_c_ids = _resolve_prefix_community_ids(pref)
+
+    communities_to_try = []
+    if selected_c_ids:
+        for cid in selected_c_ids:
+            c_obj = comm_map.get(cid)
+            if c_obj and c_obj.community not in communities_to_try:
+                communities_to_try.append(c_obj.community)
+
+    if not communities_to_try:
+        for c in all_comms:
+            if c.community not in communities_to_try:
+                communities_to_try.append(c.community)
 
     if not communities_to_try:
         communities_to_try = ["ipermonitor", "public"]

@@ -9,6 +9,7 @@ import {
   AlertCircle, 
   CheckCircle2, 
   Trash2, 
+  Edit2,
   Layers, 
   Server, 
   Play, 
@@ -45,10 +46,11 @@ export const IpManagementView = ({ onSelectAsset }) => {
 
   // Modais
   const [showPrefixModal, setShowPrefixModal] = useState(false);
+  const [editingPrefixId, setEditingPrefixId] = useState(null);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
 
   // Formulários
-  const [newPrefix, setNewPrefix] = useState({ prefix: '', client_group: '', description: '', community_id: '' });
+  const [newPrefix, setNewPrefix] = useState({ prefix: '', client_group: '', description: '', community_ids: [] });
   const [newCommunity, setNewCommunity] = useState({ name: '', community: '', version: '2c', port: 161, is_default: false });
 
   // Lista dinâmica de clientes: mostra apenas os clientes que possuem prefixo associado
@@ -132,28 +134,78 @@ export const IpManagementView = ({ onSelectAsset }) => {
     }
   };
 
-  // Criar Prefixo
-  const handleCreatePrefix = async (e) => {
+  // Abrir modal para Cadastrar Novo Prefixo
+  const handleOpenNewPrefixModal = () => {
+    setModalError('');
+    setEditingPrefixId(null);
+    setNewPrefix({ prefix: '', client_group: '', description: '', community_ids: [] });
+    setShowPrefixModal(true);
+  };
+
+  // Abrir modal para Editar Prefixo Existente
+  const handleOpenEditPrefixModal = (pref) => {
+    setModalError('');
+    setEditingPrefixId(pref.id);
+    const currentIds = Array.isArray(pref.community_ids) && pref.community_ids.length > 0
+      ? pref.community_ids.map(Number)
+      : (pref.community_id ? [Number(pref.community_id)] : []);
+    setNewPrefix({
+      prefix: pref.prefix || '',
+      client_group: pref.client_group || '',
+      description: pref.description || '',
+      community_ids: currentIds
+    });
+    setShowPrefixModal(true);
+  };
+
+  // Alternar seleção de comunidade SNMP no modal do prefixo
+  const handleToggleCommunityId = (commId) => {
+    const idNum = Number(commId);
+    setNewPrefix((prev) => {
+      const exists = prev.community_ids.includes(idNum);
+      return {
+        ...prev,
+        community_ids: exists
+          ? prev.community_ids.filter((id) => id !== idNum)
+          : [...prev.community_ids, idNum]
+      };
+    });
+  };
+
+  // Criar ou Editar Prefixo
+  const handleSavePrefix = async (e) => {
     e.preventDefault();
     setModalError('');
     if (!newPrefix.prefix.trim() || !newPrefix.client_group.trim()) return;
+    const payload = {
+      prefix: newPrefix.prefix.trim(),
+      client_group: newPrefix.client_group.trim().toLowerCase(),
+      description: (newPrefix.description || '').trim(),
+      community_ids: (newPrefix.community_ids || []).map(Number)
+    };
     try {
-      const created = await ipScannerService.createPrefix({
-        prefix: newPrefix.prefix.trim(),
-        client_group: newPrefix.client_group.trim().toLowerCase(),
-        description: newPrefix.description.trim(),
-        community_id: newPrefix.community_id ? parseInt(newPrefix.community_id) : null
-      });
-      setShowPrefixModal(false);
-      setNewPrefix({ prefix: '', client_group: '', description: '', community_id: '' });
-      setSelectedClient('todos');
-      setScanResultToast({
-        type: 'success',
-        message: `Prefixo ${created.prefix} (${created.client_group.toUpperCase()}) cadastrado! Clique em "Escanear Agora" na tabela abaixo para iniciar a descoberta.`
-      });
+      if (editingPrefixId) {
+        const updated = await ipScannerService.updatePrefix(editingPrefixId, payload);
+        setShowPrefixModal(false);
+        setEditingPrefixId(null);
+        setNewPrefix({ prefix: '', client_group: '', description: '', community_ids: [] });
+        setScanResultToast({
+          type: 'success',
+          message: `Prefixo ${updated.prefix} (${updated.client_group.toUpperCase()}) atualizado com sucesso!`
+        });
+      } else {
+        const created = await ipScannerService.createPrefix(payload);
+        setShowPrefixModal(false);
+        setNewPrefix({ prefix: '', client_group: '', description: '', community_ids: [] });
+        setSelectedClient('todos');
+        setScanResultToast({
+          type: 'success',
+          message: `Prefixo ${created.prefix} (${created.client_group.toUpperCase()}) cadastrado! Clique em "Escanear Agora" na tabela abaixo para iniciar a descoberta.`
+        });
+      }
       await loadAllData();
     } catch (err) {
-      setModalError(err.message || 'Erro ao cadastrar prefixo.');
+      setModalError(err.message || 'Erro ao salvar prefixo.');
     }
   };
 
@@ -227,7 +279,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
 
           <button 
             className="btn-primary" 
-            onClick={() => { setModalError(''); setShowPrefixModal(true); }}
+            onClick={handleOpenNewPrefixModal}
             style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', width: 'auto', padding: '0.55rem 1rem' }}
           >
             <Plus size={16} />
@@ -410,7 +462,30 @@ export const IpManagementView = ({ onSelectAsset }) => {
                   </td>
 
                   <td style={{ color: 'var(--text-main)', fontWeight: 500 }}>
-                    {pref.community_name || 'Padrão (Todas)'}
+                    {Array.isArray(pref.community_names) && pref.community_names.length > 0 ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {pref.community_names.map((cName, idx) => (
+                          <span
+                            key={idx}
+                            style={{
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-medium)',
+                              color: 'var(--text-main)',
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              fontSize: '0.73rem',
+                              fontWeight: 600
+                            }}
+                          >
+                            {cName}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                        {pref.community_name || 'Todas cadastradas'}
+                      </span>
+                    )}
                   </td>
 
                   <td style={{ color: 'var(--text-secondary)' }}>
@@ -437,6 +512,16 @@ export const IpManagementView = ({ onSelectAsset }) => {
                       >
                         <Play size={13} className={scanningPrefixId === pref.id ? 'spin-icon' : ''} />
                         <span>{scanningPrefixId === pref.id ? 'Escaneando...' : 'Escanear Agora'}</span>
+                      </button>
+
+                      <button
+                        className="btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '6px 10px' }}
+                        onClick={() => handleOpenEditPrefixModal(pref)}
+                        title="Editar Prefixo e Comunidades SNMP"
+                      >
+                        <Edit2 size={14} />
+                        <span>Editar</span>
                       </button>
 
                       <button
@@ -590,15 +675,17 @@ export const IpManagementView = ({ onSelectAsset }) => {
       </div>
 
       {/* ==================================================================== */}
-      {/* MODAL: CADASTRAR PREFIXO (Usando Design System Nativo do IperSoft)   */}
+      {/* MODAL: CADASTRAR / EDITAR PREFIXO                                    */}
       {/* ==================================================================== */}
       {showPrefixModal && (
         <div className="modal-overlay" onClick={() => setShowPrefixModal(false)}>
-          <div className="modal-container" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-container" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title-box">
                 <Network size={20} className="modal-title-icon" />
-                <h2 className="modal-title">Cadastrar Sub-rede / Prefixo</h2>
+                <h2 className="modal-title">
+                  {editingPrefixId ? 'Editar Sub-rede / Prefixo' : 'Cadastrar Sub-rede / Prefixo'}
+                </h2>
               </div>
               <button className="btn-close-modal" onClick={() => setShowPrefixModal(false)} title="Fechar">
                 <X size={18} />
@@ -613,7 +700,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
             )}
 
             <div className="modal-body">
-              <form onSubmit={handleCreatePrefix} className="admin-create-form">
+              <form onSubmit={handleSavePrefix} className="admin-create-form">
                 <div className="form-group" style={{ marginBottom: '1rem' }}>
                   <label className="form-label">Prefixo CIDR *</label>
                   <input
@@ -639,17 +726,88 @@ export const IpManagementView = ({ onSelectAsset }) => {
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '1rem' }}>
-                  <label className="form-label">Comunidade SNMP Específica</label>
-                  <select
-                    className="form-input"
-                    value={newPrefix.community_id}
-                    onChange={(e) => setNewPrefix({ ...newPrefix, community_id: e.target.value })}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                    <label className="form-label" style={{ margin: 0 }}>
+                      Comunidades SNMP Associadas ({(newPrefix.community_ids || []).length === 0 ? 'Todas' : `${newPrefix.community_ids.length} selecionada(s)`})
+                    </label>
+                    {communities.length > 0 && (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setNewPrefix({ ...newPrefix, community_ids: communities.map((c) => Number(c.id)) })}
+                          style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                        >
+                          Marcar todas
+                        </button>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>|</span>
+                        <button
+                          type="button"
+                          onClick={() => setNewPrefix({ ...newPrefix, community_ids: [] })}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                        >
+                          Limpar seleção
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                    Selecione apenas as comunidades desejadas para este prefixo. Se nenhuma for marcada, o scanner testará todas as cadastradas.
+                  </div>
+
+                  <div
+                    style={{
+                      maxHeight: '165px',
+                      overflowY: 'auto',
+                      border: '1px solid var(--border-medium)',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--bg-secondary)',
+                      padding: '0.5rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.35rem'
+                    }}
                   >
-                    <option value="">Padrão (Tentar todas cadastradas)</option>
-                    {communities.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.community})</option>
-                    ))}
-                  </select>
+                    {communities.length === 0 ? (
+                      <div style={{ padding: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center' }}>
+                        Nenhuma comunidade cadastrada ainda.
+                      </div>
+                    ) : (
+                      communities.map((c) => {
+                        const isChecked = (newPrefix.community_ids || []).includes(Number(c.id));
+                        return (
+                          <label
+                            key={c.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              background: isChecked ? 'var(--color-primary-subtle)' : 'var(--bg-surface)',
+                              border: isChecked ? '1px solid var(--color-primary)' : '1px solid var(--border-subtle)',
+                              color: 'var(--text-main)',
+                              fontSize: '0.83rem'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleToggleCommunityId(c.id)}
+                                style={{ cursor: 'pointer', accentColor: 'var(--color-primary)' }}
+                              />
+                              <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{c.name}</span>
+                            </div>
+                            <code style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>
+                              {c.community}
+                            </code>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '1.25rem' }}>
@@ -668,7 +826,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
                     Cancelar
                   </button>
                   <button type="submit" className="btn-primary" style={{ width: 'auto', padding: '0.6rem 1.4rem' }}>
-                    Salvar Prefixo
+                    {editingPrefixId ? 'Salvar Alterações' : 'Salvar Prefixo'}
                   </button>
                 </div>
               </form>

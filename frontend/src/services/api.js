@@ -1177,6 +1177,14 @@ export const ipScannerService = {
     }, 'Erro ao cadastrar prefixo');
   },
 
+  updatePrefix: async (id, data) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/prefixes/${id}`, {
+      method: 'PUT',
+      headers: { ...authService.getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }, 'Erro ao atualizar prefixo');
+  },
+
   deletePrefix: async (id) => {
     return safeFetchJson(`${API_BASE_URL}/ip-scanner/prefixes/${id}`, {
       method: 'DELETE',

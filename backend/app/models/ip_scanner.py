@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -27,6 +27,7 @@ class IPPrefix(Base):
     client_group = Column(String(100), nullable=False, index=True)  # Ex: "atm", "athila", "bkup"
     description = Column(String(200), nullable=True)
     community_id = Column(Integer, ForeignKey("ip_communities.id", ondelete="SET NULL"), nullable=True)
+    community_ids = Column(JSON, default=list, nullable=True)  # Lista de IDs de comunidades associadas ao prefixo
     
     last_scan_at = Column(DateTime(timezone=True), nullable=True)
     total_hosts_found = Column(Integer, default=0)
