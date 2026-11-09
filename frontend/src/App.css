@@ -5566,4 +5566,100 @@
   font-weight: 700;
 }
 
+/* ==========================================================================
+   DENSIDADE COMPACTA & FILTROS RETRÁTEIS (UX FASE 4)
+   ========================================================================== */
+.users-table.is-compact th,
+.users-table.is-compact td,
+.assets-table.is-compact th,
+.assets-table.is-compact td {
+  padding: 6px 10px !important;
+  font-size: 0.8rem !important;
+}
+
+.users-table.is-compact tr,
+.assets-table.is-compact tr {
+  height: 34px !important;
+}
+
+.users-table.is-compact .badge-status-pill,
+.users-table.is-compact .badge-tag-canonical,
+.users-table.is-compact .acc-test-pill,
+.users-table.is-compact .status-badge,
+.assets-table.is-compact .badge-status-pill,
+.assets-table.is-compact .badge-tag-canonical,
+.assets-table.is-compact .acc-test-pill,
+.assets-table.is-compact .status-badge {
+  padding: 1px 6px !important;
+  font-size: 0.68rem !important;
+}
+
+.users-table.is-compact .btn-icon-subtle,
+.users-table.is-compact .btn-table-action,
+.assets-table.is-compact .btn-icon-subtle,
+.assets-table.is-compact .btn-table-action {
+  padding: 2px 4px !important;
+  font-size: 0.72rem !important;
+}
+
+.advanced-filters-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1.25rem;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.filter-chip-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-chip-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.btn-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.btn-filter-trigger:hover,
+.btn-filter-trigger.has-active {
+  border-color: var(--color-primary);
+  color: var(--text-main);
+  background: rgba(255, 107, 0, 0.08);
+}
+
+.filter-badge-count {
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+
 

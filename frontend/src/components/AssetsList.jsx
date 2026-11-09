@@ -31,9 +31,12 @@ import {
   CheckSquare,
   HardDrive,
   PowerOff,
-  Zap
+  Zap,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { authService, diagnosticsService } from '../services/api';
+import { DensityToggle } from './common/DensityToggle';
 
 // Função para ordenação natural de endereços IPv4
 const parseIPv4 = (ipStr) => {
@@ -383,6 +386,30 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
   const [sortField, setSortField] = useState('name'); // 'name' | 'ip'
   const [sortDirection, setSortDirection] = useState('asc'); // 'asc' | 'desc'
   const [showOnlyDuplicates, setShowOnlyDuplicates] = useState(false);
+
+  // Densidade e Filtros Avançados
+  const [density, setDensity] = useState(() => {
+    return localStorage.getItem('ipersoft_density_assets_table') || 'comfortable';
+  });
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(() => {
+    return localStorage.getItem('ipersoft_assets_show_filters') === 'true';
+  });
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedGroup) count++;
+    if (statusFilter !== 'all') count++;
+    if (presenceFilter !== 'all') count++;
+    if (showOnlyDuplicates) count++;
+    return count;
+  }, [selectedGroup, statusFilter, presenceFilter, showOnlyDuplicates]);
+
+  const handleClearFilters = () => {
+    setSelectedGroup('');
+    setStatusFilter('all');
+    setPresenceFilter('all');
+    setShowOnlyDuplicates(false);
+  };
 
   // Seleção múltipla para ações em lote
   const [selectedAssetIds, setSelectedAssetIds] = useState([]);
@@ -848,7 +875,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
         </div>
       </div>
 
-      {/* UNIFIED TOOLBAR: VIEW MODE TABS + SEARCH + GROUP + STATUS */}
+      {/* UNIFIED TOOLBAR: VIEW MODE TABS + SEARCH + FILTERS TRIGGER + DENSITY */}
       <div className="assets-filters-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
         <div className="view-mode-tabs">
           <button
@@ -893,7 +920,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center', flex: '1', justifyContent: 'flex-end' }}>
           {/* Search */}
-          <form onSubmit={handleSearchSubmit} className="search-box-form" style={{ minWidth: '250px', flex: '1', maxWidth: '380px' }}>
+          <form onSubmit={handleSearchSubmit} className="search-box-form" style={{ minWidth: '220px', flex: '1', maxWidth: '340px' }}>
             <div className="input-wrapper search-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Search size={15} className="input-icon" />
               <input
@@ -930,13 +957,44 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
             </div>
           </form>
 
-          {/* Group select */}
-          <div className="group-filter-box">
-            <Filter size={14} className="filter-icon" />
+          {/* Botão Gatilho de Filtros Retráteis */}
+          <button
+            type="button"
+            className={`btn-filter-trigger ${activeFilterCount > 0 ? 'has-active' : ''}`}
+            onClick={() => {
+              const next = !showAdvancedFilters;
+              setShowAdvancedFilters(next);
+              localStorage.setItem('ipersoft_assets_show_filters', String(next));
+            }}
+            title="Expandir ou recolher filtros de cliente, status e presença"
+          >
+            <Filter size={14} />
+            <span>Filtros</span>
+            {activeFilterCount > 0 && (
+              <span className="filter-badge-count">{activeFilterCount}</span>
+            )}
+            {showAdvancedFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+
+          {/* Alternador de Densidade */}
+          <DensityToggle
+            storageKey="assets_table"
+            density={density}
+            onChange={setDensity}
+          />
+        </div>
+      </div>
+
+      {/* PAINEL RETRÁTIL DE FILTROS AVANÇADOS */}
+      {showAdvancedFilters && (
+        <div className="advanced-filters-panel">
+          <div className="filter-chip-group">
+            <span className="filter-chip-label">Grupo / Cliente</span>
             <select
               className="form-input group-select"
               value={selectedGroup}
               onChange={(e) => setSelectedGroup(e.target.value)}
+              style={{ minWidth: '180px' }}
             >
               <option value="">Todos os Grupos ({stats.groups_count})</option>
               {(stats.groups_list || []).map((g, idx) => (
@@ -945,21 +1003,60 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
             </select>
           </div>
 
-          {/* Status select */}
-          <div className="group-filter-box">
+          <div className="filter-chip-group">
+            <span className="filter-chip-label">Status do Monitoramento</span>
             <select
               className="form-input group-select"
-              style={{ paddingLeft: '0.75rem' }}
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
+              style={{ minWidth: '180px' }}
             >
               <option value="all">Todos os Status ({stats.total})</option>
               <option value="monitored">Ativos / Monitorados ({stats.monitored})</option>
               <option value="unmonitored">Inativos / Desativados ({stats.unmonitored})</option>
             </select>
           </div>
+
+          <div className="filter-chip-group">
+            <span className="filter-chip-label">Vínculo de Plataformas</span>
+            <select
+              className="form-input group-select"
+              value={presenceFilter}
+              onChange={(e) => setPresenceFilter(e.target.value)}
+              style={{ minWidth: '180px' }}
+            >
+              <option value="all">Todas as Integrações</option>
+              <option value="both">Ambas (Zabbix & Guacamole)</option>
+              <option value="missing_guacamole">Pendente no Guacamole</option>
+              <option value="missing_zabbix">Pendente no Zabbix</option>
+            </select>
+          </div>
+
+          <div className="filter-chip-group" style={{ justifyContent: 'flex-end' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer', paddingBottom: '6px', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={showOnlyDuplicates}
+                onChange={(e) => setShowOnlyDuplicates(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              <span>Apenas IPs Duplicados</span>
+            </label>
+          </div>
+
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleClearFilters}
+              style={{ padding: '6px 12px', fontSize: '0.78rem', height: 'auto', alignSelf: 'flex-end', marginLeft: 'auto' }}
+            >
+              <X size={13} />
+              <span>Limpar Filtros ({activeFilterCount})</span>
+            </button>
+          )}
         </div>
-      </div>
+      )}
 
       {feedbackMsg && (
         <div className={`alert-box alert-${feedbackMsg.type}`} style={{ marginBottom: '1rem' }}>
@@ -1117,7 +1214,7 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
             </p>
           </div>
         ) : (
-          <table className="users-table assets-table">
+          <table className={`users-table assets-table ${density === 'compact' ? 'is-compact' : ''}`}>
             {/* 1. VISÃO PRINCIPAL LIMPA: EQUIPAMENTO, SINCRONIZAÇÃO E TESTES */}
             {viewMode === 'unified' && (
               <>

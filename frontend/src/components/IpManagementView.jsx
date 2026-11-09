@@ -19,8 +19,13 @@ import {
   Activity
 } from 'lucide-react';
 import { ipScannerService } from '../services/api';
+import { AccordionSection } from './common/AccordionSection';
+import { DensityToggle } from './common/DensityToggle';
 
 export const IpManagementView = ({ onSelectAsset }) => {
+  const [density, setDensity] = useState(() => {
+    return localStorage.getItem('ipersoft_density_ip_table') || 'comfortable';
+  });
   const [selectedClient, setSelectedClient] = useState('todos');
   const [selectedPrefixId, setSelectedPrefixId] = useState('');
   const [search, setSearch] = useState('');
@@ -667,20 +672,28 @@ export const IpManagementView = ({ onSelectAsset }) => {
       {/* ==================================================================== */}
       {/* SEÇÃO 1: PREFIXOS CADASTRADOS & BOTÃO DE SCAN MANUAL                 */}
       {/* ==================================================================== */}
-      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '1.25rem', marginBottom: '1.5rem', overflowX: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Layers size={18} style={{ color: 'var(--color-primary)' }} />
-            <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
-              Sub-redes / Prefixos Cadastrados ({filteredPrefixes.length})
-            </h2>
-          </div>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            Clique em <strong>Escanear Agora</strong> para disparar a varredura manual da sub-rede
-          </span>
-        </div>
-
-        <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+      <div style={{ marginBottom: '1.25rem' }}>
+        <AccordionSection
+          title={`Sub-redes / Prefixos Cadastrados (${filteredPrefixes.length})`}
+          subtitle="Gerenciamento de blocos CIDR, comunidades SNMP e agentes de varredura"
+          icon={Layers}
+          defaultOpen={true}
+          storageKey="ip_prefixes_acc"
+          badge={
+            selectedPrefixId ? (
+              <span className="badge-tag-canonical" style={{ background: 'var(--color-primary-subtle)', color: 'var(--color-primary)' }}>
+                Filtro Ativo: {filteredPrefixes.find(p => String(p.id) === String(selectedPrefixId))?.prefix || selectedPrefixId}
+              </span>
+            ) : null
+          }
+          headerRight={
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              {selectedPrefixId ? 'Clique para desmarcar filtro' : 'Clique no prefixo para filtrar'}
+            </span>
+          }
+        >
+          <div style={{ overflowX: 'auto' }}>
+            <table className={`users-table ${density === 'compact' ? 'is-compact' : ''}`} style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
           <thead>
             <tr>
               <th>Prefixo CIDR</th>
@@ -802,6 +815,8 @@ export const IpManagementView = ({ onSelectAsset }) => {
             )}
           </tbody>
         </table>
+          </div>
+        </AccordionSection>
       </div>
 
       {/* ==================================================================== */}
@@ -854,7 +869,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <form onSubmit={handleSearchSubmit} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: '280px' }}>
+            <form onSubmit={handleSearchSubmit} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: '260px' }}>
               <div style={{ position: 'relative', width: '100%' }}>
                 <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input
@@ -863,10 +878,10 @@ export const IpManagementView = ({ onSelectAsset }) => {
                   placeholder={activeTab === 'vlans' ? "Buscar por VLAN ID, Nome ou Equipamento..." : "Buscar por IP, Hostname ou Modelo..."}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  style={{ paddingLeft: '2.2rem', height: '38px' }}
+                  style={{ paddingLeft: '2.2rem', height: '36px' }}
                 />
               </div>
-              <button type="submit" className="btn-secondary" style={{ height: '38px', padding: '0 1rem' }}>
+              <button type="submit" className="btn-secondary" style={{ height: '36px', padding: '0 0.85rem' }}>
                 Filtrar
               </button>
             </form>
@@ -878,7 +893,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
                   className="form-input"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  style={{ width: 'auto', height: '38px', padding: '0 0.85rem' }}
+                  style={{ width: 'auto', height: '36px', padding: '0 0.85rem' }}
                 >
                   <option value="all">Todos os Status</option>
                   <option value="snmp_and_icmp">SNMP + ICMP (Ativos Completos)</option>
@@ -886,12 +901,18 @@ export const IpManagementView = ({ onSelectAsset }) => {
                 </select>
               </div>
             )}
+
+            <DensityToggle
+              storageKey="ip_table"
+              density={density}
+              onChange={setDensity}
+            />
           </div>
         </div>
 
         {/* Table IPs vs Table VLANs */}
         {activeTab === 'ips' ? (
-          <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <table className={`users-table ${density === 'compact' ? 'is-compact' : ''}`} style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr>
                 <th>Status</th>
@@ -977,7 +998,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
             </tbody>
           </table>
         ) : (
-          <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <table className={`users-table ${density === 'compact' ? 'is-compact' : ''}`} style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr>
                 <th>Cliente</th>
