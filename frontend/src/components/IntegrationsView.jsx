@@ -16,17 +16,19 @@ import {
   RotateCcw,
   Settings,
   Clock,
-  ChevronDown,
   ChevronRight,
   FileText,
-  Activity,
   HardDrive,
   UploadCloud
 } from 'lucide-react';
 import { authService } from '../services/api';
 import { ZabbixTemplatesModal } from './ZabbixTemplatesModal';
+import { SlideOverDrawer } from './common/SlideOverDrawer';
 
 export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
+  // Estado do Drawer Lateral (qual integração está sendo configurada)
+  const [activeDrawer, setActiveDrawer] = useState(null);
+
   // Zabbix state
   const [zbxUrl, setZbxUrl] = useState('');
   const [zbxToken, setZbxToken] = useState('');
@@ -40,7 +42,6 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
   const [zbxTesting, setZbxTesting] = useState(false);
   const [zbxSyncing, setZbxSyncing] = useState(false);
   const [zbxSyncResult, setZbxSyncResult] = useState(null);
-  const [showZbxSettings, setShowZbxSettings] = useState(false);
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [templateUpdatesCount, setTemplateUpdatesCount] = useState(0);
 
@@ -56,7 +57,6 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
   const [guacTesting, setGuacTesting] = useState(false);
   const [guacMatching, setGuacMatching] = useState(false);
   const [guacMatchResult, setGuacMatchResult] = useState(null);
-  const [showGuacSettings, setShowGuacSettings] = useState(false);
 
   // Oxidized state
   const [oxUrl, setOxUrl] = useState('https://oxidized.iper.net.br');
@@ -71,7 +71,6 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
   const [oxReloading, setOxReloading] = useState(false);
   const [oxSyncResult, setOxSyncResult] = useState(null);
   const [copiedSourceUrl, setCopiedSourceUrl] = useState(false);
-  const [showOxSettings, setShowOxSettings] = useState(false);
 
   // VictoriaLogs state
   const [vlogsUrl, setVlogsUrl] = useState('http://10.10.1.2:9428');
@@ -79,7 +78,6 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
   const [vlogsLoading, setVlogsLoading] = useState(false);
   const [vlogsTesting, setVlogsTesting] = useState(false);
   const [vlogsStats, setVlogsStats] = useState(null);
-  const [showVlogsSettings, setShowVlogsSettings] = useState(false);
 
   // Firmwares state
   const [fwHttpUrl, setFwHttpUrl] = useState('http://10.10.1.2:8089');
@@ -88,7 +86,6 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
   const [fwLoading, setFwLoading] = useState(false);
   const [fwTesting, setFwTesting] = useState(false);
   const [fwFilesData, setFwFilesData] = useState(null);
-  const [showFwSettings, setShowFwSettings] = useState(false);
 
   // Global feedback
   const [feedback, setFeedback] = useState(null);
@@ -116,7 +113,6 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
         setZbxIsConnected(zbxCfg.is_active || false);
         setZbxLastSync(zbxCfg.last_sync || null);
         if (zbxCfg.username) setZbxAuthType('userpass');
-        if (!zbxCfg.is_active) setShowZbxSettings(true);
 
         authService.getZabbixTemplateUpdates()
           .then(data => {
@@ -134,7 +130,6 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
         setGuacHasPassword(guacCfg.has_password || false);
         setGuacIsConnected(guacCfg.is_active || false);
         setGuacLastSync(guacCfg.last_sync || null);
-        if (!guacCfg.is_active) setShowGuacSettings(true);
       }
 
       if (oxCfg) {
@@ -143,13 +138,11 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
         setOxHasPassword(oxCfg.has_password || false);
         setOxIsConnected(oxCfg.is_active || false);
         setOxLastSync(oxCfg.last_sync || null);
-        if (!oxCfg.is_active) setShowOxSettings(true);
       }
 
       if (vlogsCfg) {
         setVlogsUrl(vlogsCfg.url || 'http://10.10.1.2:9428');
         setVlogsIsConnected(vlogsCfg.is_active || false);
-        if (!vlogsCfg.is_active) setShowVlogsSettings(true);
       }
 
       if (vlogsStatData) {
@@ -160,7 +153,6 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
         setFwHttpUrl(fwCfg.url || 'http://10.10.1.2:8089');
         setFwWebUrl(fwCfg.public_url || 'https://firmware.iper.net.br');
         setFwIsConnected(fwCfg.is_active || false);
-        if (!fwCfg.is_active) setShowFwSettings(true);
       }
 
       if (fwFiles) {
@@ -523,25 +515,26 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
 
   return (
     <div className="integrations-view">
-      {/* Header */}
+      {/* Header Panorâmico */}
       <div className="integrations-header">
         <div>
           <h1 className="section-title">Integrações de Sistemas</h1>
           <p className="dashboard-sub">
-            Sincronização de inventário e credenciais de API com Zabbix Server, Apache Guacamole e Oxidized
+            Conectividade, sincronização de ativos e credenciais de API com toda a stack de monitoramento
           </p>
         </div>
       </div>
 
-      {feedback && (
+      {feedback && !activeDrawer && (
         <div className={`alert-box alert-${feedback.type}`} style={{ marginBottom: '1.25rem' }}>
           {feedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
           <span>{feedback.text}</span>
         </div>
       )}
 
-      {/* GRID EM 3 COLUNAS PARA AS 3 INTEGRAÇÕES ATIVAS */}
-      <div className="integrations-three-col-grid">
+      {/* GRADE PANORÂMICA DE INTEGRAÇÕES */}
+      <div className="integrations-three-col-grid" style={{ alignItems: 'stretch' }}>
+        
         {/* 1. ZABBIX SERVER CARD */}
         <div className="integration-main-card">
           <div className="integration-card-header">
@@ -564,10 +557,21 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
                   </span>
                 </div>
                 <p className="integration-main-sub">
-                  Importação automática de hosts a cada <strong>1 hora</strong>. O envio de alterações do IperSoft para o Zabbix é estritamente manual.
+                  Importação automática de hosts a cada <strong>1 hora</strong>. O envio para o Zabbix é estritamente manual.
                 </p>
               </div>
             </div>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setActiveDrawer('zabbix')}
+                title="Configurações e Credenciais do Zabbix"
+                style={{ borderRadius: '8px', padding: '6px' }}
+              >
+                <Settings size={16} />
+              </button>
+            )}
           </div>
 
           <div className="integration-status-strip">
@@ -653,125 +657,16 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
             </div>
           )}
 
-          {/* Seção retrátil de credenciais */}
-          <div className="integration-settings-collapse">
+          <div style={{ marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
             <button
               type="button"
               className="btn-collapse-settings"
-              onClick={() => setShowZbxSettings(!showZbxSettings)}
+              onClick={() => setActiveDrawer('zabbix')}
             >
               <Settings size={14} />
-              <span>Configurações de Conexão e Credenciais</span>
-              {showZbxSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
+              <span>Configurações & Credenciais</span>
+              <ChevronRight size={15} style={{ marginLeft: 'auto' }} />
             </button>
-
-            {showZbxSettings && (
-              <form onSubmit={handleSaveZabbix} className="integration-form" style={{ marginTop: '0.85rem' }}>
-                <div className="form-group">
-                  <label className="form-label">URL da API Zabbix</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="ex: http://192.168.1.50/zabbix"
-                    value={zbxUrl}
-                    onChange={(e) => setZbxUrl(e.target.value)}
-                    disabled={!isAdmin || zbxLoading}
-                    required
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Método de Autenticação</label>
-                  <div className="auth-mode-selector">
-                    <label className="radio-label">
-                      <input
-                        type="radio"
-                        name="zbxAuthType"
-                        value="token"
-                        checked={zbxAuthType === 'token'}
-                        onChange={() => setZbxAuthType('token')}
-                        disabled={!isAdmin || zbxLoading}
-                      />
-                      <span>API Token (5.4+)</span>
-                    </label>
-                    <label className="radio-label">
-                      <input
-                        type="radio"
-                        name="zbxAuthType"
-                        value="userpass"
-                        checked={zbxAuthType === 'userpass'}
-                        onChange={() => setZbxAuthType('userpass')}
-                        disabled={!isAdmin || zbxLoading}
-                      />
-                      <span>Usuário / Senha</span>
-                    </label>
-                  </div>
-                </div>
-
-                {zbxAuthType === 'token' ? (
-                  <div className="form-group">
-                    <label className="form-label">
-                      API Token {zbxHasToken && <span className="tag-saved">(Gravado)</span>}
-                    </label>
-                    <input
-                      type="password"
-                      className="form-input"
-                      placeholder={zbxHasToken ? '•••••••••••• (em branco mantém)' : 'Cole o token da API'}
-                      value={zbxToken}
-                      onChange={(e) => setZbxToken(e.target.value)}
-                      disabled={!isAdmin || zbxLoading}
-                    />
-                  </div>
-                ) : (
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label className="form-label">Usuário</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="Admin"
-                        value={zbxUsername}
-                        onChange={(e) => setZbxUsername(e.target.value)}
-                        disabled={!isAdmin || zbxLoading}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Senha</label>
-                      <input
-                        type="password"
-                        className="form-input"
-                        placeholder="Senha"
-                        value={zbxPassword}
-                        onChange={(e) => setZbxPassword(e.target.value)}
-                        disabled={!isAdmin || zbxLoading}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="integration-actions-footer">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={handleTestZabbix}
-                    disabled={zbxTesting || zbxLoading || zbxSyncing}
-                  >
-                    {zbxTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
-                    <span>Testar</span>
-                  </button>
-                  {isAdmin && (
-                    <button
-                      type="submit"
-                      className="btn-primary"
-                      style={{ width: 'auto' }}
-                      disabled={zbxLoading || zbxTesting || zbxSyncing}
-                    >
-                      {zbxLoading ? 'Salvando...' : 'Salvar'}
-                    </button>
-                  )}
-                </div>
-              </form>
-            )}
           </div>
         </div>
 
@@ -797,10 +692,21 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
                   </span>
                 </div>
                 <p className="integration-main-sub">
-                  Importação automática de conexões (SSH/Telnet/RDP) a cada <strong>1 hora</strong>. Criação e edição no Guacamole são manuais.
+                  Importação automática de conexões (SSH/Telnet/RDP) a cada <strong>1 hora</strong>. Criação e edição são manuais.
                 </p>
               </div>
             </div>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setActiveDrawer('guacamole')}
+                title="Configurações e Credenciais do Guacamole"
+                style={{ borderRadius: '8px', padding: '6px' }}
+              >
+                <Settings size={16} />
+              </button>
+            )}
           </div>
 
           <div className="integration-status-strip">
@@ -850,100 +756,16 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
             </div>
           )}
 
-          {/* Seção retrátil de credenciais */}
-          <div className="integration-settings-collapse">
+          <div style={{ marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
             <button
               type="button"
               className="btn-collapse-settings"
-              onClick={() => setShowGuacSettings(!showGuacSettings)}
+              onClick={() => setActiveDrawer('guacamole')}
             >
               <Settings size={14} />
-              <span>Configurações de Conexão e Credenciais</span>
-              {showGuacSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
+              <span>Configurações & Credenciais</span>
+              <ChevronRight size={15} style={{ marginLeft: 'auto' }} />
             </button>
-
-            {showGuacSettings && (
-              <form onSubmit={handleSaveGuacamole} className="integration-form" style={{ marginTop: '0.85rem' }}>
-                <div className="form-group">
-                  <label className="form-label">URL da API Guacamole (Servidor / Backend)</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="ex: https://guacamoles.iper.net.br/guacamole ou http://10.10.1.2:8086/guacamole"
-                    value={guacUrl}
-                    onChange={(e) => setGuacUrl(e.target.value)}
-                    disabled={!isAdmin || guacLoading || guacMatching}
-                    required
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">URL Pública / Externa (Navegador & Terminal Embutido)</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="https://guacamoles.iper.net.br/guacamole"
-                    value={guacPublicUrl}
-                    onChange={(e) => setGuacPublicUrl(e.target.value)}
-                    disabled={!isAdmin || guacLoading || guacMatching}
-                    required
-                  />
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
-                    URL pública HTTPS acessada pelo navegador do operador para login SSO direto e terminal embutido.
-                  </span>
-                </div>
-
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label className="form-label">Usuário Admin</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="guacadmin"
-                      value={guacUsername}
-                      onChange={(e) => setGuacUsername(e.target.value)}
-                      disabled={!isAdmin || guacLoading || guacMatching}
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">
-                      Senha {guacHasPassword && <span className="tag-saved">(Gravada)</span>}
-                    </label>
-                    <input
-                      type="password"
-                      className="form-input"
-                      placeholder={guacHasPassword ? '••••••••••••' : 'Senha'}
-                      value={guacPassword}
-                      onChange={(e) => setGuacPassword(e.target.value)}
-                      disabled={!isAdmin || guacLoading || guacMatching}
-                    />
-                  </div>
-                </div>
-
-                <div className="integration-actions-footer">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={handleTestGuacamole}
-                    disabled={guacTesting || guacLoading || guacMatching}
-                  >
-                    {guacTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
-                    <span>Testar</span>
-                  </button>
-                  {isAdmin && (
-                    <button
-                      type="submit"
-                      className="btn-primary"
-                      style={{ width: 'auto' }}
-                      disabled={guacLoading || guacTesting || guacMatching}
-                    >
-                      {guacLoading ? 'Salvando...' : 'Salvar'}
-                    </button>
-                  )}
-                </div>
-              </form>
-            )}
           </div>
         </div>
 
@@ -973,6 +795,17 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
                 </p>
               </div>
             </div>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setActiveDrawer('oxidized')}
+                title="Configurações e Endpoint do Oxidized"
+                style={{ borderRadius: '8px', padding: '6px' }}
+              >
+                <Settings size={16} />
+              </button>
+            )}
           </div>
 
           <div className="integration-status-strip">
@@ -1022,110 +855,16 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
             </div>
           )}
 
-          {/* Seção retrátil de credenciais + Endpoint source: http */}
-          <div className="integration-settings-collapse">
+          <div style={{ marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
             <button
               type="button"
               className="btn-collapse-settings"
-              onClick={() => setShowOxSettings(!showOxSettings)}
+              onClick={() => setActiveDrawer('oxidized')}
             >
               <Settings size={14} />
-              <span>Configurações & Endpoint Source HTTP</span>
-              {showOxSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
+              <span>Configurações & Endpoint Source</span>
+              <ChevronRight size={15} style={{ marginLeft: 'auto' }} />
             </button>
-
-            {showOxSettings && (
-              <form onSubmit={handleSaveOxidized} className="integration-form" style={{ marginTop: '0.85rem' }}>
-                <div className="form-group">
-                  <label className="form-label">URL da API do Oxidized</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="ex: https://oxidized.iper.net.br ou http://ip:8888"
-                    value={oxUrl}
-                    onChange={(e) => setOxUrl(e.target.value)}
-                    disabled={!isAdmin || oxLoading || oxSyncing}
-                    required
-                  />
-                </div>
-
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label className="form-label">Usuário (Opcional)</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="Sem auth"
-                      value={oxUsername}
-                      onChange={(e) => setOxUsername(e.target.value)}
-                      disabled={!isAdmin || oxLoading || oxSyncing}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Senha (Opcional)</label>
-                    <input
-                      type="password"
-                      className="form-input"
-                      placeholder={oxHasPassword ? '••••••••' : 'Opcional'}
-                      value={oxPassword}
-                      onChange={(e) => setOxPassword(e.target.value)}
-                      disabled={!isAdmin || oxLoading || oxSyncing}
-                    />
-                  </div>
-                </div>
-
-                <div style={{
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: '8px',
-                  padding: '0.75rem',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <ExternalLink size={12} color="var(--color-primary)" />
-                      Endpoint <code>source: http</code>
-                    </span>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      style={{ padding: '2px 7px', fontSize: '0.7rem', height: 'auto' }}
-                      onClick={handleCopySourceUrl}
-                    >
-                      {copiedSourceUrl ? <Check size={11} color="var(--color-success)" /> : <Copy size={11} />}
-                      <span>{copiedSourceUrl ? 'Copiado!' : 'Copiar'}</span>
-                    </button>
-                  </div>
-                  <code style={{ fontSize: '0.72rem', padding: '5px 8px', background: 'rgba(0, 0, 0, 0.3)', borderRadius: '4px', wordBreak: 'break-all' }}>
-                    {typeof window !== 'undefined' ? `${window.location.origin}/api/v1/integrations/oxidized/nodes` : '/api/v1/integrations/oxidized/nodes'}
-                  </code>
-                </div>
-
-                <div className="integration-actions-footer">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={handleTestOxidized}
-                    disabled={oxTesting || oxLoading || oxSyncing}
-                  >
-                    {oxTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
-                    <span>Testar</span>
-                  </button>
-                  {isAdmin && (
-                    <button
-                      type="submit"
-                      className="btn-primary"
-                      style={{ width: 'auto' }}
-                      disabled={oxLoading || oxTesting || oxSyncing || oxReloading}
-                    >
-                      {oxLoading ? 'Salvando...' : 'Salvar'}
-                    </button>
-                  )}
-                </div>
-              </form>
-            )}
           </div>
         </div>
 
@@ -1155,6 +894,17 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
                 </p>
               </div>
             </div>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setActiveDrawer('victorialogs')}
+                title="Configurações do VictoriaLogs"
+                style={{ borderRadius: '8px', padding: '6px' }}
+              >
+                <Settings size={16} />
+              </button>
+            )}
           </div>
 
           <div className="integration-status-strip">
@@ -1206,64 +956,21 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
             </div>
           )}
 
-          {/* Seção retrátil de configurações */}
-          <div className="integration-settings-collapse">
+          <div style={{ marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
             <button
               type="button"
               className="btn-collapse-settings"
-              onClick={() => setShowVlogsSettings(!showVlogsSettings)}
+              onClick={() => setActiveDrawer('victorialogs')}
             >
               <Settings size={14} />
               <span>Configurações de Conexão</span>
-              {showVlogsSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
+              <ChevronRight size={15} style={{ marginLeft: 'auto' }} />
             </button>
-
-            {showVlogsSettings && (
-              <form onSubmit={handleSaveVictoriaLogs} className="integration-form" style={{ marginTop: '0.85rem' }}>
-                <div className="form-group">
-                  <label className="form-label">URL da API VictoriaLogs</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="ex: http://10.10.1.2:9428"
-                    value={vlogsUrl}
-                    onChange={(e) => setVlogsUrl(e.target.value)}
-                    disabled={!isAdmin || vlogsLoading}
-                    required
-                  />
-                  <small className="form-help">
-                    Endereço interno do container VictoriaLogs na porta 9428 (sem passar pelo Traefik).
-                  </small>
-                </div>
-
-                <div className="integration-actions-footer">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={handleTestVictoriaLogs}
-                    disabled={vlogsTesting || vlogsLoading}
-                  >
-                    {vlogsTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
-                    <span>Testar</span>
-                  </button>
-                  {isAdmin && (
-                    <button
-                      type="submit"
-                      className="btn-primary"
-                      style={{ width: 'auto' }}
-                      disabled={vlogsLoading || vlogsTesting}
-                    >
-                      {vlogsLoading ? 'Salvando...' : 'Salvar'}
-                    </button>
-                  )}
-                </div>
-              </form>
-            )}
           </div>
         </div>
 
-        {/* CARD 5: SERVIDOR DE FIRMWARES & ARQUIVOS */}
-        <div className="integration-card">
+        {/* 5. SERVIDOR DE FIRMWARES & ARQUIVOS */}
+        <div className="integration-main-card">
           <div className="integration-card-header">
             <div className="integration-header-left">
               <div className="integration-icon-container" style={{ background: 'rgba(0, 188, 212, 0.1)', borderColor: 'rgba(0, 188, 212, 0.25)' }}>
@@ -1284,10 +991,21 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
                   </span>
                 </div>
                 <p className="integration-main-sub">
-                  Upload web de firmwares pesados via <strong>FileBrowser</strong> e download direto em switches e OLTs via <strong>HTTP Nginx</strong> na porta 8089.
+                  Upload web via <strong>FileBrowser</strong> e download direto em switches e OLTs via <strong>HTTP Nginx</strong> na porta 8089.
                 </p>
               </div>
             </div>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setActiveDrawer('firmwares')}
+                title="Configurações do Servidor de Firmwares"
+                style={{ borderRadius: '8px', padding: '6px' }}
+              >
+                <Settings size={16} />
+              </button>
+            )}
           </div>
 
           <div className="integration-status-strip">
@@ -1342,104 +1060,22 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
             </a>
           </div>
 
-          {isAdmin && (
-            <div style={{ marginTop: '0.65rem' }}>
-              <button
-                type="button"
-                className="btn-secondary"
-                style={{ width: '100%', justifyContent: 'center' }}
-                onClick={handleTestFirmwares}
-                disabled={fwTesting || fwLoading}
-                title="Testa a comunicação com o FileBrowser e com o endpoint HTTP Nginx"
-              >
-                {fwTesting ? (
-                  <>
-                    <Loader2 size={15} className="spin-icon" />
-                    <span>Testando Conexão com Firmwares...</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={15} />
-                    <span>Testar Conexão com Servidor de Firmwares</span>
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
-          {/* Seção retrátil de configurações */}
-          <div className="integration-settings-collapse">
+          <div style={{ marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
             <button
               type="button"
               className="btn-collapse-settings"
-              onClick={() => setShowFwSettings(!showFwSettings)}
+              onClick={() => setActiveDrawer('firmwares')}
             >
               <Settings size={14} />
               <span>Configurações de Conexão</span>
-              {showFwSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
+              <ChevronRight size={15} style={{ marginLeft: 'auto' }} />
             </button>
-
-            {showFwSettings && (
-              <form onSubmit={handleSaveFirmwares} className="integration-form" style={{ marginTop: '0.85rem' }}>
-                <div className="form-group">
-                  <label className="form-label">URL HTTP de Download para Equipamentos (porta 8089)</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="ex: http://10.10.1.2:8089"
-                    value={fwHttpUrl}
-                    onChange={(e) => setFwHttpUrl(e.target.value)}
-                    disabled={!isAdmin || fwLoading}
-                    required
-                  />
-                  <small className="form-help">
-                    Endereço sem autenticação onde switches Datacom, MikroTik e Cisco baixam o firmware.
-                  </small>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">URL da Interface Web de Upload (FileBrowser)</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="ex: https://firmware.iper.net.br"
-                    value={fwWebUrl}
-                    onChange={(e) => setFwWebUrl(e.target.value)}
-                    disabled={!isAdmin || fwLoading}
-                    required
-                  />
-                  <small className="form-help">
-                    URL pública com SSL utilizada pelos operadores para enviar firmwares pelo navegador.
-                  </small>
-                </div>
-
-                <div className="integration-actions-footer">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={handleTestFirmwares}
-                    disabled={fwTesting || fwLoading}
-                  >
-                    {fwTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
-                    <span>Testar</span>
-                  </button>
-                  {isAdmin && (
-                    <button
-                      type="submit"
-                      className="btn-primary"
-                      style={{ width: 'auto' }}
-                      disabled={fwLoading || fwTesting}
-                    >
-                      {fwLoading ? 'Salvando...' : 'Salvar'}
-                    </button>
-                  )}
-                </div>
-              </form>
-            )}
           </div>
         </div>
+
       </div>
 
+      {/* MODAL DE TEMPLATES ZABBIX */}
       <ZabbixTemplatesModal 
         isOpen={showTemplatesModal} 
         onClose={() => { 
@@ -1447,6 +1083,461 @@ export const IntegrationsView = ({ isAdmin, onSelectNav }) => {
           loadConfigs(); 
         }} 
       />
+
+      {/* DRAWER LATERAL DESLIZANTE DE CONFIGURAÇÕES DE INTEGRAÇÃO */}
+      <SlideOverDrawer
+        isOpen={Boolean(activeDrawer)}
+        onClose={() => setActiveDrawer(null)}
+        title={
+          activeDrawer === 'zabbix' ? 'Configurações: Zabbix Server' :
+          activeDrawer === 'guacamole' ? 'Configurações: Apache Guacamole' :
+          activeDrawer === 'oxidized' ? 'Configurações: Oxidized Daemon' :
+          activeDrawer === 'victorialogs' ? 'Configurações: VictoriaLogs' :
+          activeDrawer === 'firmwares' ? 'Configurações: Servidor de Firmwares' : ''
+        }
+        subtitle={
+          activeDrawer === 'zabbix' ? 'URL da API JSON-RPC, credenciais e token de acesso' :
+          activeDrawer === 'guacamole' ? 'API REST, URL pública HTTPS para SSO e credenciais admin' :
+          activeDrawer === 'oxidized' ? 'API REST de nós e endpoint dinâmico source: http' :
+          activeDrawer === 'victorialogs' ? 'Endpoint interno do coletor de logs Syslog (UDP/TCP 514)' :
+          activeDrawer === 'firmwares' ? 'Porta HTTP 8089 para download direto e portal Web FileBrowser' : ''
+        }
+        icon={
+          activeDrawer === 'zabbix' ? Radio :
+          activeDrawer === 'guacamole' ? Terminal :
+          activeDrawer === 'oxidized' ? FileCode :
+          activeDrawer === 'victorialogs' ? FileText :
+          activeDrawer === 'firmwares' ? HardDrive : Settings
+        }
+        width="540px"
+      >
+        {/* Alerta de feedback dentro do Drawer */}
+        {feedback && (
+          <div className={`alert-box alert-${feedback.type}`} style={{ marginBottom: '1.25rem' }}>
+            {feedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+            <span>{feedback.text}</span>
+          </div>
+        )}
+
+        {/* 1. FORMULÁRIO ZABBIX NO DRAWER */}
+        {activeDrawer === 'zabbix' && (
+          <form onSubmit={handleSaveZabbix} className="integration-form">
+            <div className="form-group">
+              <label className="form-label">URL da API Zabbix</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="ex: http://192.168.1.50/zabbix"
+                value={zbxUrl}
+                onChange={(e) => setZbxUrl(e.target.value)}
+                disabled={!isAdmin || zbxLoading}
+                required
+              />
+              <small className="form-help">
+                URL base onde o frontend do Zabbix está rodando (com endpoint <code>api_jsonrpc.php</code>).
+              </small>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Método de Autenticação</label>
+              <div className="auth-mode-selector">
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="zbxAuthType"
+                    value="token"
+                    checked={zbxAuthType === 'token'}
+                    onChange={() => setZbxAuthType('token')}
+                    disabled={!isAdmin || zbxLoading}
+                  />
+                  <span>API Token (5.4+)</span>
+                </label>
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="zbxAuthType"
+                    value="userpass"
+                    checked={zbxAuthType === 'userpass'}
+                    onChange={() => setZbxAuthType('userpass')}
+                    disabled={!isAdmin || zbxLoading}
+                  />
+                  <span>Usuário / Senha</span>
+                </label>
+              </div>
+            </div>
+
+            {zbxAuthType === 'token' ? (
+              <div className="form-group">
+                <label className="form-label">
+                  API Token {zbxHasToken && <span className="tag-saved">(Gravado)</span>}
+                </label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder={zbxHasToken ? '•••••••••••• (em branco mantém gravado)' : 'Cole o token da API Zabbix'}
+                  value={zbxToken}
+                  onChange={(e) => setZbxToken(e.target.value)}
+                  disabled={!isAdmin || zbxLoading}
+                />
+              </div>
+            ) : (
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">Usuário</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Admin"
+                    value={zbxUsername}
+                    onChange={(e) => setZbxUsername(e.target.value)}
+                    disabled={!isAdmin || zbxLoading}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Senha</label>
+                  <input
+                    type="password"
+                    className="form-input"
+                    placeholder="Senha"
+                    value={zbxPassword}
+                    onChange={(e) => setZbxPassword(e.target.value)}
+                    disabled={!isAdmin || zbxLoading}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="integration-actions-footer" style={{ marginTop: '1.5rem', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleTestZabbix}
+                disabled={zbxTesting || zbxLoading || zbxSyncing}
+              >
+                {zbxTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                <span>Testar Conexão</span>
+              </button>
+              {isAdmin && (
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ width: 'auto' }}
+                  disabled={zbxLoading || zbxTesting || zbxSyncing}
+                >
+                  {zbxLoading ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+
+        {/* 2. FORMULÁRIO GUACAMOLE NO DRAWER */}
+        {activeDrawer === 'guacamole' && (
+          <form onSubmit={handleSaveGuacamole} className="integration-form">
+            <div className="form-group">
+              <label className="form-label">URL da API Guacamole (Servidor / Backend)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="ex: https://guacamoles.iper.net.br/guacamole ou http://10.10.1.2:8086/guacamole"
+                value={guacUrl}
+                onChange={(e) => setGuacUrl(e.target.value)}
+                disabled={!isAdmin || guacLoading || guacMatching}
+                required
+              />
+              <small className="form-help">
+                Endereço de rede utilizado pelo backend do IperSoft para autenticar e criar conexões.
+              </small>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">URL Pública / Externa (Navegador & Terminal Embutido)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="https://guacamoles.iper.net.br/guacamole"
+                value={guacPublicUrl}
+                onChange={(e) => setGuacPublicUrl(e.target.value)}
+                disabled={!isAdmin || guacLoading || guacMatching}
+                required
+              />
+              <small className="form-help">
+                URL pública HTTPS acessada pelo navegador do operador para login SSO direto e terminal embutido.
+              </small>
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label className="form-label">Usuário Admin</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="guacadmin"
+                  value={guacUsername}
+                  onChange={(e) => setGuacUsername(e.target.value)}
+                  disabled={!isAdmin || guacLoading || guacMatching}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Senha {guacHasPassword && <span className="tag-saved">(Gravada)</span>}
+                </label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder={guacHasPassword ? '••••••••••••' : 'Senha'}
+                  value={guacPassword}
+                  onChange={(e) => setGuacPassword(e.target.value)}
+                  disabled={!isAdmin || guacLoading || guacMatching}
+                />
+              </div>
+            </div>
+
+            <div className="integration-actions-footer" style={{ marginTop: '1.5rem', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleTestGuacamole}
+                disabled={guacTesting || guacLoading || guacMatching}
+              >
+                {guacTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                <span>Testar Conexão</span>
+              </button>
+              {isAdmin && (
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ width: 'auto' }}
+                  disabled={guacLoading || guacTesting || guacMatching}
+                >
+                  {guacLoading ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+
+        {/* 3. FORMULÁRIO OXIDIZED NO DRAWER */}
+        {activeDrawer === 'oxidized' && (
+          <form onSubmit={handleSaveOxidized} className="integration-form">
+            <div className="form-group">
+              <label className="form-label">URL da API do Oxidized</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="ex: https://oxidized.iper.net.br ou http://ip:8888"
+                value={oxUrl}
+                onChange={(e) => setOxUrl(e.target.value)}
+                disabled={!isAdmin || oxLoading || oxSyncing}
+                required
+              />
+              <small className="form-help">
+                URL da API REST do daemon Oxidized onde os nós e backups são consultados.
+              </small>
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label className="form-label">Usuário (Opcional)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Sem autenticação"
+                  value={oxUsername}
+                  onChange={(e) => setOxUsername(e.target.value)}
+                  disabled={!isAdmin || oxLoading || oxSyncing}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Senha (Opcional)</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder={oxHasPassword ? '••••••••' : 'Opcional'}
+                  value={oxPassword}
+                  onChange={(e) => setOxPassword(e.target.value)}
+                  disabled={!isAdmin || oxLoading || oxSyncing}
+                />
+              </div>
+            </div>
+
+            {/* Caixa Informativa com Endpoint source: http */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: '8px',
+              padding: '0.85rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              marginTop: '0.5rem'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <ExternalLink size={13} color="var(--color-primary)" />
+                  Endpoint Dinâmico <code>source: http</code>
+                </span>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ padding: '2px 8px', fontSize: '0.72rem', height: 'auto' }}
+                  onClick={handleCopySourceUrl}
+                >
+                  {copiedSourceUrl ? <Check size={12} color="var(--color-success)" /> : <Copy size={12} />}
+                  <span>{copiedSourceUrl ? 'Copiado!' : 'Copiar URL'}</span>
+                </button>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                Configure esta URL no seu arquivo <code>~/.config/oxidized/config</code> para que o Oxidized consulte a lista de ativos em tempo real:
+              </p>
+              <code style={{ fontSize: '0.74rem', padding: '6px 8px', background: 'rgba(0, 0, 0, 0.35)', borderRadius: '4px', wordBreak: 'break-all', color: 'var(--color-primary)' }}>
+                {typeof window !== 'undefined' ? `${window.location.origin}/api/v1/integrations/oxidized/nodes` : '/api/v1/integrations/oxidized/nodes'}
+              </code>
+            </div>
+
+            <div className="integration-actions-footer" style={{ marginTop: '1.5rem', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleTestOxidized}
+                disabled={oxTesting || oxLoading || oxSyncing}
+              >
+                {oxTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                <span>Testar Conexão</span>
+              </button>
+              {isAdmin && (
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ width: 'auto' }}
+                  disabled={oxLoading || oxTesting || oxSyncing || oxReloading}
+                >
+                  {oxLoading ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+
+        {/* 4. FORMULÁRIO VICTORIALOGS NO DRAWER */}
+        {activeDrawer === 'victorialogs' && (
+          <form onSubmit={handleSaveVictoriaLogs} className="integration-form">
+            <div className="form-group">
+              <label className="form-label">URL da API VictoriaLogs</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="ex: http://10.10.1.2:9428"
+                value={vlogsUrl}
+                onChange={(e) => setVlogsUrl(e.target.value)}
+                disabled={!isAdmin || vlogsLoading}
+                required
+              />
+              <small className="form-help">
+                Endereço interno do container VictoriaLogs na porta 9428 (sem passar pelo proxy reverso).
+              </small>
+            </div>
+
+            <div style={{
+              background: 'rgba(76, 175, 80, 0.06)',
+              border: '1px solid rgba(76, 175, 80, 0.2)',
+              borderRadius: '8px',
+              padding: '0.85rem',
+              marginTop: '0.5rem',
+              fontSize: '0.78rem',
+              color: 'var(--text-secondary)',
+              lineHeight: '1.5'
+            }}>
+              <strong style={{ color: '#81c784', display: 'block', marginBottom: '4px' }}>
+                Fluxo de Syslog Centralizado
+              </strong>
+              Equipamentos de rede devem apontar o envio de syslog para a VPS BrDrive em UDP ou TCP na porta <code>514</code>. O IperSoft consulta o histórico diretamente via sintaxe nativa LogsQL.
+            </div>
+
+            <div className="integration-actions-footer" style={{ marginTop: '1.5rem', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleTestVictoriaLogs}
+                disabled={vlogsTesting || vlogsLoading}
+              >
+                {vlogsTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                <span>Testar Conexão</span>
+              </button>
+              {isAdmin && (
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ width: 'auto' }}
+                  disabled={vlogsLoading || vlogsTesting}
+                >
+                  {vlogsLoading ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+
+        {/* 5. FORMULÁRIO SERVIDOR DE FIRMWARES NO DRAWER */}
+        {activeDrawer === 'firmwares' && (
+          <form onSubmit={handleSaveFirmwares} className="integration-form">
+            <div className="form-group">
+              <label className="form-label">URL HTTP de Download para Equipamentos (porta 8089)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="ex: http://10.10.1.2:8089"
+                value={fwHttpUrl}
+                onChange={(e) => setFwHttpUrl(e.target.value)}
+                disabled={!isAdmin || fwLoading}
+                required
+              />
+              <small className="form-help">
+                Endereço HTTP direto sem autenticação utilizado por switches Datacom, MikroTik e Cisco para baixar firmwares via CLI.
+              </small>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">URL da Interface Web de Upload (FileBrowser)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="ex: https://firmware.iper.net.br"
+                value={fwWebUrl}
+                onChange={(e) => setFwWebUrl(e.target.value)}
+                disabled={!isAdmin || fwLoading}
+                required
+              />
+              <small className="form-help">
+                URL pública com SSL utilizada pelos operadores para enviar firmwares de 100MB+ pelo navegador.
+              </small>
+            </div>
+
+            <div className="integration-actions-footer" style={{ marginTop: '1.5rem', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleTestFirmwares}
+                disabled={fwTesting || fwLoading}
+              >
+                {fwTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                <span>Testar Conexão</span>
+              </button>
+              {isAdmin && (
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ width: 'auto' }}
+                  disabled={fwLoading || fwTesting}
+                >
+                  {fwLoading ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+      </SlideOverDrawer>
     </div>
   );
 };

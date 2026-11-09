@@ -994,10 +994,17 @@
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
-  padding: 1.6rem;
+  padding: 1.4rem;
   display: flex;
   flex-direction: column;
-  gap: 1.4rem;
+  gap: 1.1rem;
+  height: 100%;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.integration-main-card:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: var(--shadow-md);
 }
 
 .integration-card-header {
@@ -4926,9 +4933,9 @@
 
 .integrations-three-col-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 1.25rem;
-  align-items: start;
+  align-items: stretch;
 }
 
 @media (max-width: 900px) {
