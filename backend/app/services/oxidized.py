@@ -96,22 +96,30 @@ class OxidizedService:
         url: str, 
         node_name: str, 
         username: Optional[str] = None, 
-        password: Optional[str] = None
+        password: Optional[str] = None,
+        group: Optional[str] = None
     ) -> str:
         base_url = cls.normalize_url(url)
-        encoded_name = urllib.parse.quote(node_name)
-        endpoint = f"{base_url}/node/fetch/{encoded_name}"
+        candidates = []
+        if "/" in node_name:
+            candidates.append("/".join(urllib.parse.quote(p) for p in node_name.split("/")))
+        if group and group != "default":
+            candidates.append(f"{urllib.parse.quote(group)}/{urllib.parse.quote(node_name)}")
+        candidates.append(urllib.parse.quote(node_name))
+
         kwargs = cls._build_client_kwargs(username, password)
 
         async with httpx.AsyncClient(**kwargs) as client:
-            try:
-                response = await client.get(endpoint)
-                if response.status_code == 404:
-                    raise ValueError(f"Configuração do nó '{node_name}' não encontrada no Oxidized.")
-                response.raise_for_status()
-                return response.text
-            except Exception as exc:
-                raise ValueError(f"Erro ao obter configuração de '{node_name}': {exc}")
+            for cand in candidates:
+                endpoint = f"{base_url}/node/fetch/{cand}"
+                try:
+                    response = await client.get(endpoint)
+                    if response.status_code == 200 and not response.text.strip().lower().startswith("unable to find "):
+                        return response.text
+                except Exception:
+                    continue
+
+            raise ValueError(f"Configuração do nó '{node_name}' não encontrada no Oxidized.")
 
     @classmethod
     async def trigger_backup(

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.asset import Asset
-from app.models.ip_scanner import IPPrefix, DiscoveredIP, IPScannerProbe
+from app.models.ip_scanner import IPPrefix, DiscoveredIP, IPScannerProbe, DiscoveredVLAN
 
 logger = logging.getLogger("PhpIpamSync")
 
@@ -198,6 +198,9 @@ def sync_ipersoft_to_phpipam(
         "ips_created": 0,
         "ips_updated": 0,
         "ips_linked_to_devices": 0,
+        "vlans_created": 0,
+        "vlans_updated": 0,
+        "subnets_linked_to_vlans": 0,
     }
 
     try:
@@ -668,6 +671,115 @@ def sync_ipersoft_to_phpipam(
                             (dev_id, new_host, new_desc, int(row["id"]))
                         )
                         stats["ips_linked_to_devices"] += 1
+
+            # ------------------------------------------------------------------
+            # 6. SINCRONIZAR VLANS EXTRAÍDAS DO OXIDIZED (discovered_vlans -> phpipam.vlans + subnets.vlanId)
+            # ------------------------------------------------------------------
+            cur.execute("SELECT id, name, permissions FROM vlanDomains")
+            domain_by_name: Dict[str, int] = {}
+            domain_by_section_id: Dict[int, int] = {}
+            for d_row in cur.fetchall():
+                did = int(d_row["id"])
+                dname = (d_row.get("name") or "").strip().lower()
+                if dname:
+                    domain_by_name[dname] = did
+                    if dname == "oestenet":
+                        domain_by_name["oestenets"] = did
+                perms = (d_row.get("permissions") or "").strip()
+                for p_part in perms.split(";"):
+                    if p_part.strip().isdigit():
+                        domain_by_section_id[int(p_part.strip())] = did
+
+            cur.execute("SELECT vlanId, domainId, name, number, description FROM vlans")
+            existing_vlans: Dict[Tuple[int, int], Dict[str, Any]] = {}
+            for v_row in cur.fetchall():
+                if v_row.get("domainId") is not None and v_row.get("number") is not None:
+                    existing_vlans[(int(v_row["domainId"]), int(v_row["number"]))] = v_row
+
+            vlans_query = db.query(DiscoveredVLAN)
+            if client_group and client_group.lower() != "todos":
+                cg_filter = client_group.strip().lower()
+                if cg_filter == "oestenets":
+                    cg_filter = "oestenet"
+                vlans_query = vlans_query.filter(DiscoveredVLAN.client_group == cg_filter)
+            discovered_vlans = vlans_query.all()
+
+            for dv in discovered_vlans:
+                sec_name = _normalize_section_name(dv.client_group)
+                sec_id = section_map.get(sec_name)
+                domain_id = (
+                    domain_by_name.get((dv.client_group or "").strip().lower())
+                    or domain_by_name.get(sec_name)
+                    or (domain_by_section_id.get(sec_id) if sec_id else None)
+                )
+                if not domain_id and sec_id:
+                    # Criar vlanDomain caso ainda não exista para o cliente
+                    dom_label = "oestenet" if sec_name == "oestenets" else sec_name
+                    cur.execute(
+                        "INSERT INTO vlanDomains (name, description, permissions) VALUES (%s, %s, %s)",
+                        (dom_label, f"Domínio L2 {dom_label.upper()}", str(sec_id))
+                    )
+                    domain_id = int(cur.lastrowid)
+                    domain_by_name[dom_label] = domain_id
+                    domain_by_section_id[sec_id] = domain_id
+
+                if not domain_id:
+                    continue
+
+                v_key = (domain_id, int(dv.vlan_id))
+                if v_key in existing_vlans:
+                    ex_v = existing_vlans[v_key]
+                    phpipam_vid = int(ex_v["vlanId"])
+                    ex_name = (ex_v.get("name") or "").strip()
+                    ex_desc = (ex_v.get("description") or "").strip()
+                    # Se o nome atual for genérico ("VLAN X") e tivermos nome descritivo, atualiza
+                    if not ex_name or ex_name.lower() in (f"vlan {dv.vlan_id}", f"vlan{dv.vlan_id}"):
+                        final_v_name = dv.name
+                    else:
+                        final_v_name = ex_name
+                    final_v_desc = dv.description or ex_desc
+                    if final_v_name != ex_name or final_v_desc != ex_desc:
+                        cur.execute(
+                            "UPDATE vlans SET name = %s, description = %s WHERE vlanId = %s",
+                            (final_v_name[:255], final_v_desc, phpipam_vid)
+                        )
+                        stats["vlans_updated"] += 1
+                else:
+                    cur.execute(
+                        "INSERT INTO vlans (domainId, name, number, description) VALUES (%s, %s, %s, %s)",
+                        (domain_id, dv.name[:255], int(dv.vlan_id), dv.description)
+                    )
+                    phpipam_vid = int(cur.lastrowid)
+                    existing_vlans[v_key] = {
+                        "vlanId": phpipam_vid,
+                        "domainId": domain_id,
+                        "name": dv.name[:255],
+                        "number": int(dv.vlan_id),
+                        "description": dv.description,
+                    }
+                    stats["vlans_created"] += 1
+
+                if dv.phpipam_vlan_id != phpipam_vid:
+                    dv.phpipam_vlan_id = phpipam_vid
+
+                # Se a VLAN possui sub-redes L3 identificadas no backup do Oxidized, associar subnets.vlanId!
+                if sec_id and isinstance(dv.subnets, list):
+                    for cidr_str in dv.subnets:
+                        try:
+                            net_v = ipaddress.IPv4Network(cidr_str, strict=False)
+                            sub_k = (sec_id, int(net_v.network_address), int(net_v.prefixlen))
+                            if sub_k in subnet_lookup:
+                                s_target = subnet_lookup[sub_k]
+                                cur.execute(
+                                    "UPDATE subnets SET vlanId = %s WHERE id = %s AND (vlanId IS NULL OR vlanId = 0)",
+                                    (phpipam_vid, int(s_target["id"]))
+                                )
+                                if cur.rowcount > 0:
+                                    stats["subnets_linked_to_vlans"] += 1
+                        except Exception:
+                            continue
+
+            db.commit()
 
         conn.commit()
         return stats

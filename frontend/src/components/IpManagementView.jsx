@@ -25,6 +25,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const [selectedPrefixId, setSelectedPrefixId] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState('ips'); // 'ips' | 'vlans'
 
   // Dados
   const [stats, setStats] = useState({
@@ -32,16 +33,19 @@ export const IpManagementView = ({ onSelectAsset }) => {
     total_discovered_ips: 0,
     total_snmp: 0,
     total_icmp_only: 0,
-    total_matched_assets: 0
+    total_matched_assets: 0,
+    total_vlans: 0
   });
   const [allPrefixes, setAllPrefixes] = useState([]);
   const [discoveredIps, setDiscoveredIps] = useState([]);
+  const [discoveredVlans, setDiscoveredVlans] = useState([]);
   const [communities, setCommunities] = useState([]);
   const [probes, setProbes] = useState([]);
 
   // Estados de Carregamento
   const [loading, setLoading] = useState(false);
   const [scanningPrefixId, setScanningPrefixId] = useState(null);
+  const [extractingVlans, setExtractingVlans] = useState(false);
   const [syncingPhpIpam, setSyncingPhpIpam] = useState(false);
   const [testingProbeId, setTestingProbeId] = useState(null);
   const [probeTestResults, setProbeTestResults] = useState({});
@@ -61,17 +65,13 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const [newCommunity, setNewCommunity] = useState({ name: '', community: '', version: '2c', port: 161, is_default: false });
   const [newProbe, setNewProbe] = useState({ name: '', url: '', client_group: '', phpipam_agent_code: '', is_default: false });
 
-  // Lista dinâmica de clientes: mostra apenas os clientes que possuem prefixo associado
+  // Lista dinâmica de clientes: mostra clientes que possuem prefixo ou VLAN extraída
   const clientOptions = useMemo(() => {
-    const groups = Array.from(
-      new Set(
-        allPrefixes
-          .map((p) => (p.client_group || '').trim().toLowerCase())
-          .filter(Boolean)
-      )
-    ).sort();
+    const prefGroups = allPrefixes.map((p) => (p.client_group || '').trim().toLowerCase());
+    const vlanGroups = discoveredVlans.map((v) => (v.client_group || '').trim().toLowerCase());
+    const groups = Array.from(new Set([...prefGroups, ...vlanGroups].filter(Boolean))).sort();
     return ['todos', ...groups];
-  }, [allPrefixes]);
+  }, [allPrefixes, discoveredVlans]);
 
   // Prefixos filtrados pelo cliente selecionado
   const filteredPrefixes = useMemo(() => {
@@ -88,7 +88,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [statsData, prefData, commData, probeData, ipsData] = await Promise.all([
+      const [statsData, prefData, commData, probeData, ipsData, vlansData] = await Promise.all([
         ipScannerService.getStats().catch(() => ({})),
         ipScannerService.getPrefixes('todos').catch(() => []),
         ipScannerService.getCommunities().catch(() => []),
@@ -98,6 +98,10 @@ export const IpManagementView = ({ onSelectAsset }) => {
           prefixId: selectedPrefixId,
           status: statusFilter,
           search: search
+        }).catch(() => []),
+        ipScannerService.getDiscoveredVlans({
+          clientGroup: selectedClient,
+          search: search
         }).catch(() => [])
       ]);
 
@@ -106,6 +110,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
       setCommunities(commData || []);
       setProbes(probeData || []);
       setDiscoveredIps(ipsData || []);
+      setDiscoveredVlans(vlansData || []);
     } catch (err) {
       console.error("Erro ao carregar dados do IP Scanner:", err);
     } finally {
@@ -121,6 +126,10 @@ export const IpManagementView = ({ onSelectAsset }) => {
       status: statusFilter,
       search: search
     }).then(res => setDiscoveredIps(res || []));
+    ipScannerService.getDiscoveredVlans({
+      clientGroup: selectedClient,
+      search: search
+    }).then(res => setDiscoveredVlans(res || []));
   };
 
   // Disparar Varredura Manual de um Prefixo
@@ -129,12 +138,9 @@ export const IpManagementView = ({ onSelectAsset }) => {
     setScanResultToast(null);
     try {
       const res = await ipScannerService.scanPrefix(prefixId);
-      const syncMsg = res.phpipam_synced
-        ? ` | Sincronizado no phpIPAM (${res.phpipam_stats?.ips_linked_to_devices || 0} IPs vinculados a equipamentos)`
-        : '';
       setScanResultToast({
         type: 'success',
-        message: `Varredura de ${prefixStr} concluída em ${res.duration_seconds}s! Ativos: ${res.total_active} (SNMP: ${res.total_snmp}, Apenas Ping: ${res.total_icmp_only}, Vinculados: ${res.matched_assets || 0})${syncMsg}`
+        message: `Varredura de ${prefixStr} concluída em ${res.duration_seconds}s! Ativos: ${res.total_active} (SNMP: ${res.total_snmp}, Apenas Ping: ${res.total_icmp_only}, Vinculados: ${res.matched_assets || 0})`
       });
       await loadAllData();
     } catch (err) {
@@ -147,7 +153,30 @@ export const IpManagementView = ({ onSelectAsset }) => {
     }
   };
 
-  // Sincronizar Equipamentos, Prefixos e IPs Descobertos com o phpIPAM
+  // Extrair VLANs dos backups no Oxidized (Manual)
+  const handleExtractOxidizedVlans = async () => {
+    setExtractingVlans(true);
+    setScanResultToast(null);
+    try {
+      const res = await ipScannerService.extractOxidizedVlans({ clientGroup: selectedClient });
+      const st = res.stats || {};
+      setActiveTab('vlans');
+      setScanResultToast({
+        type: 'success',
+        message: `Varredura de backups do Oxidized concluída! Equipamentos analisados: ${st.scanned_devices || 0} (${st.devices_with_vlans || 0} com VLANs) | Total de VLANs identificadas: ${st.total_vlans_extracted || 0} (+${st.vlans_created || 0} novas / ${st.vlans_updated || 0} atualizadas).`
+      });
+      await loadAllData();
+    } catch (err) {
+      setScanResultToast({
+        type: 'error',
+        message: `Falha ao extrair VLANs do Oxidized: ${err.message}`
+      });
+    } finally {
+      setExtractingVlans(false);
+    }
+  };
+
+  // Sincronizar Equipamentos, VLANs, Prefixos e IPs Descobertos com o phpIPAM (Manual)
   const handleSyncPhpIpam = async () => {
     setSyncingPhpIpam(true);
     setScanResultToast(null);
@@ -156,7 +185,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
       const st = res.stats || {};
       setScanResultToast({
         type: 'success',
-        message: `phpIPAM sincronizado! Equipamentos: +${st.devices_created || 0} criados / ${st.devices_updated || 0} atualizados | Sub-redes: +${st.subnets_created || 0} criadas / ${st.subnets_updated || 0} atualizadas | IPs: +${st.ips_created || 0} criados / ${st.ips_updated || 0} atualizados (${st.ips_linked_to_devices || 0} associados a equipamentos).`
+        message: `phpIPAM sincronizado! Equipamentos: +${st.devices_created || 0}/${st.devices_updated || 0} | VLANs: +${st.vlans_created || 0}/${st.vlans_updated || 0} (${st.subnets_linked_to_vlans || 0} sub-redes associadas a VLANs) | Sub-redes: +${st.subnets_created || 0}/${st.subnets_updated || 0} | IPs: +${st.ips_created || 0}/${st.ips_updated || 0} (${st.ips_linked_to_devices || 0} vinculados a equipamentos).`
       });
       await loadAllData();
     } catch (err) {
@@ -394,9 +423,20 @@ export const IpManagementView = ({ onSelectAsset }) => {
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button 
             className="btn-secondary" 
+            onClick={handleExtractOxidizedVlans}
+            disabled={extractingVlans}
+            title="Varre os backups de configuração no Oxidized (MikroTik, Huawei, Datacom, Juniper) para extrair as VLANs dos equipamentos"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', borderColor: 'rgba(59, 130, 246, 0.45)', color: '#60a5fa' }}
+          >
+            <Layers size={15} className={extractingVlans ? 'spin-icon' : ''} />
+            <span>{extractingVlans ? 'Lendo Backups Oxidized...' : 'Extrair VLANs (Oxidized)'}</span>
+          </button>
+
+          <button 
+            className="btn-secondary" 
             onClick={handleSyncPhpIpam}
             disabled={syncingPhpIpam}
-            title="Envia equipamentos, sub-redes e associa os IPs descobertos aos equipamentos no phpIPAM"
+            title="Envia equipamentos, VLANs, sub-redes e associa os IPs descobertos aos equipamentos no phpIPAM"
             style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', borderColor: 'rgba(16, 185, 129, 0.45)', color: '#10b981' }}
           >
             <RefreshCw size={15} className={syncingPhpIpam ? 'spin-icon' : ''} />
@@ -512,6 +552,20 @@ export const IpManagementView = ({ onSelectAsset }) => {
           <div>
             <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)' }}>{stats.total_matched_assets || 0}</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Ativos Vinculados</div>
+          </div>
+        </div>
+
+        <div 
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '1.1rem', display: 'flex', alignItems: 'center', gap: '1rem', cursor: 'pointer' }}
+          onClick={() => setActiveTab('vlans')}
+          title="Clique para visualizar as VLANs extraídas dos backups do Oxidized"
+        >
+          <div style={{ padding: '10px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.14)', color: '#60a5fa' }}>
+            <Network size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)' }}>{stats.total_vlans || discoveredVlans.length || 0}</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>VLANs (Oxidized)</div>
           </div>
         </div>
       </div>
@@ -700,15 +754,52 @@ export const IpManagementView = ({ onSelectAsset }) => {
       </div>
 
       {/* ==================================================================== */}
-      {/* SEÇÃO 2: TABELA GERAL DE TODOS OS IPS DESCOBERTOS                    */}
+      {/* SEÇÃO 2: ABAS DE IPS DESCOBERTOS E VLANS EXTRAÍDAS (OXIDIZED)        */}
       {/* ==================================================================== */}
       <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '1.25rem', overflowX: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Server size={18} style={{ color: 'var(--color-primary)' }} />
-            <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
-              Tabela Geral de IPs Descobertos ({discoveredIps.length})
-            </h2>
+            <button
+              type="button"
+              onClick={() => setActiveTab('ips')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.5rem 1rem',
+                borderRadius: '8px',
+                border: activeTab === 'ips' ? '1px solid var(--color-primary)' : '1px solid var(--border-subtle)',
+                background: activeTab === 'ips' ? 'var(--color-primary-subtle)' : 'var(--bg-secondary)',
+                color: activeTab === 'ips' ? 'var(--color-primary)' : 'var(--text-secondary)',
+                fontWeight: 700,
+                fontSize: '0.9rem',
+                cursor: 'pointer'
+              }}
+            >
+              <Server size={16} />
+              <span>IPs Descobertos ({discoveredIps.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('vlans')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.5rem 1rem',
+                borderRadius: '8px',
+                border: activeTab === 'vlans' ? '1px solid #3b82f6' : '1px solid var(--border-subtle)',
+                background: activeTab === 'vlans' ? 'rgba(59, 130, 246, 0.14)' : 'var(--bg-secondary)',
+                color: activeTab === 'vlans' ? '#60a5fa' : 'var(--text-secondary)',
+                fontWeight: 700,
+                fontSize: '0.9rem',
+                cursor: 'pointer'
+              }}
+            >
+              <Layers size={16} />
+              <span>VLANs via Oxidized ({discoveredVlans.length})</span>
+            </button>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -718,7 +809,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="Buscar por IP, Hostname ou Modelo..."
+                  placeholder={activeTab === 'vlans' ? "Buscar por VLAN ID, Nome ou Equipamento..." : "Buscar por IP, Hostname ou Modelo..."}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   style={{ paddingLeft: '2.2rem', height: '38px' }}
@@ -729,108 +820,218 @@ export const IpManagementView = ({ onSelectAsset }) => {
               </button>
             </form>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Filter size={15} style={{ color: 'var(--text-secondary)' }} />
-              <select
-                className="form-input"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                style={{ width: 'auto', height: '38px', padding: '0 0.85rem' }}
-              >
-                <option value="all">Todos os Status</option>
-                <option value="snmp_and_icmp">SNMP + ICMP (Ativos Completos)</option>
-                <option value="icmp_only">Apenas Ping (Sem SNMP)</option>
-              </select>
-            </div>
+            {activeTab === 'ips' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Filter size={15} style={{ color: 'var(--text-secondary)' }} />
+                <select
+                  className="form-input"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  style={{ width: 'auto', height: '38px', padding: '0 0.85rem' }}
+                >
+                  <option value="all">Todos os Status</option>
+                  <option value="snmp_and_icmp">SNMP + ICMP (Ativos Completos)</option>
+                  <option value="icmp_only">Apenas Ping (Sem SNMP)</option>
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Table */}
-        <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-          <thead>
-            <tr>
-              <th>Status</th>
-              <th>Endereço IP</th>
-              <th>Hostname Identificado</th>
-              <th>Modelo / Descrição</th>
-              <th>Cliente / Sessão</th>
-              <th>Sub-rede</th>
-              <th>Ativo no IperSoft</th>
-              <th>Último Visto</th>
-            </tr>
-          </thead>
-          <tbody>
-            {discoveredIps.length === 0 ? (
+        {/* Table IPs vs Table VLANs */}
+        {activeTab === 'ips' ? (
+          <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead>
               <tr>
-                <td colSpan={8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
-                  Nenhum IP descoberto ainda para este filtro. Clique em <strong>"Escanear Agora"</strong> no prefixo desejado acima.
-                </td>
+                <th>Status</th>
+                <th>Endereço IP</th>
+                <th>Hostname Identificado</th>
+                <th>Modelo / Descrição</th>
+                <th>Cliente / Sessão</th>
+                <th>Sub-rede</th>
+                <th>Ativo no IperSoft</th>
+                <th>Último Visto</th>
               </tr>
-            ) : (
-              discoveredIps.map((ip) => (
-                <tr key={ip.id}>
-                  <td>
-                    {ip.snmp_alive ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-success-bg)', color: 'var(--color-success)', padding: '3px 9px', borderRadius: '9999px', fontSize: '0.73rem', fontWeight: 700 }}>
-                        SNMP + Ping
-                      </span>
-                    ) : ip.icmp_alive ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', padding: '3px 9px', borderRadius: '9999px', fontSize: '0.73rem', fontWeight: 700 }}>
-                        Apenas Ping
-                      </span>
-                    ) : (
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Inativo</span>
-                    )}
-                  </td>
-
-                  <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-main)' }}>
-                    {ip.ip_address}
-                  </td>
-
-                  <td style={{ fontWeight: 600 }}>
-                    {ip.hostname ? (
-                      <span style={{ color: 'var(--text-main)' }}>{ip.hostname}</span>
-                    ) : (
-                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 400 }}>Sem resposta SNMP</span>
-                    )}
-                  </td>
-
-                  <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', maxWidth: '280px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={ip.description || ''}>
-                    {ip.description || '-'}
-                  </td>
-
-                  <td>
-                    <span style={{ textTransform: 'uppercase', background: 'var(--color-primary-subtle)', color: 'var(--color-primary)', border: '1px solid var(--color-primary-border)', padding: '2px 7px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>
-                      {ip.client_group || 'geral'}
-                    </span>
-                  </td>
-
-                  <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
-                    {ip.prefix_str || '-'}
-                  </td>
-
-                  <td>
-                    {ip.asset_id ? (
-                      <button
-                        onClick={() => onSelectAsset && onSelectAsset(ip.asset_id)}
-                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.8rem' }}
-                      >
-                        <CheckCircle2 size={14} style={{ color: 'var(--color-success)' }} />
-                        <span>{ip.asset_name || `Ativo #${ip.asset_id}`}</span>
-                      </button>
-                    ) : (
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Novo IP</span>
-                    )}
-                  </td>
-
-                  <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                    {ip.last_seen_at ? new Date(ip.last_seen_at).toLocaleString('pt-BR') : '-'}
+            </thead>
+            <tbody>
+              {discoveredIps.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                    Nenhum IP descoberto ainda para este filtro. Clique em <strong>"Escanear Agora"</strong> no prefixo desejado acima.
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                discoveredIps.map((ip) => (
+                  <tr key={ip.id}>
+                    <td>
+                      {ip.snmp_alive ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-success-bg)', color: 'var(--color-success)', padding: '3px 9px', borderRadius: '9999px', fontSize: '0.73rem', fontWeight: 700 }}>
+                          SNMP + Ping
+                        </span>
+                      ) : ip.icmp_alive ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', padding: '3px 9px', borderRadius: '9999px', fontSize: '0.73rem', fontWeight: 700 }}>
+                          Apenas Ping
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Inativo</span>
+                      )}
+                    </td>
+
+                    <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-main)' }}>
+                      {ip.ip_address}
+                    </td>
+
+                    <td style={{ fontWeight: 600 }}>
+                      {ip.hostname ? (
+                        <span style={{ color: 'var(--text-main)' }}>{ip.hostname}</span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 400 }}>Sem resposta SNMP</span>
+                      )}
+                    </td>
+
+                    <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', maxWidth: '280px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={ip.description || ''}>
+                      {ip.description || '-'}
+                    </td>
+
+                    <td>
+                      <span style={{ textTransform: 'uppercase', background: 'var(--color-primary-subtle)', color: 'var(--color-primary)', border: '1px solid var(--color-primary-border)', padding: '2px 7px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>
+                        {ip.client_group || 'geral'}
+                      </span>
+                    </td>
+
+                    <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+                      {ip.prefix_str || '-'}
+                    </td>
+
+                    <td>
+                      {ip.asset_id ? (
+                        <button
+                          onClick={() => onSelectAsset && onSelectAsset(ip.asset_id)}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.8rem' }}
+                        >
+                          <CheckCircle2 size={14} style={{ color: 'var(--color-success)' }} />
+                          <span>{ip.asset_name || `Ativo #${ip.asset_id}`}</span>
+                        </button>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Novo IP</span>
+                      )}
+                    </td>
+
+                    <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      {ip.last_seen_at ? new Date(ip.last_seen_at).toLocaleString('pt-BR') : '-'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        ) : (
+          <table className="users-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>VLAN ID</th>
+                <th>Nome / Identificação</th>
+                <th>Sub-rede L3 Associada</th>
+                <th>Equipamentos & Interfaces (Backup Oxidized)</th>
+                <th>Status phpIPAM</th>
+                <th>Extraída em</th>
+              </tr>
+            </thead>
+            <tbody>
+              {discoveredVlans.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                    Nenhuma VLAN extraída para este filtro. Clique no botão <strong>"Extrair VLANs (Oxidized)"</strong> no topo direito para varrer os backups.
+                  </td>
+                </tr>
+              ) : (
+                discoveredVlans.map((v) => (
+                  <tr key={v.id}>
+                    <td>
+                      <span style={{ textTransform: 'uppercase', background: 'var(--color-primary-subtle)', color: 'var(--color-primary)', border: '1px solid var(--color-primary-border)', padding: '2px 7px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 700 }}>
+                        {v.client_group}
+                      </span>
+                    </td>
+
+                    <td>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.86rem', color: '#60a5fa', background: 'rgba(59, 130, 246, 0.14)', border: '1px solid rgba(59, 130, 246, 0.35)', padding: '2px 9px', borderRadius: '6px' }}>
+                        VLAN {v.vlan_id}
+                      </span>
+                    </td>
+
+                    <td style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                      {v.name}
+                    </td>
+
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.79rem', color: 'var(--text-secondary)' }}>
+                      {Array.isArray(v.subnets) && v.subnets.length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                          {v.subnets.map((sub, idx) => (
+                            <span key={idx} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-medium)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-main)' }}>
+                              {sub}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)' }}>L2 Pura</span>
+                      )}
+                    </td>
+
+                    <td>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {Array.isArray(v.devices) && v.devices.map((d, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => d.asset_id && onSelectAsset && onSelectAsset(d.asset_id)}
+                            title={`Equipamento: ${d.asset_name} (${d.model || ''}) | Interfaces: ${(d.interfaces || []).join(', ') || '-'} | IPs: ${(d.ips || []).join(', ') || '-'}`}
+                            style={{
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-medium)',
+                              borderRadius: '6px',
+                              padding: '3px 8px',
+                              cursor: d.asset_id ? 'pointer' : 'default',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              color: 'var(--text-main)',
+                              fontSize: '0.76rem',
+                              fontWeight: 600
+                            }}
+                          >
+                            <Server size={12} style={{ color: 'var(--color-primary)' }} />
+                            <span>{d.asset_name}</span>
+                            {Array.isArray(d.interfaces) && d.interfaces.length > 0 && (
+                              <span style={{ color: 'var(--text-secondary)', fontWeight: 400, fontFamily: 'var(--font-mono)', fontSize: '0.71rem' }}>
+                                ({d.interfaces.slice(0, 2).join(', ')})
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </td>
+
+                    <td>
+                      {v.phpipam_vlan_id ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--color-success-bg)', color: 'var(--color-success)', padding: '3px 9px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700 }}>
+                          <CheckCircle2 size={12} />
+                          Sincronizada (#{v.phpipam_vlan_id})
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>Pendente Sync</span>
+                      )}
+                    </td>
+
+                    <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      {v.last_extracted_at ? new Date(v.last_extracted_at).toLocaleString('pt-BR') : '-'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* ==================================================================== */}

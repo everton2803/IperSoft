@@ -78,3 +78,17 @@ class DiscoveredIP(Base):
 
     prefix_rel = relationship("IPPrefix", back_populates="discovered_ips")
     asset_rel = relationship("Asset")
+
+
+class DiscoveredVLAN(Base):
+    __tablename__ = "discovered_vlans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_group = Column(String(100), nullable=False, index=True)  # Ex: "taionet", "diretrix", "rtnet"
+    vlan_id = Column(Integer, nullable=False, index=True)  # 1..4094
+    name = Column(String(200), nullable=False)  # Nome extraído do backup (ex: "gerencia-olt-fiber")
+    description = Column(Text, nullable=True)  # Resumo de equipamentos/interfaces
+    subnets = Column(JSON, default=list, nullable=False)  # Ex: ["10.0.80.12/30"]
+    devices = Column(JSON, default=list, nullable=False)  # Lista de {asset_id, asset_name, model, interfaces, ips, local_name}
+    phpipam_vlan_id = Column(Integer, nullable=True)  # vlanId correspondente no phpIPAM
+    last_extracted_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

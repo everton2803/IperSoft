@@ -10,11 +10,12 @@ from sqlalchemy import or_, desc
 from pydantic import BaseModel, Field
 
 from app.database import get_db
-from app.models.ip_scanner import IPScannerProbe, IPCommunity, IPPrefix, DiscoveredIP
+from app.models.ip_scanner import IPScannerProbe, IPCommunity, IPPrefix, DiscoveredIP, DiscoveredVLAN
 from app.models.asset import Asset
 from app.routers.auth import get_current_user
 from app.services.diagnostics import sync_discovered_ips_with_assets
 from app.services.phpipam_sync import sync_ipersoft_to_phpipam
+from app.services.oxidized_vlan_extractor import extract_vlans_from_oxidized
 
 logger = logging.getLogger("IPScannerRouter")
 
@@ -142,6 +143,21 @@ class DiscoveredIPResponse(BaseModel):
         from_attributes = True
 
 
+class DiscoveredVLANResponse(BaseModel):
+    id: int
+    client_group: str
+    vlan_id: int
+    name: str
+    description: Optional[str] = None
+    subnets: List[str] = []
+    devices: List[dict] = []
+    phpipam_vlan_id: Optional[int] = None
+    last_extracted_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ScanTriggerResponse(BaseModel):
     prefix: str
     duration_seconds: float
@@ -150,8 +166,6 @@ class ScanTriggerResponse(BaseModel):
     total_snmp: int
     total_icmp_only: int
     matched_assets: int
-    phpipam_synced: bool = False
-    phpipam_stats: Optional[dict] = None
 
 
 # ==============================================================================
@@ -448,11 +462,6 @@ def create_prefix(item: PrefixCreate, db: Session = Depends(get_db), current_use
     db.commit()
     db.refresh(new_pref)
 
-    try:
-        sync_ipersoft_to_phpipam(db, prefix_id=new_pref.id)
-    except Exception as e:
-        logger.warning(f"Aviso ao sincronizar novo prefixo com phpIPAM: {e}")
-
     probes = _ensure_default_probe(db)
     comm_map = {c.id: c for c in db.query(IPCommunity).all()}
     return _build_prefix_response(new_pref, comm_map, probes)
@@ -503,11 +512,6 @@ def update_prefix(
 
     db.commit()
     db.refresh(pref)
-
-    try:
-        sync_ipersoft_to_phpipam(db, prefix_id=pref.id)
-    except Exception as e:
-        logger.warning(f"Aviso ao sincronizar prefixo atualizado com phpIPAM: {e}")
 
     probes = _ensure_default_probe(db)
     comm_map = {c.id: c for c in db.query(IPCommunity).all()}
@@ -671,14 +675,6 @@ async def trigger_prefix_scan(
     pref.total_hosts_found = total_active
     db.commit()
 
-    phpipam_synced = False
-    phpipam_stats = None
-    try:
-        phpipam_stats = sync_ipersoft_to_phpipam(db, prefix_id=pref.id)
-        phpipam_synced = True
-    except Exception as e:
-        logger.warning(f"Scan concluído, mas houve falha ao sincronizar automaticamente com phpIPAM: {e}")
-
     return ScanTriggerResponse(
         prefix=pref.prefix,
         duration_seconds=scan_data.get("duration_seconds", 0.0),
@@ -686,10 +682,67 @@ async def trigger_prefix_scan(
         total_active=total_active,
         total_snmp=total_snmp,
         total_icmp_only=total_icmp_only,
-        matched_assets=matched_assets_count,
-        phpipam_synced=phpipam_synced,
-        phpipam_stats=phpipam_stats
+        matched_assets=matched_assets_count
     )
+
+
+@router.post("/vlans/extract-oxidized")
+async def trigger_oxidized_vlan_extraction(
+    client_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Varre os backups de configuração dos equipamentos no Oxidized (MikroTik RouterOS,
+    Huawei VRP, Datacom DmOS e Juniper JunOS) e extrai as VLANs, interfaces e sub-redes L3.
+    """
+    try:
+        stats = await extract_vlans_from_oxidized(db, client_group=client_group)
+        return {
+            "status": "ok",
+            "message": "Extração de VLANs via Oxidized concluída com sucesso!",
+            "stats": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Falha ao extrair VLANs do Oxidized: {e}")
+
+
+@router.get("/vlans", response_model=List[DiscoveredVLANResponse])
+def list_discovered_vlans(
+    client_group: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = Query(default=500, le=2000),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    query = db.query(DiscoveredVLAN)
+    if client_group and client_group.lower() != "todos":
+        cg = client_group.strip().lower()
+        if cg == "oestenets":
+            cg = "oestenet"
+        query = query.filter(DiscoveredVLAN.client_group == cg)
+
+    if search and search.strip():
+        s_raw = search.strip()
+        s_like = f"%{s_raw}%"
+        if s_raw.isdigit():
+            query = query.filter(
+                or_(
+                    DiscoveredVLAN.vlan_id == int(s_raw),
+                    DiscoveredVLAN.name.ilike(s_like),
+                    DiscoveredVLAN.description.ilike(s_like)
+                )
+            )
+        else:
+            query = query.filter(
+                or_(
+                    DiscoveredVLAN.name.ilike(s_like),
+                    DiscoveredVLAN.description.ilike(s_like),
+                    DiscoveredVLAN.client_group.ilike(s_like)
+                )
+            )
+
+    return query.order_by(DiscoveredVLAN.client_group, DiscoveredVLAN.vlan_id).limit(limit).all()
 
 
 @router.post("/sync-phpipam")
@@ -700,8 +753,9 @@ def trigger_phpipam_sync(
     current_user=Depends(get_current_user)
 ):
     """
-    Sincroniza equipamentos (devices), seções (sections), prefixos (subnets) e
-    IPs descobertos + vínculo com equipamentos (ipaddresses.switch) do IperSoft para o phpIPAM.
+    Sincroniza equipamentos (devices), seções (sections), VLANs (vlans + vlanDomains),
+    prefixos (subnets) e IPs descobertos + vínculo com equipamentos (ipaddresses.switch)
+    do IperSoft para o phpIPAM.
     """
     try:
         stats = sync_ipersoft_to_phpipam(db, prefix_id=prefix_id, client_group=client_group)
@@ -795,11 +849,13 @@ def get_scanner_stats(db: Session = Depends(get_db), current_user=Depends(get_cu
         DiscoveredIP.icmp_alive == True, DiscoveredIP.snmp_alive == False
     ).count()
     total_matched = db.query(DiscoveredIP).filter(DiscoveredIP.asset_id.isnot(None)).count()
+    total_vlans = db.query(DiscoveredVLAN).count()
 
     return {
         "total_prefixes": total_prefixes,
         "total_discovered_ips": total_ips,
         "total_snmp": total_snmp,
         "total_icmp_only": total_icmp_only,
-        "total_matched_assets": total_matched
+        "total_matched_assets": total_matched,
+        "total_vlans": total_vlans
     }

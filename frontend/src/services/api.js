@@ -1271,6 +1271,26 @@ export const ipScannerService = {
       method: 'POST',
       headers: authService.getAuthHeaders(),
     }, 'Erro ao sincronizar dados com o phpIPAM');
+  },
+
+  getDiscoveredVlans: async ({ clientGroup = '', search = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (clientGroup && clientGroup !== 'todos') params.append('client_group', clientGroup);
+    if (search) params.append('search', search);
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/vlans${queryStr}`, {
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao listar VLANs extraídas do Oxidized');
+  },
+
+  extractOxidizedVlans: async ({ clientGroup = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (clientGroup && clientGroup !== 'todos') params.append('client_group', clientGroup);
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/vlans/extract-oxidized${queryStr}`, {
+      method: 'POST',
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao extrair VLANs dos backups do Oxidized');
   }
 };
 
