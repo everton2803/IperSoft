@@ -287,6 +287,22 @@ Serviço híbrido e ultrarrápido para identificação automática do Sistema Op
   - `POST /api/v1/assets/{id}/detect-os`: Detecção individual com opção de aplicar (`apply=True`) diretamente no cadastro.
   - `POST /api/v1/assets/bulk-detect-os`: Detecção assíncrona em lote com semáforo controlado de 10 conexões simultâneas, atualizando múltiplos equipamentos de uma só vez.
 
+### 5.8. Servidor de Firmwares & Arquivos (`app/services/firmwares.py` e `/api/v1/firmwares`)
+Servidor de alta velocidade para distribuição e upload de firmwares de switches, roteadores e OLTs:
+- **Arquitetura Dupla**:
+  - **Upload Web (`filebrowser`)**: Interface web moderna em `https://firmware.iper.net.br` (e `http://10.10.1.2:8087`) com drag-and-drop, barra de progresso e autenticação.
+  - **Download HTTP Nginx (`nginx:alpine`)**: Servidor estático em `http://10.10.1.2:8089` (sem auth, sem cookies, `autoindex on;`) permitindo que equipamentos Datacom (DmOS/DmSwitch), MikroTik e Cisco baixem firmwares pesados em segundos via TCP.
+- **Integração no IperSoft**:
+  - **Barra de Navegação (`Navbar.jsx`)**: Botão de acesso rápido "Firmwares" no topo da interface.
+  - **Tela de Integrações (`IntegrationsView.jsx`)**: Card com status de conectividade, contagem de arquivos/espaço e botões diretos.
+  - **Detalhe do Ativo (`AssetDetailView.jsx`)**: Botão "Firmwares" no Card de Operação que abre o modal pré-filtrado para o modelo do ativo com gerador de comandos CLI prontos para copiar (ex: `request system software-upgrade url http://10.10.1.2:8089/...`).
+- **Endpoints REST**:
+  - `GET /api/v1/firmwares/config`: Retorna URLs e status da integração.
+  - `POST /api/v1/firmwares/config`: Salva parâmetros de configuração.
+  - `POST /api/v1/firmwares/test`: Testa conectividade com download HTTP e Web FileBrowser.
+  - `GET /api/v1/firmwares/files`: Lista arquivos, subpastas, tamanhos e URLs de download.
+  - `POST /api/v1/firmwares/command`: Gera comandos CLI específicos para o perfil do equipamento.
+
 ---
 
 ## 6. Frontend: Componentes e Padrões de Interface
