@@ -146,6 +146,7 @@ async def scan_single_ip(engine: SnmpEngine, ip_str: str, req: ScanRequest, sema
 
 
 @app.get("/health")
+@app.get("/api/v1/health")
 def health_check():
     return {"status": "ok", "service": "IperScannerProbe", "timestamp": time.time()}
 

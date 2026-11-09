@@ -1,0 +1,59 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+    php82 \
+    php82-cli \
+    php82-pdo \
+    php82-pdo_mysql \
+    php82-gmp \
+    php82-pcntl \
+    php82-sockets \
+    php82-openssl \
+    php82-mbstring \
+    php82-gettext \
+    php82-ctype \
+    git \
+    fping \
+    iputils \
+    tzdata \
+    && ln -sf /usr/bin/php82 /usr/bin/php
+
+WORKDIR /opt/phpipam-agent
+
+RUN git clone --depth 1 https://github.com/phpipam/phpipam-agent.git .
+
+RUN cat << 'EOF' > /opt/phpipam-agent/config.php
+<?php
+$config['type'] = "mysql";
+$config['key'] = getenv("IPAM_AGENT_KEY") ?: "taionet_agent_9f8e7d6c5b4a3210";
+$config['method'] = "fping";
+$config['pingpath'] = "/usr/sbin/fping";
+$config['nonthreaded'] = false;
+$config['threads'] = 32;
+$config['api']['key'] = "";
+$config['sendmail'] = false;
+$config['reset_autodiscover_addresses'] = false;
+$config['remove_inactive_dhcp'] = false;
+$config['db']['host'] = getenv("IPAM_DATABASE_HOST") ?: "10.10.1.2";
+$config['db']['user'] = getenv("IPAM_DATABASE_USER") ?: "phpipam";
+$config['db']['pass'] = getenv("IPAM_DATABASE_PASS") ?: "phpipampass";
+$config['db']['name'] = getenv("IPAM_DATABASE_NAME") ?: "phpipam";
+$config['db']['port'] = intval(getenv("IPAM_DATABASE_PORT") ?: 3306);
+$config['db']['ssl'] = false;
+EOF
+
+RUN cat << 'EOF' > /entrypoint.sh && chmod +x /entrypoint.sh
+#!/bin/sh
+echo "[phpipam-agent] Iniciando agente remoto phpIPAM (Key: ${IPAM_AGENT_KEY})..."
+INTERVAL="${IPAM_SCAN_INTERVAL_SEC:-900}"
+while true; do
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Executando update (pingCheck)..."
+    php /opt/phpipam-agent/index.php update
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Executando discover (discoveryCheck)..."
+    php /opt/phpipam-agent/index.php discover
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Ciclo concluido. Proximo em ${INTERVAL}s."
+    sleep "${INTERVAL}"
+done
+EOF
+
+CMD ["/entrypoint.sh"]

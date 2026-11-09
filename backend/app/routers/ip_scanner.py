@@ -243,7 +243,7 @@ async def test_probe_connection(probe_id: int, db: Session = Depends(get_db), cu
     if not probe:
         raise HTTPException(status_code=404, detail="Probe não encontrado.")
 
-    health_url = f"{probe.url.rstrip('/')}/api/v1/health"
+    health_url = f"{probe.url.rstrip('/')}/health"
     import time
     t0 = time.perf_counter()
     try:
