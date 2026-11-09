@@ -11,12 +11,17 @@ RUN apk add --no-cache \
     php82-openssl \
     php82-mbstring \
     php82-gettext \
+    php82-iconv \
+    php82-pear \
+    php82-posix \
+    php82-session \
     php82-ctype \
     git \
     fping \
     iputils \
     tzdata \
-    && ln -sf /usr/bin/php82 /usr/bin/php
+    && ln -sf /usr/bin/php82 /usr/bin/php \
+    && sed -i 's|^;include_path = ".:/php/includes"|include_path = ".:/usr/share/php82:/usr/share/pear"|g' /etc/php82/php.ini
 
 WORKDIR /opt/phpipam-agent
 
@@ -34,11 +39,11 @@ $config['api']['key'] = "";
 $config['sendmail'] = false;
 $config['reset_autodiscover_addresses'] = false;
 $config['remove_inactive_dhcp'] = false;
-$config['db']['host'] = getenv("IPAM_DATABASE_HOST") ?: "10.10.1.2";
+$config['db']['host'] = getenv("IPAM_DATABASE_HOST") ?: "163.176.247.93";
 $config['db']['user'] = getenv("IPAM_DATABASE_USER") ?: "phpipam";
 $config['db']['pass'] = getenv("IPAM_DATABASE_PASS") ?: "phpipampass";
 $config['db']['name'] = getenv("IPAM_DATABASE_NAME") ?: "phpipam";
-$config['db']['port'] = intval(getenv("IPAM_DATABASE_PORT") ?: 3306);
+$config['db']['port'] = intval(getenv("IPAM_DATABASE_PORT") ?: 443);
 $config['db']['ssl'] = false;
 EOF
 

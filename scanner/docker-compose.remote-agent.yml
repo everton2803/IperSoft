@@ -29,10 +29,10 @@ services:
       TZ: America/Sao_Paulo
       # Chave gerada no phpIPAM em: Administration -> Scan agents
       IPAM_AGENT_KEY: "${IPAM_AGENT_KEY:-taionet_agent_9f8e7d6c5b4a3210}"
-      # Banco MySQL do phpIPAM central (via relay privado no brdrive 10.10.1.2)
-      IPAM_DATABASE_HOST: "${IPAM_DATABASE_HOST:-10.10.1.2}"
+      # Banco MySQL do phpIPAM central (Oracle Cloud 163.176.247.93 porta 443)
+      IPAM_DATABASE_HOST: "${IPAM_DATABASE_HOST:-163.176.247.93}"
       IPAM_DATABASE_USER: "${IPAM_DATABASE_USER:-phpipam}"
       IPAM_DATABASE_PASS: "${IPAM_DATABASE_PASS:-phpipampass}"
       IPAM_DATABASE_NAME: "${IPAM_DATABASE_NAME:-phpipam}"
-      IPAM_DATABASE_PORT: "${IPAM_DATABASE_PORT:-3306}"
+      IPAM_DATABASE_PORT: "${IPAM_DATABASE_PORT:-443}"
       IPAM_SCAN_INTERVAL_SEC: "${IPAM_SCAN_INTERVAL_SEC:-900}"
