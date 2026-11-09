@@ -10,7 +10,7 @@ from sqlalchemy import or_, desc
 from pydantic import BaseModel, Field
 
 from app.database import get_db
-from app.models.ip_scanner import IPCommunity, IPPrefix, DiscoveredIP
+from app.models.ip_scanner import IPScannerProbe, IPCommunity, IPPrefix, DiscoveredIP
 from app.models.asset import Asset
 from app.routers.auth import get_current_user
 from app.services.diagnostics import sync_discovered_ips_with_assets
@@ -54,12 +54,42 @@ class CommunityResponse(BaseModel):
         from_attributes = True
 
 
+class ProbeCreate(BaseModel):
+    name: str = Field(..., example="VM Zabbix Proxy - Inforline")
+    url: str = Field(..., example="http://172.16.10.22:8005")
+    client_group: Optional[str] = Field(default="", example="inforline")
+    phpipam_agent_code: Optional[str] = Field(default="", example="")
+    is_default: bool = Field(default=False)
+
+
+class ProbeUpdate(BaseModel):
+    name: Optional[str] = None
+    url: Optional[str] = None
+    client_group: Optional[str] = None
+    phpipam_agent_code: Optional[str] = None
+    is_default: Optional[bool] = None
+
+
+class ProbeResponse(BaseModel):
+    id: int
+    name: str
+    url: str
+    client_group: Optional[str] = ""
+    phpipam_agent_code: Optional[str] = ""
+    is_default: Optional[bool] = False
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class PrefixCreate(BaseModel):
     prefix: str = Field(..., example="10.90.10.0/24")
     client_group: str = Field(..., example="atm")
     description: Optional[str] = Field(default="", example="Switches de agregação Matriz")
     community_id: Optional[int] = None
     community_ids: Optional[List[int]] = Field(default_factory=list)
+    probe_id: Optional[int] = None
 
 
 class PrefixUpdate(BaseModel):
@@ -68,6 +98,7 @@ class PrefixUpdate(BaseModel):
     description: Optional[str] = None
     community_id: Optional[int] = None
     community_ids: Optional[List[int]] = None
+    probe_id: Optional[int] = None
 
 
 class PrefixResponse(BaseModel):
@@ -79,6 +110,8 @@ class PrefixResponse(BaseModel):
     community_ids: List[int] = []
     community_names: List[str] = []
     community_name: Optional[str] = None
+    probe_id: Optional[int] = None
+    probe_name: Optional[str] = None
     last_scan_at: Optional[datetime] = None
     total_hosts_found: Optional[int] = 0
     created_at: Optional[datetime] = None
@@ -116,6 +149,124 @@ class ScanTriggerResponse(BaseModel):
     total_snmp: int
     total_icmp_only: int
     matched_assets: int
+
+
+# ==============================================================================
+# ROTAS DE PROBES / AGENTES REMOTOS DE SCAN
+# ==============================================================================
+
+def _ensure_default_probe(db: Session) -> List[IPScannerProbe]:
+    probes = db.query(IPScannerProbe).order_by(IPScannerProbe.id).all()
+    if not probes:
+        default_probe = IPScannerProbe(
+            name="Probe Central (brdrive)",
+            url=SCANNER_PROBE_URL,
+            client_group="",
+            phpipam_agent_code="",
+            is_default=True
+        )
+        db.add(default_probe)
+        db.commit()
+        db.refresh(default_probe)
+        probes = [default_probe]
+    return probes
+
+
+@router.get("/probes", response_model=List[ProbeResponse])
+def list_probes(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return _ensure_default_probe(db)
+
+
+@router.post("/probes", response_model=ProbeResponse)
+def create_probe(item: ProbeCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    _ensure_default_probe(db)
+    if item.is_default:
+        db.query(IPScannerProbe).update({IPScannerProbe.is_default: False})
+
+    new_probe = IPScannerProbe(
+        name=item.name.strip(),
+        url=item.url.strip().rstrip("/"),
+        client_group=(item.client_group or "").strip().lower(),
+        phpipam_agent_code=(item.phpipam_agent_code or "").strip(),
+        is_default=item.is_default
+    )
+    db.add(new_probe)
+    db.commit()
+    db.refresh(new_probe)
+    return new_probe
+
+
+@router.put("/probes/{probe_id}", response_model=ProbeResponse)
+def update_probe(
+    probe_id: int,
+    item: ProbeUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    probe = db.query(IPScannerProbe).filter(IPScannerProbe.id == probe_id).first()
+    if not probe:
+        raise HTTPException(status_code=404, detail="Probe não encontrado.")
+
+    if item.is_default is True:
+        db.query(IPScannerProbe).filter(IPScannerProbe.id != probe_id).update({IPScannerProbe.is_default: False})
+        probe.is_default = True
+    elif item.is_default is False:
+        probe.is_default = False
+
+    if item.name is not None and item.name.strip():
+        probe.name = item.name.strip()
+    if item.url is not None and item.url.strip():
+        probe.url = item.url.strip().rstrip("/")
+    if item.client_group is not None:
+        probe.client_group = item.client_group.strip().lower()
+    if item.phpipam_agent_code is not None:
+        probe.phpipam_agent_code = item.phpipam_agent_code.strip()
+
+    db.commit()
+    db.refresh(probe)
+    return probe
+
+
+@router.delete("/probes/{probe_id}")
+def delete_probe(probe_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    probe = db.query(IPScannerProbe).filter(IPScannerProbe.id == probe_id).first()
+    if not probe:
+        raise HTTPException(status_code=404, detail="Probe não encontrado.")
+    db.delete(probe)
+    db.commit()
+    return {"message": "Probe excluído com sucesso."}
+
+
+@router.post("/probes/{probe_id}/test")
+async def test_probe_connection(probe_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    probe = db.query(IPScannerProbe).filter(IPScannerProbe.id == probe_id).first()
+    if not probe:
+        raise HTTPException(status_code=404, detail="Probe não encontrado.")
+
+    health_url = f"{probe.url.rstrip('/')}/api/v1/health"
+    import time
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(health_url)
+            latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+            if resp.status_code == 200:
+                return {
+                    "status": "online",
+                    "latency_ms": latency_ms,
+                    "message": f"Online ({latency_ms} ms) - {probe.url}"
+                }
+            return {
+                "status": "offline",
+                "latency_ms": latency_ms,
+                "message": f"HTTP {resp.status_code} ao consultar {health_url}"
+            }
+    except Exception as e:
+        return {
+            "status": "offline",
+            "latency_ms": None,
+            "message": f"Sem resposta em {health_url}: {str(e)}"
+        }
 
 
 # ==============================================================================
@@ -205,11 +356,36 @@ def _resolve_prefix_community_ids(p: IPPrefix) -> List[int]:
     return clean_ids
 
 
-def _build_prefix_response(p: IPPrefix, comm_map: dict) -> PrefixResponse:
+def _resolve_target_probe(p: IPPrefix, probes: List[IPScannerProbe]) -> Optional[IPScannerProbe]:
+    probe_map = {pr.id: pr for pr in probes}
+    if p.probe_id and p.probe_id in probe_map:
+        return probe_map[p.probe_id]
+    # Tenta probe vinculado ao mesmo client_group
+    cg = (p.client_group or "").strip().lower()
+    if cg:
+        for pr in probes:
+            if (pr.client_group or "").strip().lower() == cg:
+                return pr
+    # Fallback para o probe padrão
+    for pr in probes:
+        if pr.is_default:
+            return pr
+    return probes[0] if probes else None
+
+
+def _build_prefix_response(p: IPPrefix, comm_map: dict, probes: List[IPScannerProbe]) -> PrefixResponse:
     c_ids = _resolve_prefix_community_ids(p)
     valid_ids = [cid for cid in c_ids if cid in comm_map]
     c_names = [comm_map[cid].name for cid in valid_ids]
     comm_label = ", ".join(c_names) if c_names else "Todas cadastradas"
+    target_probe = _resolve_target_probe(p, probes)
+    if p.probe_id and target_probe:
+        probe_label = target_probe.name
+    elif target_probe:
+        probe_label = f"Automático ({target_probe.name})"
+    else:
+        probe_label = "Central (brdrive)"
+
     return PrefixResponse(
         id=p.id,
         prefix=p.prefix,
@@ -219,6 +395,8 @@ def _build_prefix_response(p: IPPrefix, comm_map: dict) -> PrefixResponse:
         community_ids=valid_ids,
         community_names=c_names,
         community_name=comm_label,
+        probe_id=p.probe_id,
+        probe_name=probe_label,
         last_scan_at=p.last_scan_at,
         total_hosts_found=p.total_hosts_found or 0,
         created_at=p.created_at
@@ -231,13 +409,14 @@ def list_prefixes(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
+    probes = _ensure_default_probe(db)
     comm_map = {c.id: c for c in db.query(IPCommunity).all()}
     query = db.query(IPPrefix)
     if client_group and client_group.lower() != "todos":
         query = query.filter(IPPrefix.client_group == client_group)
     
     prefixes = query.order_by(IPPrefix.prefix).all()
-    return [_build_prefix_response(p, comm_map) for p in prefixes]
+    return [_build_prefix_response(p, comm_map, probes) for p in prefixes]
 
 
 @router.post("/prefixes", response_model=PrefixResponse)
@@ -259,14 +438,16 @@ def create_prefix(item: PrefixCreate, db: Session = Depends(get_db), current_use
         client_group=item.client_group.strip().lower(),
         description=item.description,
         community_id=c_ids[0] if c_ids else None,
-        community_ids=c_ids
+        community_ids=c_ids,
+        probe_id=int(item.probe_id) if item.probe_id else None
     )
     db.add(new_pref)
     db.commit()
     db.refresh(new_pref)
 
+    probes = _ensure_default_probe(db)
     comm_map = {c.id: c for c in db.query(IPCommunity).all()}
-    return _build_prefix_response(new_pref, comm_map)
+    return _build_prefix_response(new_pref, comm_map, probes)
 
 
 @router.put("/prefixes/{prefix_id}", response_model=PrefixResponse)
@@ -309,11 +490,15 @@ def update_prefix(
         pref.community_id = int(item.community_id) if item.community_id else None
         pref.community_ids = [int(item.community_id)] if item.community_id else []
 
+    if "probe_id" in item.model_fields_set:
+        pref.probe_id = int(item.probe_id) if item.probe_id else None
+
     db.commit()
     db.refresh(pref)
 
+    probes = _ensure_default_probe(db)
     comm_map = {c.id: c for c in db.query(IPCommunity).all()}
-    return _build_prefix_response(pref, comm_map)
+    return _build_prefix_response(pref, comm_map, probes)
 
 
 @router.delete("/prefixes/{prefix_id}")
@@ -362,8 +547,14 @@ async def trigger_prefix_scan(
     if not communities_to_try:
         communities_to_try = ["ipermonitor", "public"]
 
-    # Chamada ao microsserviço de Scanner
-    probe_url = f"{SCANNER_PROBE_URL}/api/v1/scan"
+    # Resolver em qual Probe (Central ou VM Zabbix Proxy do Cliente) o scan será executado
+    probes = _ensure_default_probe(db)
+    target_probe = _resolve_target_probe(pref, probes)
+    base_probe_url = (target_probe.url if target_probe else SCANNER_PROBE_URL).rstrip("/")
+    probe_name = target_probe.name if target_probe else "Probe Central"
+
+    # Chamada ao microsserviço de Scanner (Local ou Remoto)
+    probe_url = f"{base_probe_url}/api/v1/scan"
     payload = {
         "cidr": pref.prefix,
         "communities": communities_to_try,
@@ -376,11 +567,11 @@ async def trigger_prefix_scan(
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(probe_url, json=payload)
             if resp.status_code != 200:
-                raise HTTPException(status_code=502, detail=f"Erro no container Scanner Probe: {resp.text}")
+                raise HTTPException(status_code=502, detail=f"Erro no {probe_name}: {resp.text}")
             scan_data = resp.json()
     except Exception as e:
-        logger.error(f"Falha ao conectar no container iper-scanner ({probe_url}): {e}")
-        raise HTTPException(status_code=502, detail=f"Não foi possível conectar ao container Scanner Probe em {probe_url}. Detalhe: {e}")
+        logger.error(f"Falha ao conectar no {probe_name} ({probe_url}): {e}")
+        raise HTTPException(status_code=502, detail=f"Não foi possível conectar ao {probe_name} em {probe_url}. Detalhe: {e}")
 
     # Processamento dos resultados e matching com Assets
     devices = scan_data.get("devices", [])

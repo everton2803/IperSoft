@@ -37,10 +37,13 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const [allPrefixes, setAllPrefixes] = useState([]);
   const [discoveredIps, setDiscoveredIps] = useState([]);
   const [communities, setCommunities] = useState([]);
+  const [probes, setProbes] = useState([]);
 
   // Estados de Carregamento
   const [loading, setLoading] = useState(false);
   const [scanningPrefixId, setScanningPrefixId] = useState(null);
+  const [testingProbeId, setTestingProbeId] = useState(null);
+  const [probeTestResults, setProbeTestResults] = useState({});
   const [scanResultToast, setScanResultToast] = useState(null);
   const [modalError, setModalError] = useState('');
 
@@ -49,10 +52,13 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const [editingPrefixId, setEditingPrefixId] = useState(null);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [editingCommunityId, setEditingCommunityId] = useState(null);
+  const [showProbeModal, setShowProbeModal] = useState(false);
+  const [editingProbeId, setEditingProbeId] = useState(null);
 
   // Formulários
-  const [newPrefix, setNewPrefix] = useState({ prefix: '', client_group: '', description: '', community_ids: [] });
+  const [newPrefix, setNewPrefix] = useState({ prefix: '', client_group: '', description: '', community_ids: [], probe_id: '' });
   const [newCommunity, setNewCommunity] = useState({ name: '', community: '', version: '2c', port: 161, is_default: false });
+  const [newProbe, setNewProbe] = useState({ name: '', url: '', client_group: '', phpipam_agent_code: '', is_default: false });
 
   // Lista dinâmica de clientes: mostra apenas os clientes que possuem prefixo associado
   const clientOptions = useMemo(() => {
@@ -81,10 +87,11 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [statsData, prefData, commData, ipsData] = await Promise.all([
+      const [statsData, prefData, commData, probeData, ipsData] = await Promise.all([
         ipScannerService.getStats().catch(() => ({})),
         ipScannerService.getPrefixes('todos').catch(() => []),
         ipScannerService.getCommunities().catch(() => []),
+        ipScannerService.getProbes().catch(() => []),
         ipScannerService.getDiscoveredIps({
           clientGroup: selectedClient,
           prefixId: selectedPrefixId,
@@ -96,6 +103,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
       setStats(statsData || {});
       setAllPrefixes(prefData || []);
       setCommunities(commData || []);
+      setProbes(probeData || []);
       setDiscoveredIps(ipsData || []);
     } catch (err) {
       console.error("Erro ao carregar dados do IP Scanner:", err);
@@ -139,7 +147,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const handleOpenNewPrefixModal = () => {
     setModalError('');
     setEditingPrefixId(null);
-    setNewPrefix({ prefix: '', client_group: '', description: '', community_ids: [] });
+    setNewPrefix({ prefix: '', client_group: '', description: '', community_ids: [], probe_id: '' });
     setShowPrefixModal(true);
   };
 
@@ -154,7 +162,8 @@ export const IpManagementView = ({ onSelectAsset }) => {
       prefix: pref.prefix || '',
       client_group: pref.client_group || '',
       description: pref.description || '',
-      community_ids: currentIds
+      community_ids: currentIds,
+      probe_id: pref.probe_id ? String(pref.probe_id) : ''
     });
     setShowPrefixModal(true);
   };
@@ -182,14 +191,15 @@ export const IpManagementView = ({ onSelectAsset }) => {
       prefix: newPrefix.prefix.trim(),
       client_group: newPrefix.client_group.trim().toLowerCase(),
       description: (newPrefix.description || '').trim(),
-      community_ids: (newPrefix.community_ids || []).map(Number)
+      community_ids: (newPrefix.community_ids || []).map(Number),
+      probe_id: newPrefix.probe_id ? Number(newPrefix.probe_id) : null
     };
     try {
       if (editingPrefixId) {
         const updated = await ipScannerService.updatePrefix(editingPrefixId, payload);
         setShowPrefixModal(false);
         setEditingPrefixId(null);
-        setNewPrefix({ prefix: '', client_group: '', description: '', community_ids: [] });
+        setNewPrefix({ prefix: '', client_group: '', description: '', community_ids: [], probe_id: '' });
         setScanResultToast({
           type: 'success',
           message: `Prefixo ${updated.prefix} (${updated.client_group.toUpperCase()}) atualizado com sucesso!`
@@ -197,7 +207,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
       } else {
         const created = await ipScannerService.createPrefix(payload);
         setShowPrefixModal(false);
-        setNewPrefix({ prefix: '', client_group: '', description: '', community_ids: [] });
+        setNewPrefix({ prefix: '', client_group: '', description: '', community_ids: [], probe_id: '' });
         setSelectedClient('todos');
         setScanResultToast({
           type: 'success',
@@ -274,6 +284,68 @@ export const IpManagementView = ({ onSelectAsset }) => {
     }
   };
 
+  // Gerenciamento de Probes / Agentes Remotos (Zabbix Proxy / phpIPAM)
+  const handleStartEditProbe = (pr) => {
+    setModalError('');
+    setEditingProbeId(pr.id);
+    setNewProbe({
+      name: pr.name || '',
+      url: pr.url || '',
+      client_group: pr.client_group || '',
+      phpipam_agent_code: pr.phpipam_agent_code || '',
+      is_default: Boolean(pr.is_default)
+    });
+  };
+
+  const handleCancelEditProbe = () => {
+    setModalError('');
+    setEditingProbeId(null);
+    setNewProbe({ name: '', url: '', client_group: '', phpipam_agent_code: '', is_default: false });
+  };
+
+  const handleSaveProbe = async (e) => {
+    e.preventDefault();
+    setModalError('');
+    if (!newProbe.name.trim() || !newProbe.url.trim()) return;
+    try {
+      if (editingProbeId) {
+        await ipScannerService.updateProbe(editingProbeId, newProbe);
+        setEditingProbeId(null);
+      } else {
+        await ipScannerService.createProbe(newProbe);
+      }
+      setNewProbe({ name: '', url: '', client_group: '', phpipam_agent_code: '', is_default: false });
+      await loadAllData();
+    } catch (err) {
+      setModalError(err.message || 'Erro ao salvar probe.');
+    }
+  };
+
+  const handleDeleteProbe = async (id, name) => {
+    if (!window.confirm(`Excluir o agente/probe '${name}'?`)) return;
+    try {
+      await ipScannerService.deleteProbe(id);
+      await loadAllData();
+    } catch (err) {
+      alert(`Erro ao excluir probe: ${err.message}`);
+    }
+  };
+
+  const handleTestProbe = async (id) => {
+    setTestingProbeId(id);
+    try {
+      const res = await ipScannerService.testProbe(id);
+      setProbeTestResults((prev) => ({ ...prev, [id]: res }));
+    } catch (err) {
+      setProbeTestResults((prev) => ({
+        ...prev,
+        [id]: { status: 'offline', message: err.message }
+      }));
+    } finally {
+      setTestingProbeId(null);
+    }
+  };
+
   return (
     <div className="view-container" style={{ padding: '1.5rem', maxWidth: '1400px', margin: '0 auto', color: 'var(--text-main)' }}>
       {/* Header */}
@@ -293,7 +365,21 @@ export const IpManagementView = ({ onSelectAsset }) => {
         </div>
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button 
+            className="btn-secondary" 
+            onClick={() => {
+              setModalError('');
+              setEditingProbeId(null);
+              setNewProbe({ name: '', url: '', client_group: '', phpipam_agent_code: '', is_default: false });
+              setShowProbeModal(true);
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem' }}
+          >
+            <Server size={15} />
+            <span>Probes / Agentes ({probes.length})</span>
+          </button>
+
           <button 
             className="btn-secondary" 
             onClick={() => {
@@ -457,6 +543,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
             <tr>
               <th>Prefixo CIDR</th>
               <th>Cliente / Sessão</th>
+              <th>Probe / Agente</th>
               <th>Comunidade SNMP</th>
               <th>Descrição</th>
               <th>Última Varredura</th>
@@ -467,7 +554,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
           <tbody>
             {filteredPrefixes.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                   Nenhum prefixo cadastrado. Clique no botão <strong>"+ Cadastrar Prefixo"</strong> no topo direito.
                 </td>
               </tr>
@@ -490,6 +577,10 @@ export const IpManagementView = ({ onSelectAsset }) => {
                     <span style={{ textTransform: 'uppercase', background: 'var(--color-primary-subtle)', color: 'var(--color-primary)', border: '1px solid var(--color-primary-border)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700 }}>
                       {pref.client_group}
                     </span>
+                  </td>
+
+                  <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500 }}>
+                    {pref.probe_name || 'Central (brdrive)'}
                   </td>
 
                   <td style={{ color: 'var(--text-main)', fontWeight: 500 }}>
@@ -757,6 +848,22 @@ export const IpManagementView = ({ onSelectAsset }) => {
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label className="form-label">Probe / Agente de Varredura (VM Zabbix Proxy)</label>
+                  <select
+                    className="form-input"
+                    value={newPrefix.probe_id || ''}
+                    onChange={(e) => setNewPrefix({ ...newPrefix, probe_id: e.target.value })}
+                  >
+                    <option value="">Automático (Usa o Probe do Cliente ou Central)</option>
+                    {probes.map((pr) => (
+                      <option key={pr.id} value={pr.id}>
+                        {pr.name} — {pr.url} {pr.client_group ? `[${pr.client_group.toUpperCase()}]` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
                     <label className="form-label" style={{ margin: 0 }}>
                       Comunidades SNMP Associadas ({(newPrefix.community_ids || []).length === 0 ? 'Todas' : `${newPrefix.community_ids.length} selecionada(s)`})
@@ -1007,6 +1114,206 @@ export const IpManagementView = ({ onSelectAsset }) => {
                   </button>
                   <button type="submit" className="btn-primary" style={{ width: 'auto', padding: '0.6rem 1.4rem' }}>
                     {editingCommunityId ? 'Salvar Alterações' : 'Adicionar Comunidade'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL: PROBES / AGENTES REMOTOS (VMs Zabbix Proxy + phpIPAM Agent)   */}
+      {/* ==================================================================== */}
+      {showProbeModal && (
+        <div className="modal-overlay" onClick={() => setShowProbeModal(false)}>
+          <div className="modal-container" style={{ maxWidth: '680px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-box">
+                <Server size={20} className="modal-title-icon" />
+                <h2 className="modal-title">Probes de Varredura & Agentes nas VMs dos Clientes</h2>
+              </div>
+              <button className="btn-close-modal" onClick={() => setShowProbeModal(false)} title="Fechar">
+                <X size={18} />
+              </button>
+            </div>
+
+            {modalError && (
+              <div className="alert-box alert-error" role="alert">
+                <AlertCircle size={15} />
+                <span>{modalError}</span>
+              </div>
+            )}
+
+            <div className="modal-body" style={{ maxHeight: '78vh', overflowY: 'auto' }}>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label className="form-label" style={{ display: 'block', marginBottom: '0.5rem' }}>
+                  Probes Cadastrados ({probes.length})
+                </label>
+                <div className="users-table-wrapper" style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                  <table className="users-table">
+                    <thead>
+                      <tr>
+                        <th>Nome do Probe</th>
+                        <th>URL (Porta 8005)</th>
+                        <th>Cliente</th>
+                        <th style={{ textAlign: 'right' }}>Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {probes.map((pr) => {
+                        const testRes = probeTestResults[pr.id];
+                        return (
+                          <tr
+                            key={pr.id}
+                            style={{
+                              background: editingProbeId === pr.id ? 'var(--color-primary-subtle)' : 'transparent'
+                            }}
+                          >
+                            <td>
+                              <strong>{pr.name}</strong>
+                              {pr.is_default && (
+                                <span style={{ marginLeft: '6px', background: 'var(--color-success-bg)', color: 'var(--color-success)', fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                                  Padrão
+                                </span>
+                              )}
+                              {testRes && (
+                                <div style={{ fontSize: '0.72rem', marginTop: '3px', color: testRes.status === 'online' ? 'var(--color-success)' : 'var(--color-danger)', fontWeight: 600 }}>
+                                  {testRes.message}
+                                </div>
+                              )}
+                            </td>
+                            <td><code>{pr.url}</code></td>
+                            <td>
+                              {pr.client_group ? (
+                                <span style={{ textTransform: 'uppercase', background: 'var(--color-primary-subtle)', color: 'var(--color-primary)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>
+                                  {pr.client_group}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Geral</span>
+                              )}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', padding: '4px 8px' }}
+                                  onClick={() => handleTestProbe(pr.id)}
+                                  disabled={testingProbeId === pr.id}
+                                  title="Testar conexão com o container ipersoft_scanner desta VM"
+                                >
+                                  <Activity size={13} />
+                                  <span>{testingProbeId === pr.id ? '...' : 'Testar'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', padding: '4px 8px' }}
+                                  onClick={() => handleStartEditProbe(pr)}
+                                  title="Editar Probe"
+                                >
+                                  <Edit2 size={13} />
+                                  <span>Editar</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-delete-user"
+                                  onClick={() => handleDeleteProbe(pr.id, pr.name)}
+                                  title="Excluir Probe"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveProbe} className="admin-create-form" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <label className="form-label" style={{ margin: 0, color: 'var(--color-primary)' }}>
+                    {editingProbeId ? '✎ Editar Probe Selecionado' : '+ Cadastrar Novo Probe (VM Zabbix Proxy do Cliente)'}
+                  </label>
+                  {editingProbeId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditProbe}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                    >
+                      Cancelar edição
+                    </button>
+                  )}
+                </div>
+
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label className="form-label">Nome / Identificação *</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Ex: VM Zabbix Proxy - Inforline"
+                      value={newProbe.name}
+                      onChange={(e) => setNewProbe({ ...newProbe, name: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">URL do Scanner (Porta 8005) *</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Ex: http://172.16.10.22:8005"
+                      value={newProbe.url}
+                      onChange={(e) => setNewProbe({ ...newProbe, url: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Cliente / Sessão Padrão</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Ex: inforline, lhtech, taionet..."
+                      value={newProbe.client_group}
+                      onChange={(e) => setNewProbe({ ...newProbe, client_group: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Key do phpipam-agent (Opcional)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Ex: a8f5f167f44f4964e6c998dee827110c"
+                      value={newProbe.phpipam_agent_code}
+                      onChange={(e) => setNewProbe({ ...newProbe, phpipam_agent_code: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '1rem', padding: '0.85rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.35rem' }}>
+                    📦 Como subir o Scanner + phpIPAM Agent na VM do Zabbix Proxy do Cliente:
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    Na pasta <code>/opt/ipersoft/scanner/docker-compose.remote-agent.yml</code> já deixamos o stack pronto com os 2 containers:
+                    <br />
+                    1. <strong>ipersoft-scanner</strong> (porta <code>8005</code>): executa os scans SNMP + Ping sob demanda direto da VM do cliente.
+                    <br />
+                    2. <strong>phpipam-agent</strong> (cron 15m): faz os pings contínuos (<code>fping</code>) e atualiza o status Online/Offline direto no phpIPAM.
+                  </div>
+                </div>
+
+                <div className="form-actions-right" style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                  <button type="button" className="btn-secondary" onClick={() => setShowProbeModal(false)}>
+                    Fechar
+                  </button>
+                  <button type="submit" className="btn-primary" style={{ width: 'auto', padding: '0.6rem 1.4rem' }}>
+                    {editingProbeId ? 'Salvar Alterações' : 'Adicionar Probe'}
                   </button>
                 </div>
               </form>

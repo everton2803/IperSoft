@@ -1141,6 +1141,42 @@ export const weathermapService = {
 };
 
 export const ipScannerService = {
+  getProbes: async () => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/probes`, {
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao carregar probes de scan');
+  },
+
+  createProbe: async (data) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/probes`, {
+      method: 'POST',
+      headers: { ...authService.getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }, 'Erro ao cadastrar probe de scan');
+  },
+
+  updateProbe: async (id, data) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/probes/${id}`, {
+      method: 'PUT',
+      headers: { ...authService.getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }, 'Erro ao atualizar probe de scan');
+  },
+
+  deleteProbe: async (id) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/probes/${id}`, {
+      method: 'DELETE',
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao excluir probe de scan');
+  },
+
+  testProbe: async (id) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/probes/${id}/test`, {
+      method: 'POST',
+      headers: authService.getAuthHeaders(),
+    }, 'Erro ao testar comunicação com o probe');
+  },
+
   getCommunities: async () => {
     return safeFetchJson(`${API_BASE_URL}/ip-scanner/communities`, {
       headers: authService.getAuthHeaders(),

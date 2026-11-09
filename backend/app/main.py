@@ -53,6 +53,7 @@ try:
         """))
         conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS snmp_hostname VARCHAR(150);"))
         conn.execute(text("ALTER TABLE ip_prefixes ADD COLUMN IF NOT EXISTS community_ids JSON DEFAULT '[]'::json;"))
+        conn.execute(text("ALTER TABLE ip_prefixes ADD COLUMN IF NOT EXISTS probe_id INTEGER;"))
         conn.commit()
     logger.info("Migrações de colunas de backup_timeout, snmp_hostname e campos de nomes do Zabbix verificadas com sucesso.")
     

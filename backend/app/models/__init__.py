@@ -3,7 +3,7 @@ from app.models.integration import IntegrationConfig
 from app.models.asset import Asset, AssetZabbix, AssetGuacamole, AssetOxidized
 from app.models.template_update import ZabbixTemplateUpdate
 from app.models.weathermap import WeathermapMap, WeathermapNode, WeathermapLink, WeathermapSample
-from app.models.ip_scanner import IPCommunity, IPPrefix, DiscoveredIP
+from app.models.ip_scanner import IPScannerProbe, IPCommunity, IPPrefix, DiscoveredIP
 
 __all__ = [
     "User",
@@ -17,6 +17,7 @@ __all__ = [
     "WeathermapNode",
     "WeathermapLink",
     "WeathermapSample",
+    "IPScannerProbe",
     "IPCommunity",
     "IPPrefix",
     "DiscoveredIP",
