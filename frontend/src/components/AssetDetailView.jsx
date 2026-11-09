@@ -40,6 +40,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import { authService, diagnosticsService } from '../services/api';
+import { AccordionSection } from './common/AccordionSection';
 
 // =========================================================================
 // SUB-COMPONENTE: GRÁFICO INTERATIVO SVG PARA ITENS NUMÉRICOS DO ZABBIX
@@ -1396,251 +1397,274 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin, onSelectNav }) => {
           ABA 1: OPERAÇÃO & MONITORAMENTO (ACESSO IMEDIATO A TERMINAL, BACKUP E ALARMES)
           ========================================================================= */}
       {activeTab === 'operation' && (
-        <div className="detail-tab-content">
-          {/* BARRA DE RESUMO OPERACIONAL: CONECTIVIDADE + GUACAMOLE + OXIDIZED */}
-          <div className="operation-quick-grid">
-            {/* CARD 1: SAÚDE DE REDE & TERMINAL REMOTO GUACAMOLE */}
-            <div className="operation-quick-card">
-              <div className="operation-card-header">
-                <div className="operation-card-title">
-                  <Terminal size={16} color="#00bcd4" />
-                  <span>Conectividade & Terminal Remoto</span>
-                </div>
-                <div className="acc-test-badges-group">
-                  <span className={`acc-test-pill ${!enabledTests.icmp ? 'pill-disabled' : (icmpDiag?.status === 'ok' ? 'pill-ok' : icmpDiag?.status === 'timeout' ? 'pill-timeout' : 'pill-fail')}`}>
-                    ICMP: {enabledTests.icmp ? (icmpDiag?.status === 'ok' ? `${icmpDiag.latency_ms || 'OK'}ms` : icmpDiag?.status || 'Pendente') : 'Desat.'}
-                  </span>
-                  <span className={`acc-test-pill ${!enabledTests.snmp ? 'pill-disabled' : (snmpDiag?.status === 'ok' ? 'pill-ok' : 'pill-fail')}`}>
-                    SNMP: {enabledTests.snmp ? (snmpDiag?.status === 'ok' ? 'OK' : snmpDiag?.status || 'Pendente') : 'Desat.'}
-                  </span>
-                  <span className={`acc-test-pill ${!enabledTests.remote ? 'pill-disabled' : (remoteDiag?.status === 'ok' ? 'pill-ok' : 'pill-fail')}`}>
-                    {formData.remote_protocol.toUpperCase()} ({formData.remote_port}): {enabledTests.remote ? (remoteDiag?.status === 'ok' ? 'Aberta' : remoteDiag?.status || 'Pendente') : 'Desat.'}
-                  </span>
-                  <span 
-                    className={`acc-test-pill ${logsHealth?.clock_skew_detected ? 'pill-timeout' : logsHealth?.status === 'active' ? 'pill-ok' : logsHealth?.status === 'idle' ? 'pill-disabled' : 'pill-fail'}`}
-                    title={logsHealth?.clock_skew_detected ? `Alerta: ${logsHealth.clock_drift_human}` : `Status do fluxo Syslog no VictoriaLogs (${logsHealth?.last_log_relative || 'Sem logs'})`}
-                  >
-                    Syslog: {logsHealth?.clock_skew_detected ? '⚠️ Relógio' : logsHealth?.status === 'active' ? 'Ativo' : logsHealth?.status === 'idle' ? 'Inativo' : 'Sem Logs'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="operation-card-body">
-                {!guacActive ? (
-                  <div className="operation-card-empty">
-                    <span className="text-muted">Acesso remoto via Guacamole está desativado para este equipamento.</span>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-                      {targetIP && (
-                        <a 
-                          href={primaryWebUrl} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="btn-secondary"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                          title={`Abrir interface web em nova aba (${primaryWebUrl})`}
-                        >
-                          <Globe size={14} color="#00bcd4" />
-                          <span>Acessar Web ({(formData.web_protocol || 'http').toUpperCase()})</span>
-                        </a>
-                      )}
-                      <button type="button" className="btn-secondary" onClick={() => setActiveTab('config')}>
-                        Configurar Acesso
-                      </button>
-                    </div>
-                  </div>
-                ) : guacSynced && directGuacUrl ? (
-                  <div className="operation-card-actions-row">
-                    <div className="remote-meta-info">
-                      <span className="status-pill-ok" style={{ fontSize: '0.72rem' }}>SSO Pronto</span>
-                      <span><code>{formData.ip_address || formData.hostname}:{formData.remote_port}</code> ({formData.remote_protocol.toUpperCase()})</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {targetIP && (
-                        <a 
-                          href={primaryWebUrl} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="btn-secondary"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                          title={`Abrir interface web em nova aba (${primaryWebUrl})`}
-                        >
-                          <Globe size={14} color="#00bcd4" />
-                          <span>Acessar Web</span>
-                        </a>
-                      )}
-                      <a 
-                        href={directGuacUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="btn-launch-terminal"
-                      >
-                        <ExternalLink size={14} /> Abrir em Nova Aba
-                      </a>
-                      <button 
-                        type="button" 
-                        className="btn-secondary"
-                        onClick={() => {
-                          if (!showEmbeddedTerminal && !guacLaunchData) {
-                            fetchGuacamoleLaunchSession();
-                          }
-                          setShowEmbeddedTerminal(!showEmbeddedTerminal);
-                        }}
-                      >
-                        {showEmbeddedTerminal ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                        <span>{showEmbeddedTerminal ? 'Ocultar Terminal' : 'Terminal Embutido'}</span>
-                      </button>
-                      <button 
-                        type="button" 
-                        className="btn-secondary"
-                        onClick={() => onSelectNav && onSelectNav('firmwares')}
-                        title="Abrir o frame do Servidor de Firmwares e comandos de upgrade"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                      >
-                        <HardDrive size={14} color="#00bcd4" />
-                        <span>Firmwares</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="operation-card-empty">
-                    <span className="text-muted">Conexão ainda não sincronizada no Apache Guacamole.</span>
-                    <button 
-                      type="button" 
-                      className="btn-platform-sync btn-sync-guac"
-                      onClick={handleSyncGuacamole}
-                      disabled={isSyncingGuac || !isAdmin}
-                    >
-                      <RefreshCw size={13} className={isSyncingGuac ? 'spin-icon' : ''} />
-                      <span>Criar Conexão no Guacamole</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* CARD 2: BACKUP DE CONFIGURAÇÕES (OXIDIZED & FTP/TFTP) */}
-            <div className="operation-quick-card">
-              <div className="operation-card-header">
-                <div className="operation-card-title">
-                  <Archive size={16} color="#e91e63" />
-                  <span>Backup de Configurações</span>
-                </div>
-                <span className={`badge-status-pill badge-${oxColor}`}>
-                  {!oxActive ? 'Oxidized Desativado' : oxColor === 'green' ? 'Backup em Dia' : oxColor === 'red' ? 'Falha na Coleta' : 'Aguardando Coleta'}
+        <div className="detail-tab-content" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {/* SEÇÃO 1: CONECTIVIDADE & TERMINAL REMOTO GUACAMOLE */}
+          <AccordionSection
+            title="Conectividade & Terminal Remoto"
+            subtitle={`Acesso ${formData.remote_protocol?.toUpperCase() || 'SSH'} na porta ${formData.remote_port || 22} via Apache Guacamole com SSO`}
+            icon={Terminal}
+            defaultOpen={true}
+            storageKey="asset_guac_acc"
+            badge={
+              <div className="acc-test-badges-group" style={{ display: 'inline-flex', gap: '4px', flexWrap: 'wrap' }}>
+                <span className={`acc-test-pill ${!enabledTests.icmp ? 'pill-disabled' : (icmpDiag?.status === 'ok' ? 'pill-ok' : icmpDiag?.status === 'timeout' ? 'pill-timeout' : 'pill-fail')}`}>
+                  ICMP: {enabledTests.icmp ? (icmpDiag?.status === 'ok' ? `${icmpDiag.latency_ms || 'OK'}ms` : icmpDiag?.status || 'Pendente') : 'Desat.'}
+                </span>
+                <span className={`acc-test-pill ${!enabledTests.snmp ? 'pill-disabled' : (snmpDiag?.status === 'ok' ? 'pill-ok' : 'pill-fail')}`}>
+                  SNMP: {enabledTests.snmp ? (snmpDiag?.status === 'ok' ? 'OK' : snmpDiag?.status || 'Pendente') : 'Desat.'}
+                </span>
+                <span className={`acc-test-pill ${!enabledTests.remote ? 'pill-disabled' : (remoteDiag?.status === 'ok' ? 'pill-ok' : 'pill-fail')}`}>
+                  {formData.remote_protocol.toUpperCase()} ({formData.remote_port}): {enabledTests.remote ? (remoteDiag?.status === 'ok' ? 'Aberta' : remoteDiag?.status || 'Pendente') : 'Desat.'}
+                </span>
+                <span 
+                  className={`acc-test-pill ${logsHealth?.clock_skew_detected ? 'pill-timeout' : logsHealth?.status === 'active' ? 'pill-ok' : logsHealth?.status === 'idle' ? 'pill-disabled' : 'pill-fail'}`}
+                  title={logsHealth?.clock_skew_detected ? `Alerta: ${logsHealth.clock_drift_human}` : `Status do fluxo Syslog no VictoriaLogs (${logsHealth?.last_log_relative || 'Sem logs'})`}
+                >
+                  Syslog: {logsHealth?.clock_skew_detected ? '⚠️ Relógio' : logsHealth?.status === 'active' ? 'Ativo' : logsHealth?.status === 'idle' ? 'Inativo' : 'Sem Logs'}
                 </span>
               </div>
-
-              <div className="operation-card-body">
-                {!oxActive && (!formData.file_backup_protocol || formData.file_backup_protocol === 'disabled') ? (
-                  <div className="operation-card-empty">
-                    <span className="text-muted">Backup de configurações desabilitado para este ativo.</span>
+            }
+          >
+            <div>
+              {!guacActive ? (
+                <div className="operation-card-empty">
+                  <span className="text-muted">Acesso remoto via Guacamole está desativado para este equipamento.</span>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                    {targetIP && (
+                      <a 
+                        href={primaryWebUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        title={`Abrir interface web em nova aba (${primaryWebUrl})`}
+                      >
+                        <Globe size={14} color="#00bcd4" />
+                        <span>Acessar Web ({(formData.web_protocol || 'http').toUpperCase()})</span>
+                      </a>
+                    )}
                     <button type="button" className="btn-secondary" onClick={() => setActiveTab('config')}>
-                      Configurar no Cadastro
+                      Configurar Acesso
                     </button>
                   </div>
-                ) : (
-                  <div className="operation-card-actions-row">
-                    <div className="remote-meta-info" style={{ flexWrap: 'wrap', gap: '6px' }}>
-                      {oxActive && (
-                        <>
-                          <span>Oxidized: <code>{oxDetails?.model || formData.backup_model || 'RouterOS'}</code></span>
-                          <span className="text-muted">•</span>
-                          <span>
-                            Último: {oxDetails?.last_backup || comparison?.oxidized?.last_backup
-                              ? new Date(oxDetails?.last_backup || comparison?.oxidized?.last_backup).toLocaleString('pt-BR')
-                              : 'Pendente'}
-                          </span>
-                        </>
-                      )}
-                      {formData.file_backup_protocol && formData.file_backup_protocol !== 'disabled' && (
-                        <>
-                          {oxActive && <span className="text-muted">•</span>}
-                          <span>
-                            Servidor: <code>{formData.file_backup_protocol.toUpperCase()}</code> (pasta: <code>{formData.file_backup_folder || 'raiz'}</code>)
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={handleViewOxConfig}
-                        disabled={isLoadingOxConfig}
-                      >
-                        {isLoadingOxConfig ? <RefreshCw size={14} className="spin-icon" /> : <Eye size={14} />}
-                        <span>Ver Configuração</span>
-                      </button>
-                      <button 
-                        type="button" 
-                        className="btn-secondary"
-                        style={{ borderColor: 'rgba(233, 30, 99, 0.4)', color: '#f48fb1' }}
-                        onClick={handleTriggerOxBackup}
-                        disabled={isTriggeringOxBackup || !isAdmin}
-                      >
-                        <RefreshCw size={14} className={isTriggeringOxBackup ? 'spin-icon' : ''} />
-                        <span>{isTriggeringOxBackup ? 'Solicitando...' : 'Backup Agora'}</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* TERMINAL WEB EMBUTIDO SE ABERTO */}
-          {showEmbeddedTerminal && (
-            <div className="embedded-terminal-frame-container" style={{ marginBottom: '1.25rem', position: 'relative' }}>
-              {isLoadingGuacLaunch ? (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0c1017', color: '#00bcd4', zIndex: 10 }}>
-                  <RefreshCw size={24} className="spin-icon" style={{ marginBottom: '10px' }} />
-                  <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Iniciando sessão remota SSO no Apache Guacamole...</span>
                 </div>
-              ) : directGuacUrl ? (
-                <iframe 
-                  src={directGuacUrl} 
-                  title={`Console Remoto - ${formData.name}`}
-                  className="embedded-terminal-iframe"
-                  allow="clipboard-read; clipboard-write; fullscreen"
-                />
+              ) : guacSynced && directGuacUrl ? (
+                <div className="operation-card-actions-row">
+                  <div className="remote-meta-info">
+                    <span className="status-pill-ok" style={{ fontSize: '0.72rem' }}>SSO Pronto</span>
+                    <span><code>{formData.ip_address || formData.hostname}:{formData.remote_port}</code> ({formData.remote_protocol.toUpperCase()})</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {targetIP && (
+                      <a 
+                        href={primaryWebUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        title={`Abrir interface web em nova aba (${primaryWebUrl})`}
+                      >
+                        <Globe size={14} color="#00bcd4" />
+                        <span>Acessar Web</span>
+                      </a>
+                    )}
+                    <a 
+                      href={directGuacUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="btn-launch-terminal"
+                    >
+                      <ExternalLink size={14} /> Abrir em Nova Aba
+                    </a>
+                    <button 
+                      type="button" 
+                      className="btn-secondary"
+                      onClick={() => {
+                        if (!showEmbeddedTerminal && !guacLaunchData) {
+                          fetchGuacamoleLaunchSession();
+                        }
+                        setShowEmbeddedTerminal(!showEmbeddedTerminal);
+                      }}
+                    >
+                      {showEmbeddedTerminal ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                      <span>{showEmbeddedTerminal ? 'Ocultar Terminal' : 'Terminal Embutido'}</span>
+                    </button>
+                    <button 
+                      type="button" 
+                      className="btn-secondary"
+                      onClick={() => onSelectNav && onSelectNav('firmwares')}
+                      title="Abrir o frame do Servidor de Firmwares e comandos de upgrade"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <HardDrive size={14} color="#00bcd4" />
+                      <span>Firmwares</span>
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: '10px' }}>
-                  <span>Não foi possível gerar a sessão remota no Guacamole.</span>
-                  <button type="button" className="btn-secondary" onClick={fetchGuacamoleLaunchSession}>
-                    <RefreshCw size={14} /> Tentar Novamente
+                <div className="operation-card-empty">
+                  <span className="text-muted">Conexão ainda não sincronizada no Apache Guacamole.</span>
+                  <button 
+                    type="button" 
+                    className="btn-platform-sync btn-sync-guac"
+                    onClick={handleSyncGuacamole}
+                    disabled={isSyncingGuac || !isAdmin}
+                  >
+                    <RefreshCw size={13} className={isSyncingGuac ? 'spin-icon' : ''} />
+                    <span>Criar Conexão no Guacamole</span>
                   </button>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* PAINEL DE MONITORAMENTO ZABBIX: ALARMES E ITENS */}
-          <div className="operation-zabbix-section">
-            <div className="operation-section-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <AlertTriangle size={18} color={zbxActive ? '#ff9800' : 'var(--text-muted)'} />
-                <h3 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 700 }}>
-                  Monitoramento Zabbix: Alarmes Ativos & Métricas do Host
-                </h3>
-                {zbxActive && zbxProblems && (
-                  <span className={`badge-alarm-count ${zbxProblems.length > 0 ? 'has-alarms' : 'no-alarms'}`}>
-                    {zbxProblems.length} {zbxProblems.length === 1 ? 'alarme ativo' : 'alarmes ativos'}
-                  </span>
-                )}
-              </div>
-
-              {zbxActive && (
-                <button 
-                  type="button" 
-                  className="btn-acc-refresh"
-                  onClick={fetchZabbixStatusAndItems}
-                  title="Atualizar alarmes e itens agora"
-                >
-                  <RefreshCw size={13} className={isLoadingZbxProblems || isLoadingZbxItems ? 'spin-icon' : ''} />
-                  <span>Atualizar Métricas</span>
-                </button>
+              {/* TERMINAL WEB EMBUTIDO DENTRO DO ACORDEÃO */}
+              {showEmbeddedTerminal && (
+                <div className="embedded-terminal-frame-container" style={{ marginTop: '1rem', position: 'relative' }}>
+                  {isLoadingGuacLaunch ? (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0c1017', color: '#00bcd4', zIndex: 10 }}>
+                      <RefreshCw size={24} className="spin-icon" style={{ marginBottom: '10px' }} />
+                      <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Iniciando sessão remota SSO no Apache Guacamole...</span>
+                    </div>
+                  ) : directGuacUrl ? (
+                    <iframe 
+                      src={directGuacUrl} 
+                      title={`Console Remoto - ${formData.name}`}
+                      className="embedded-terminal-iframe"
+                      allow="clipboard-read; clipboard-write; fullscreen"
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: '10px' }}>
+                      <span>Não foi possível gerar a sessão remota no Guacamole.</span>
+                      <button type="button" className="btn-secondary" onClick={fetchGuacamoleLaunchSession}>
+                        <RefreshCw size={14} /> Tentar Novamente
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
+          </AccordionSection>
+
+          {/* SEÇÃO 2: BACKUP DE CONFIGURAÇÕES (OXIDIZED & FTP/TFTP) */}
+          <AccordionSection
+            title="Backup de Configurações (Oxidized & Servidor de Arquivos)"
+            subtitle="Histórico Git de versões de configuração e envio automático"
+            icon={Archive}
+            defaultOpen={false}
+            storageKey="asset_ox_acc"
+            badge={
+              <span className={`badge-status-pill badge-${oxColor}`}>
+                {!oxActive ? 'Oxidized Desativado' : oxColor === 'green' ? 'Backup em Dia' : oxColor === 'red' ? 'Falha na Coleta' : 'Aguardando Coleta'}
+              </span>
+            }
+            headerRight={
+              oxActive ? (
+                <div style={{ display: 'flex', gap: '6px' }} onClick={e => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleViewOxConfig}
+                    disabled={isLoadingOxConfig}
+                    style={{ padding: '3px 8px', fontSize: '0.74rem' }}
+                  >
+                    {isLoadingOxConfig ? <RefreshCw size={12} className="spin-icon" /> : <Eye size={12} />}
+                    <span>Ver Config</span>
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn-secondary"
+                    style={{ borderColor: 'rgba(233, 30, 99, 0.4)', color: '#f48fb1', padding: '3px 8px', fontSize: '0.74rem' }}
+                    onClick={handleTriggerOxBackup}
+                    disabled={isTriggeringOxBackup || !isAdmin}
+                  >
+                    <RefreshCw size={12} className={isTriggeringOxBackup ? 'spin-icon' : ''} />
+                    <span>Backup Agora</span>
+                  </button>
+                </div>
+              ) : null
+            }
+          >
+            <div>
+              {!oxActive && (!formData.file_backup_protocol || formData.file_backup_protocol === 'disabled') ? (
+                <div className="operation-card-empty">
+                  <span className="text-muted">Backup de configurações desabilitado para este ativo.</span>
+                  <button type="button" className="btn-secondary" onClick={() => setActiveTab('config')}>
+                    Configurar no Cadastro
+                  </button>
+                </div>
+              ) : (
+                <div className="operation-card-actions-row">
+                  <div className="remote-meta-info" style={{ flexWrap: 'wrap', gap: '6px' }}>
+                    {oxActive && (
+                      <>
+                        <span>Oxidized: <code>{oxDetails?.model || formData.backup_model || 'RouterOS'}</code></span>
+                        <span className="text-muted">•</span>
+                        <span>
+                          Último: {oxDetails?.last_backup || comparison?.oxidized?.last_backup
+                            ? new Date(oxDetails?.last_backup || comparison?.oxidized?.last_backup).toLocaleString('pt-BR')
+                            : 'Pendente'}
+                        </span>
+                      </>
+                    )}
+                    {formData.file_backup_protocol && formData.file_backup_protocol !== 'disabled' && (
+                      <>
+                        {oxActive && <span className="text-muted">•</span>}
+                        <span>
+                          Servidor: <code>{formData.file_backup_protocol.toUpperCase()}</code> (pasta: <code>{formData.file_backup_folder || 'raiz'}</code>)
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={handleViewOxConfig}
+                      disabled={isLoadingOxConfig}
+                    >
+                      {isLoadingOxConfig ? <RefreshCw size={14} className="spin-icon" /> : <Eye size={14} />}
+                      <span>Ver Configuração</span>
+                    </button>
+                    <button 
+                      type="button" 
+                      className="btn-secondary"
+                      style={{ borderColor: 'rgba(233, 30, 99, 0.4)', color: '#f48fb1' }}
+                      onClick={handleTriggerOxBackup}
+                      disabled={isTriggeringOxBackup || !isAdmin}
+                    >
+                      <RefreshCw size={14} className={isTriggeringOxBackup ? 'spin-icon' : ''} />
+                      <span>{isTriggeringOxBackup ? 'Solicitando...' : 'Backup Agora'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </AccordionSection>
+
+          {/* SEÇÃO 3: MONITORAMENTO ZABBIX: ALARMES E ITENS */}
+          <AccordionSection
+            title="Monitoramento Zabbix: Alarmes Ativos & Métricas"
+            subtitle="Triggers ativas, histórico numérico de tráfego, CPU, memória e gráficos"
+            icon={AlertTriangle}
+            defaultOpen={true}
+            storageKey="asset_zbx_acc"
+            badge={zbxActive && zbxProblems ? (
+              <span className={`badge-alarm-count ${zbxProblems.length > 0 ? 'has-alarms' : 'no-alarms'}`}>
+                {zbxProblems.length} {zbxProblems.length === 1 ? 'alarme ativo' : 'alarmes ativos'}
+              </span>
+            ) : null}
+            headerRight={zbxActive ? (
+              <button 
+                type="button" 
+                className="btn-acc-refresh"
+                onClick={fetchZabbixStatusAndItems}
+                title="Atualizar alarmes e itens agora"
+              >
+                <RefreshCw size={13} className={isLoadingZbxProblems || isLoadingZbxItems ? 'spin-icon' : ''} />
+                <span>Atualizar Métricas</span>
+              </button>
+            ) : null}
+          >
+            <div>
 
             {!zbxActive ? (
               <div className="platform-not-synced-box">
@@ -1902,21 +1926,25 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin, onSelectNav }) => {
                 )}
               </>
             )}
-          </div>
+            </div>
+          </AccordionSection>
 
-          {/* SEÇÃO 3: SYSLOG & EVENTOS EM TEMPO REAL (VICTORIALOGS) */}
-          <div className="operation-full-card" style={{ marginTop: '1.25rem' }}>
-            <div className="operation-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-              <div className="operation-card-title">
-                <FileText size={16} color="#4caf50" />
-                <span>Syslog do Dispositivo (VictoriaLogs)</span>
-                <span className="badge-tag-canonical" style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81c784', marginLeft: '6px' }}>
+          {/* SEÇÃO 4: SYSLOG & EVENTOS EM TEMPO REAL (VICTORIALOGS) */}
+          <AccordionSection
+            title="Syslog do Dispositivo (VictoriaLogs)"
+            subtitle="Coleta contínua de eventos via UDP/TCP 514 com filtro de mensagens"
+            icon={FileText}
+            defaultOpen={false}
+            storageKey="asset_logs_acc"
+            badge={
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span className="badge-tag-canonical" style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81c784' }}>
                   UDP/TCP 514
                 </span>
                 {logsHealth && (
                   <span 
                     className={`badge-status-pill badge-${logsHealth.clock_skew_detected ? 'yellow' : logsHealth.status === 'active' ? 'green' : logsHealth.status === 'idle' ? 'yellow' : 'gray'}`}
-                    style={{ fontSize: '0.72rem', marginLeft: '6px' }}
+                    style={{ fontSize: '0.72rem' }}
                     title={logsHealth.clock_skew_detected ? logsHealth.clock_drift_human : `Último log: ${logsHealth.last_log_relative}`}
                   >
                     {logsHealth.clock_skew_detected 
@@ -1925,15 +1953,14 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin, onSelectNav }) => {
                   </span>
                 )}
                 {logsHealth?.logs_count_24h > 0 && (
-                  <span className="badge-tag-canonical" style={{ fontSize: '0.7rem', marginLeft: '4px' }}>
+                  <span className="badge-tag-canonical" style={{ fontSize: '0.7rem' }}>
                     {logsHealth.logs_count_24h.toLocaleString('pt-BR')} logs em 24h
                   </span>
                 )}
               </div>
-
-              {/* Filtros e Controles */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                {/* Seletor de Período */}
+            }
+            headerRight={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
                 <select
                   className="select-filter-compact"
                   value={logsTimeRange}
@@ -1944,15 +1971,13 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin, onSelectNav }) => {
                   }}
                   title="Intervalo de tempo dos logs"
                 >
-                  <option value="5m">Últimos 5 min</option>
-                  <option value="15m">Últimos 15 min</option>
-                  <option value="1h">Última 1 hora</option>
-                  <option value="6h">Últimas 6 horas</option>
-                  <option value="24h">Últimas 24 horas</option>
-                  <option value="7d">Últimos 7 dias</option>
+                  <option value="5m">5 min</option>
+                  <option value="15m">15 min</option>
+                  <option value="1h">1 hora</option>
+                  <option value="6h">6 horas</option>
+                  <option value="24h">24 horas</option>
+                  <option value="7d">7 dias</option>
                 </select>
-
-                {/* Seletor de Limite de Linhas */}
                 <select
                   className="select-filter-compact"
                   value={logsLimit}
@@ -1970,8 +1995,22 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin, onSelectNav }) => {
                   <option value={2500}>2.500 linhas</option>
                   <option value={5000}>5.000 linhas</option>
                 </select>
-
-                {/* Filtro de Severidade */}
+                <button
+                  type="button"
+                  className="btn-acc-refresh"
+                  onClick={() => fetchDeviceLogs()}
+                  disabled={isLoadingLogs}
+                  title="Atualizar Logs"
+                >
+                  <RefreshCw size={13} className={isLoadingLogs ? 'spin-icon' : ''} />
+                  <span>Atualizar</span>
+                </button>
+              </div>
+            }
+          >
+            <div>
+              {/* Barra de Filtros Internos (Severidade e Auto-Refresh) */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1rem', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '8px', background: 'var(--bg-secondary)' }}>
                 <div className="level-filter-buttons" style={{ display: 'flex', gap: '4px' }}>
                   <button
                     type="button"
@@ -2015,7 +2054,6 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin, onSelectNav }) => {
                   </button>
                 </div>
 
-                {/* Auto-Refresh Toggle */}
                 <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
                   <input
                     type="checkbox"
@@ -2025,20 +2063,7 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin, onSelectNav }) => {
                   />
                   <span>Auto (15s)</span>
                 </label>
-
-                {/* Botão Atualizar */}
-                <button
-                  type="button"
-                  className="btn-icon-subtle"
-                  onClick={() => fetchDeviceLogs()}
-                  disabled={isLoadingLogs}
-                  title="Atualizar Logs"
-                  style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-main)', cursor: 'pointer' }}
-                >
-                  <RefreshCw size={14} className={isLoadingLogs ? 'spin-icon' : ''} />
-                </button>
               </div>
-            </div>
 
             {/* Alerta de Divergência de Horário / Relógio Descalibrado */}
             {logsHealth?.clock_skew_detected && (
@@ -2200,7 +2225,8 @@ export const AssetDetailView = ({ assetId, onBack, isAdmin, onSelectNav }) => {
                 </div>
               )}
             </div>
-          </div>
+            </div>
+          </AccordionSection>
         </div>
       )}
 

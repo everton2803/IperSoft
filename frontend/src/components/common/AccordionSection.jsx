@@ -9,11 +9,13 @@ export const AccordionSection = ({
   headerRight,
   defaultOpen = true,
   storageKey,
+  isOpen: propIsOpen,
+  onToggle: propOnToggle,
   children,
   className = '',
   style = {}
 }) => {
-  const [isOpen, setIsOpen] = useState(() => {
+  const [internalIsOpen, setInternalIsOpen] = useState(() => {
     if (storageKey) {
       const saved = localStorage.getItem(`ipersoft_accordion_${storageKey}`);
       if (saved !== null) {
@@ -23,11 +25,18 @@ export const AccordionSection = ({
     return defaultOpen;
   });
 
+  const isControlled = propIsOpen !== undefined;
+  const isOpen = isControlled ? propIsOpen : internalIsOpen;
+
   const handleToggle = () => {
-    const nextState = !isOpen;
-    setIsOpen(nextState);
-    if (storageKey) {
-      localStorage.setItem(`ipersoft_accordion_${storageKey}`, String(nextState));
+    if (isControlled) {
+      if (propOnToggle) propOnToggle(!isOpen);
+    } else {
+      const nextState = !isOpen;
+      setInternalIsOpen(nextState);
+      if (storageKey) {
+        localStorage.setItem(`ipersoft_accordion_${storageKey}`, String(nextState));
+      }
     }
   };
 
