@@ -941,6 +941,76 @@ export const authService = {
     return safeFetchJson(`${API_BASE_URL}/integrations/victorialogs/activity`, {
       headers: { 'Authorization': `Bearer ${token}` }
     }, 'Falha ao consultar atividade global de logs.');
+  },
+
+  // Servidor de Firmwares (HTTP / Web)
+  async getFirmwaresConfig() {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    return safeFetchJson(`${API_BASE_URL}/firmwares/config`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao obter configuração do Servidor de Firmwares.');
+  },
+
+  async saveFirmwaresConfig({ url, public_url, is_active = true }) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/firmwares/config`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url, public_url, is_active })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao salvar configuração de firmwares.');
+    return data;
+  },
+
+  async testFirmwaresConnection({ url, public_url } = {}) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/firmwares/test`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url, public_url })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao testar conexão com Servidor de Firmwares.');
+    return data;
+  },
+
+  async getFirmwaresFiles() {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    return safeFetchJson(`${API_BASE_URL}/firmwares/files`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 'Falha ao listar arquivos de firmware.');
+  },
+
+  async getFirmwaresCommand({ filename, relative_path, os_profile, backup_model, http_base_url } = {}) {
+    const token = this.getToken();
+    if (!token) throw new Error('Não autenticado.');
+
+    const response = await fetch(`${API_BASE_URL}/firmwares/command`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ filename, relative_path, os_profile, backup_model, http_base_url })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Falha ao gerar comando de upgrade.');
+    return data;
   }
 };
 
@@ -1302,6 +1372,14 @@ export const ipScannerService = {
       headers: authService.getAuthHeaders(),
     }, 'Erro ao extrair VLANs dos backups do Oxidized');
   }
+};
+
+export const firmwaresService = {
+  getConfig: () => authService.getFirmwaresConfig(),
+  saveConfig: (data) => authService.saveFirmwaresConfig(data),
+  testConnection: (data) => authService.testFirmwaresConnection(data),
+  getFiles: () => authService.getFirmwaresFiles(),
+  getCommand: (data) => authService.getFirmwaresCommand(data)
 };
 
 

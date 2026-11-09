@@ -19,10 +19,13 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
-  Activity
+  Activity,
+  HardDrive,
+  UploadCloud
 } from 'lucide-react';
 import { authService } from '../services/api';
 import { ZabbixTemplatesModal } from './ZabbixTemplatesModal';
+import { FirmwaresModal } from './FirmwaresModal';
 
 export const IntegrationsView = ({ isAdmin }) => {
   // Zabbix state
@@ -79,6 +82,16 @@ export const IntegrationsView = ({ isAdmin }) => {
   const [vlogsStats, setVlogsStats] = useState(null);
   const [showVlogsSettings, setShowVlogsSettings] = useState(false);
 
+  // Firmwares state
+  const [fwHttpUrl, setFwHttpUrl] = useState('http://10.10.1.2:8089');
+  const [fwWebUrl, setFwWebUrl] = useState('https://firmware.iper.net.br');
+  const [fwIsConnected, setFwIsConnected] = useState(false);
+  const [fwLoading, setFwLoading] = useState(false);
+  const [fwTesting, setFwTesting] = useState(false);
+  const [fwFilesData, setFwFilesData] = useState(null);
+  const [showFwSettings, setShowFwSettings] = useState(false);
+  const [showFwModal, setShowFwModal] = useState(false);
+
   // Global feedback
   const [feedback, setFeedback] = useState(null);
 
@@ -88,12 +101,14 @@ export const IntegrationsView = ({ isAdmin }) => {
 
   const loadConfigs = async () => {
     try {
-      const [zbxCfg, guacCfg, oxCfg, vlogsCfg, vlogsStatData] = await Promise.all([
+      const [zbxCfg, guacCfg, oxCfg, vlogsCfg, vlogsStatData, fwCfg, fwFiles] = await Promise.all([
         authService.getZabbixConfig().catch(() => null),
         authService.getGuacamoleConfig().catch(() => null),
         authService.getOxidizedConfig().catch(() => null),
         authService.getVictoriaLogsConfig().catch(() => null),
-        authService.getVictoriaLogsStats().catch(() => null)
+        authService.getVictoriaLogsStats().catch(() => null),
+        authService.getFirmwaresConfig().catch(() => null),
+        authService.getFirmwaresFiles().catch(() => null)
       ]);
 
       if (zbxCfg) {
@@ -141,6 +156,17 @@ export const IntegrationsView = ({ isAdmin }) => {
 
       if (vlogsStatData) {
         setVlogsStats(vlogsStatData);
+      }
+
+      if (fwCfg) {
+        setFwHttpUrl(fwCfg.url || 'http://10.10.1.2:8089');
+        setFwWebUrl(fwCfg.public_url || 'https://firmware.iper.net.br');
+        setFwIsConnected(fwCfg.is_active || false);
+        if (!fwCfg.is_active) setShowFwSettings(true);
+      }
+
+      if (fwFiles) {
+        setFwFilesData(fwFiles);
       }
     } catch (err) {
       console.warn('Erro ao carregar configurações:', err);
@@ -434,6 +460,66 @@ export const IntegrationsView = ({ isAdmin }) => {
       setFeedback({ type: 'error', text: err.message || 'Erro ao salvar configuração do VictoriaLogs.' });
     } finally {
       setVlogsLoading(false);
+    }
+  };
+
+  // Firmwares Handlers
+  const handleTestFirmwares = async () => {
+    if (!fwHttpUrl.trim()) {
+      setFeedback({ type: 'error', text: 'Informe a URL HTTP de download de firmwares.' });
+      return;
+    }
+    setFwTesting(true);
+    setFeedback(null);
+    try {
+      const res = await authService.testFirmwaresConnection({ 
+        url: fwHttpUrl.trim(),
+        public_url: fwWebUrl.trim()
+      });
+      if (res.is_connected) {
+        setFeedback({ 
+          type: 'success', 
+          text: `Conexão OK! Download HTTP (${res.http_service?.latency_ms || 0}ms) e Web Upload (${res.web_service?.latency_ms || 0}ms) validados com sucesso.` 
+        });
+        setFwIsConnected(true);
+        const filesData = await authService.getFirmwaresFiles().catch(() => null);
+        if (filesData) setFwFilesData(filesData);
+      } else {
+        setFeedback({ 
+          type: 'error', 
+          text: `Falha na comunicação com o Servidor de Firmwares: HTTP (${res.http_service?.error || 'Erro'}) | Web (${res.web_service?.error || 'Erro'})` 
+        });
+        setFwIsConnected(false);
+      }
+    } catch (err) {
+      setFeedback({ type: 'error', text: err.message || 'Erro ao conectar ao Servidor de Firmwares.' });
+      setFwIsConnected(false);
+    } finally {
+      setFwTesting(false);
+    }
+  };
+
+  const handleSaveFirmwares = async (e) => {
+    e.preventDefault();
+    if (!fwHttpUrl.trim()) {
+      setFeedback({ type: 'error', text: 'A URL HTTP de download é obrigatória.' });
+      return;
+    }
+    setFwLoading(true);
+    setFeedback(null);
+    try {
+      await authService.saveFirmwaresConfig({
+        url: fwHttpUrl.trim(),
+        public_url: fwWebUrl.trim(),
+        is_active: true
+      });
+      setFeedback({ type: 'success', text: 'Configuração do Servidor de Firmwares salva com sucesso.' });
+      setFwIsConnected(true);
+      await loadConfigs();
+    } catch (err) {
+      setFeedback({ type: 'error', text: err.message || 'Erro ao salvar configuração do Servidor de Firmwares.' });
+    } finally {
+      setFwLoading(false);
     }
   };
 
@@ -1177,6 +1263,183 @@ export const IntegrationsView = ({ isAdmin }) => {
             )}
           </div>
         </div>
+
+        {/* CARD 5: SERVIDOR DE FIRMWARES & ARQUIVOS */}
+        <div className="integration-card">
+          <div className="integration-card-header">
+            <div className="integration-header-left">
+              <div className="integration-icon-container" style={{ background: 'rgba(0, 188, 212, 0.1)', borderColor: 'rgba(0, 188, 212, 0.25)' }}>
+                <HardDrive size={22} color="#00bcd4" />
+              </div>
+              <div>
+                <div className="integration-title-row">
+                  <h2 className="integration-main-title">Servidor de Firmwares & Arquivos</h2>
+                  <span className={`connection-badge ${fwIsConnected ? 'badge-connected' : 'badge-pending'}`}>
+                    {fwIsConnected ? (
+                      <>
+                        <span className="dot-online" style={{ marginRight: 4 }}></span>
+                        Conectado
+                      </>
+                    ) : (
+                      'Não Conectado'
+                    )}
+                  </span>
+                </div>
+                <p className="integration-main-sub">
+                  Upload web de firmwares pesados via <strong>FileBrowser</strong> e download direto em switches e OLTs via <strong>HTTP Nginx</strong> na porta 8089.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="integration-status-strip">
+            <div className="status-strip-item">
+              <Layers size={13} color="var(--color-primary)" />
+              <span>Armazenados: <strong>{fwFilesData?.total_files || 0} arquivos ({fwFilesData?.total_size_formatted || '0 B'})</strong></span>
+            </div>
+            <div className="status-strip-item">
+              <span className="mini-badge" style={{ background: 'rgba(0, 188, 212, 0.15)', color: '#00bcd4' }}>HTTP 8089</span>
+            </div>
+            <div className="status-strip-item">
+              <span className="mini-badge" style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81c784' }}>HTTPS Web</span>
+            </div>
+          </div>
+
+          <div className="integration-primary-actions" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ flex: '1 1 auto', justifyContent: 'center' }}
+              onClick={() => setShowFwModal(true)}
+              title="Abre o explorador integrado de firmwares para copiar URLs e comandos CLI"
+            >
+              <HardDrive size={15} />
+              <span>Explorar Firmwares & Comandos</span>
+            </button>
+
+            <a
+              href={fwWebUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              title="Abre a interface Web do FileBrowser em nova aba para enviar arquivos do computador"
+            >
+              <UploadCloud size={15} color="#00bcd4" />
+              <span>Web Upload</span>
+              <ExternalLink size={12} />
+            </a>
+
+            <a
+              href={fwHttpUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              title="Abre a listagem de arquivos HTTP dos equipamentos"
+            >
+              <Server size={14} color="#4caf50" />
+              <span>Índice HTTP</span>
+              <ExternalLink size={12} />
+            </a>
+          </div>
+
+          {isAdmin && (
+            <div style={{ marginTop: '0.65rem' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={handleTestFirmwares}
+                disabled={fwTesting || fwLoading}
+                title="Testa a comunicação com o FileBrowser e com o endpoint HTTP Nginx"
+              >
+                {fwTesting ? (
+                  <>
+                    <Loader2 size={15} className="spin-icon" />
+                    <span>Testando Conexão com Firmwares...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={15} />
+                    <span>Testar Conexão com Servidor de Firmwares</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Seção retrátil de configurações */}
+          <div className="integration-settings-collapse">
+            <button
+              type="button"
+              className="btn-collapse-settings"
+              onClick={() => setShowFwSettings(!showFwSettings)}
+            >
+              <Settings size={14} />
+              <span>Configurações de Conexão</span>
+              {showFwSettings ? <ChevronDown size={15} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={15} style={{ marginLeft: 'auto' }} />}
+            </button>
+
+            {showFwSettings && (
+              <form onSubmit={handleSaveFirmwares} className="integration-form" style={{ marginTop: '0.85rem' }}>
+                <div className="form-group">
+                  <label className="form-label">URL HTTP de Download para Equipamentos (porta 8089)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="ex: http://10.10.1.2:8089"
+                    value={fwHttpUrl}
+                    onChange={(e) => setFwHttpUrl(e.target.value)}
+                    disabled={!isAdmin || fwLoading}
+                    required
+                  />
+                  <small className="form-help">
+                    Endereço sem autenticação onde switches Datacom, MikroTik e Cisco baixam o firmware.
+                  </small>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">URL da Interface Web de Upload (FileBrowser)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="ex: https://firmware.iper.net.br"
+                    value={fwWebUrl}
+                    onChange={(e) => setFwWebUrl(e.target.value)}
+                    disabled={!isAdmin || fwLoading}
+                    required
+                  />
+                  <small className="form-help">
+                    URL pública com SSL utilizada pelos operadores para enviar firmwares pelo navegador.
+                  </small>
+                </div>
+
+                <div className="integration-actions-footer">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleTestFirmwares}
+                    disabled={fwTesting || fwLoading}
+                  >
+                    {fwTesting ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />}
+                    <span>Testar</span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      style={{ width: 'auto' }}
+                      disabled={fwLoading || fwTesting}
+                    >
+                      {fwLoading ? 'Salvando...' : 'Salvar'}
+                    </button>
+                  )}
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
       </div>
 
       <ZabbixTemplatesModal 
@@ -1185,6 +1448,14 @@ export const IntegrationsView = ({ isAdmin }) => {
           setShowTemplatesModal(false); 
           loadConfigs(); 
         }} 
+      />
+
+      <FirmwaresModal
+        isOpen={showFwModal}
+        onClose={() => {
+          setShowFwModal(false);
+          loadConfigs();
+        }}
       />
     </div>
   );

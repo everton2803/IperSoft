@@ -10,6 +10,7 @@ import { ZabbixAlarmsView } from './components/ZabbixAlarmsView';
 import { WeathermapView } from './components/weathermap/WeathermapView';
 import { IpManagementView } from './components/IpManagementView';
 import { UserManagementModal } from './components/UserManagementModal';
+import { FirmwaresModal } from './components/FirmwaresModal';
 import { authService, diagnosticsService } from './services/api';
 import { ThemeProvider } from './context/ThemeContext';
 import { Loader2 } from 'lucide-react';
@@ -24,6 +25,7 @@ function AppContent() {
   
   // Admin user modal
   const [isUserMgmtOpen, setIsUserMgmtOpen] = useState(false);
+  const [isFirmwaresModalOpen, setIsFirmwaresModalOpen] = useState(false);
 
   const fetchAlarmCount = async () => {
     try {
@@ -94,6 +96,7 @@ function AppContent() {
         }}
         onLogout={handleLogout} 
         onOpenUserManagement={() => setIsUserMgmtOpen(true)}
+        onOpenFirmwares={() => setIsFirmwaresModalOpen(true)}
         alarmCount={alarmCount}
         zabbixAlarmCount={zabbixAlarmCount}
       />
@@ -160,6 +163,12 @@ function AppContent() {
                 isAdmin={currentUser.role === 'admin'}
               />
             )}
+
+            {/* Servidor de Firmwares Modal */}
+            <FirmwaresModal
+              isOpen={isFirmwaresModalOpen}
+              onClose={() => setIsFirmwaresModalOpen(false)}
+            />
 
             {/* Admin User Management Modal */}
             {currentUser.role === 'admin' && (
