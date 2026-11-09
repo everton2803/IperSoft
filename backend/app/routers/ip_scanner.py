@@ -33,6 +33,14 @@ class CommunityCreate(BaseModel):
     is_default: bool = Field(default=False)
 
 
+class CommunityUpdate(BaseModel):
+    name: Optional[str] = None
+    community: Optional[str] = None
+    version: Optional[str] = None
+    port: Optional[int] = None
+    is_default: Optional[bool] = None
+
+
 class CommunityResponse(BaseModel):
     id: int
     name: str
@@ -135,6 +143,37 @@ def create_community(item: CommunityCreate, db: Session = Depends(get_db), curre
     db.commit()
     db.refresh(new_comm)
     return new_comm
+
+
+@router.put("/communities/{comm_id}", response_model=CommunityResponse)
+def update_community(
+    comm_id: int,
+    item: CommunityUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    comm = db.query(IPCommunity).filter(IPCommunity.id == comm_id).first()
+    if not comm:
+        raise HTTPException(status_code=404, detail="Comunidade não encontrada.")
+
+    if item.is_default is True:
+        db.query(IPCommunity).filter(IPCommunity.id != comm_id).update({IPCommunity.is_default: False})
+        comm.is_default = True
+    elif item.is_default is False:
+        comm.is_default = False
+
+    if item.name is not None and item.name.strip():
+        comm.name = item.name.strip()
+    if item.community is not None and item.community.strip():
+        comm.community = item.community.strip()
+    if item.version is not None and item.version.strip():
+        comm.version = item.version.strip()
+    if item.port is not None:
+        comm.port = int(item.port)
+
+    db.commit()
+    db.refresh(comm)
+    return comm
 
 
 @router.delete("/communities/{comm_id}")

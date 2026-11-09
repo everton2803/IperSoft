@@ -48,6 +48,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
   const [showPrefixModal, setShowPrefixModal] = useState(false);
   const [editingPrefixId, setEditingPrefixId] = useState(null);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
+  const [editingCommunityId, setEditingCommunityId] = useState(null);
 
   // Formulários
   const [newPrefix, setNewPrefix] = useState({ prefix: '', client_group: '', description: '', community_ids: [] });
@@ -209,17 +210,42 @@ export const IpManagementView = ({ onSelectAsset }) => {
     }
   };
 
-  // Criar Comunidade
-  const handleCreateCommunity = async (e) => {
+  // Iniciar edição de comunidade SNMP
+  const handleStartEditCommunity = (comm) => {
+    setModalError('');
+    setEditingCommunityId(comm.id);
+    setNewCommunity({
+      name: comm.name || '',
+      community: comm.community || '',
+      version: comm.version || '2c',
+      port: comm.port || 161,
+      is_default: Boolean(comm.is_default)
+    });
+  };
+
+  // Cancelar edição de comunidade SNMP
+  const handleCancelEditCommunity = () => {
+    setModalError('');
+    setEditingCommunityId(null);
+    setNewCommunity({ name: '', community: '', version: '2c', port: 161, is_default: false });
+  };
+
+  // Criar ou Atualizar Comunidade
+  const handleSaveCommunity = async (e) => {
     e.preventDefault();
     setModalError('');
     if (!newCommunity.name.trim() || !newCommunity.community.trim()) return;
     try {
-      await ipScannerService.createCommunity(newCommunity);
+      if (editingCommunityId) {
+        await ipScannerService.updateCommunity(editingCommunityId, newCommunity);
+        setEditingCommunityId(null);
+      } else {
+        await ipScannerService.createCommunity(newCommunity);
+      }
       setNewCommunity({ name: '', community: '', version: '2c', port: 161, is_default: false });
       await loadAllData();
     } catch (err) {
-      setModalError(err.message || 'Erro ao criar comunidade.');
+      setModalError(err.message || 'Erro ao salvar comunidade.');
     }
   };
 
@@ -270,7 +296,12 @@ export const IpManagementView = ({ onSelectAsset }) => {
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
           <button 
             className="btn-secondary" 
-            onClick={() => { setModalError(''); setShowCommunityModal(true); }}
+            onClick={() => {
+              setModalError('');
+              setEditingCommunityId(null);
+              setNewCommunity({ name: '', community: '', version: '2c', port: 161, is_default: false });
+              setShowCommunityModal(true);
+            }}
             style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem' }}
           >
             <Key size={15} />
@@ -883,7 +914,12 @@ export const IpManagementView = ({ onSelectAsset }) => {
                         </tr>
                       ) : (
                         communities.map((c) => (
-                          <tr key={c.id}>
+                          <tr
+                            key={c.id}
+                            style={{
+                              background: editingCommunityId === c.id ? 'var(--color-primary-subtle)' : 'transparent'
+                            }}
+                          >
                             <td>
                               <strong>{c.name}</strong>
                               {c.is_default && (
@@ -895,13 +931,26 @@ export const IpManagementView = ({ onSelectAsset }) => {
                             <td><code>{c.community}</code></td>
                             <td>v{c.version}</td>
                             <td style={{ textAlign: 'right' }}>
-                              <button 
-                                className="btn-delete-user"
-                                onClick={() => handleDeleteCommunity(c.id, c.name)}
-                                title="Excluir comunidade"
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', padding: '4px 8px' }}
+                                  onClick={() => handleStartEditCommunity(c)}
+                                  title="Editar comunidade"
+                                >
+                                  <Edit2 size={13} />
+                                  <span>Editar</span>
+                                </button>
+                                <button 
+                                  type="button"
+                                  className="btn-delete-user"
+                                  onClick={() => handleDeleteCommunity(c.id, c.name)}
+                                  title="Excluir comunidade"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -911,11 +960,22 @@ export const IpManagementView = ({ onSelectAsset }) => {
                 </div>
               </div>
 
-              {/* Formulário Nova Comunidade */}
-              <form onSubmit={handleCreateCommunity} className="admin-create-form" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '1.25rem' }}>
-                <label className="form-label" style={{ display: 'block', marginBottom: '0.75rem', color: 'var(--color-primary)' }}>
-                  + Adicionar Nova Comunidade
-                </label>
+              {/* Formulário Nova / Editar Comunidade */}
+              <form onSubmit={handleSaveCommunity} className="admin-create-form" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <label className="form-label" style={{ margin: 0, color: 'var(--color-primary)' }}>
+                    {editingCommunityId ? '✎ Editar Comunidade Selecionada' : '+ Adicionar Nova Comunidade'}
+                  </label>
+                  {editingCommunityId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditCommunity}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                    >
+                      Cancelar edição
+                    </button>
+                  )}
+                </div>
                 <div className="form-grid">
                   <div className="form-group">
                     <label className="form-label">Nome / Identificação *</label>
@@ -946,7 +1006,7 @@ export const IpManagementView = ({ onSelectAsset }) => {
                     Fechar
                   </button>
                   <button type="submit" className="btn-primary" style={{ width: 'auto', padding: '0.6rem 1.4rem' }}>
-                    Adicionar Comunidade
+                    {editingCommunityId ? 'Salvar Alterações' : 'Adicionar Comunidade'}
                   </button>
                 </div>
               </form>

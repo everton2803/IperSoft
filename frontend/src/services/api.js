@@ -1155,6 +1155,14 @@ export const ipScannerService = {
     }, 'Erro ao criar comunidade SNMP');
   },
 
+  updateCommunity: async (id, data) => {
+    return safeFetchJson(`${API_BASE_URL}/ip-scanner/communities/${id}`, {
+      method: 'PUT',
+      headers: { ...authService.getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }, 'Erro ao atualizar comunidade SNMP');
+  },
+
   deleteCommunity: async (id) => {
     return safeFetchJson(`${API_BASE_URL}/ip-scanner/communities/${id}`, {
       method: 'DELETE',
