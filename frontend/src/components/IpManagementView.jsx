@@ -1037,17 +1037,48 @@ export const IpManagementView = ({ onSelectAsset }) => {
                     </td>
 
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.79rem', color: 'var(--text-secondary)' }}>
-                      {Array.isArray(v.subnets) && v.subnets.length > 0 ? (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                          {v.subnets.map((sub, idx) => (
-                            <span key={idx} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-medium)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-main)' }}>
-                              {sub}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>L2 Pura</span>
-                      )}
+                      {(() => {
+                        const tunnels = [];
+                        if (Array.isArray(v.devices)) {
+                          v.devices.forEach((d) => {
+                            (d.interfaces || []).forEach((iface) => {
+                              if ((iface.startsWith('VPLS:') || iface.startsWith('VPWS:')) && !tunnels.includes(iface)) {
+                                tunnels.push(iface);
+                              }
+                            });
+                          });
+                        }
+                        const hasSubnets = Array.isArray(v.subnets) && v.subnets.length > 0;
+                        if (!hasSubnets && tunnels.length === 0) {
+                          return <span style={{ color: 'var(--text-muted)' }}>L2 Pura</span>;
+                        }
+                        return (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {hasSubnets && v.subnets.map((sub, idx) => (
+                              <span key={`sub-${idx}`} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-medium)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-main)' }}>
+                                {sub}
+                              </span>
+                            ))}
+                            {tunnels.slice(0, 2).map((tun, idx) => (
+                              <span
+                                key={`tun-${idx}`}
+                                title={`Túnel MPLS L2VPN: ${tun}`}
+                                style={{
+                                  background: 'rgba(168, 85, 247, 0.14)',
+                                  border: '1px solid rgba(168, 85, 247, 0.4)',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  color: '#c084fc',
+                                  fontWeight: 700,
+                                  fontSize: '0.73rem'
+                                }}
+                              >
+                                {tun}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     <td>

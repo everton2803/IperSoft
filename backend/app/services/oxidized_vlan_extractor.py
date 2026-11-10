@@ -210,64 +210,154 @@ def parse_vrp_vlans(text: str) -> Dict[int, Dict[str, Any]]:
     """
     Extrai VLANs de configurações Huawei VRP (Switches S57xx/S67xx e roteadores NE8000):
       - Blocos `vlan <id>` (`description ...`, `name ...`)
-      - Blocos `interface Vlanif<id>` (`description ...`, `ip address ...`)
-      - Subinterfaces `interface <Port>.<subid>` (`dot1q termination vid <id>`, `vlan-type dot1q <id>`, `ip address ...`)
+      - Blocos `vsi <name>` (VPLS: `vsi-id <id>`, `peer <ip>`)
+      - Blocos `interface Vlanif<id>` (`description ...`, `ip address ...`, `mpls l2vc ...`, `l2 binding vsi ...`)
+      - Subinterfaces `interface <Port>.<subid>` (`dot1q termination vid`, `vlan-type dot1q`, `qinq termination`, `qinq stacking`, `user-vlan ... qinq`, `l2 binding vsi`, `mpls l2vc`)
+      - Portas físicas/Eth-Trunk com `port default vlan`, `port vlan-stacking`
     """
     vlans: Dict[int, Dict[str, Any]] = {}
+    vsi_map: Dict[str, Dict[str, Any]] = {}
+
     current_vid: Optional[int] = None
+
+    current_vsi_name: Optional[str] = None
+    current_vsi_id: Optional[int] = None
+    current_vsi_desc: Optional[str] = None
+    current_vsi_peers: List[str] = []
+
     current_iface: Optional[str] = None
     iface_vid: Optional[int] = None
+    iface_extra_vids: Set[int] = set()
     iface_desc: Optional[str] = None
     iface_ips: List[Tuple[str, Optional[str]]] = []
+    iface_tunnels: List[Tuple[str, str]] = []
+
+    def _ensure_vlan(vid: int) -> Dict[str, Any]:
+        return vlans.setdefault(vid, {
+            "vlan_id": vid,
+            "names": [],
+            "interfaces": set(),
+            "ips": set(),
+            "subnets": set(),
+        })
+
+    def _flush_vsi():
+        nonlocal current_vsi_name, current_vsi_id, current_vsi_desc, current_vsi_peers
+        if current_vsi_name:
+            vid = current_vsi_id
+            if not vid:
+                m_vn = re.match(r"^vlan[\-_]?(\d{1,4})$", current_vsi_name, flags=re.IGNORECASE)
+                if m_vn:
+                    vid = int(m_vn.group(1))
+            vsi_map[current_vsi_name] = {
+                "vsi_id": vid,
+                "desc": current_vsi_desc,
+                "peers": list(current_vsi_peers),
+            }
+            if vid and (1 <= vid <= 4094):
+                entry = _ensure_vlan(vid)
+                label = _clean_vlan_name(current_vsi_desc or current_vsi_name, vid)
+                vpls_name = label if "vpls" in label.lower() else f"{label} (VPLS)"
+                if vpls_name not in entry["names"]:
+                    entry["names"].append(vpls_name)
+                peer_suffix = f"->{','.join(current_vsi_peers[:2])}" if current_vsi_peers else ""
+                entry["interfaces"].add(f"VPLS:{current_vsi_name}{peer_suffix}")
+        current_vsi_name = None
+        current_vsi_id = None
+        current_vsi_desc = None
+        current_vsi_peers = []
 
     def _flush_iface():
-        nonlocal current_iface, iface_vid, iface_desc, iface_ips
-        if current_iface and iface_vid and (1 <= iface_vid <= 4094):
-            entry = vlans.setdefault(iface_vid, {
-                "vlan_id": iface_vid,
-                "names": [],
-                "interfaces": set(),
-                "ips": set(),
-                "subnets": set(),
-            })
+        nonlocal current_iface, iface_vid, iface_extra_vids, iface_desc, iface_ips, iface_tunnels
+        if current_iface:
+            # Se a interface tem binding VSI e ainda não tem iface_vid, tentar inferir pelo sufixo da subinterface ou pelo vsi-id
+            if not iface_vid and "." in current_iface:
+                sub_part = current_iface.split(".", 1)[1]
+                if sub_part.isdigit():
+                    sub_num = int(sub_part)
+                    if 1 <= sub_num <= 4094:
+                        iface_vid = sub_num
+            if not iface_vid and iface_tunnels:
+                for t_type, t_name in iface_tunnels:
+                    if t_type == "VPLS" and t_name in vsi_map and vsi_map[t_name].get("vsi_id"):
+                        v_id = vsi_map[t_name]["vsi_id"]
+                        if 1 <= v_id <= 4094:
+                            iface_vid = v_id
+                            break
+
+            all_iface_vids: Set[int] = set()
+            if iface_vid and (1 <= iface_vid <= 4094):
+                all_iface_vids.add(iface_vid)
+            for ev in iface_extra_vids:
+                if 1 <= ev <= 4094 and ev != 1:
+                    all_iface_vids.add(ev)
+
             base_if = current_iface.split(".")[0]
-            if not base_if.lower().startswith("vlanif"):
-                entry["interfaces"].add(base_if)
-            else:
-                entry["interfaces"].add(current_iface)
-            if iface_desc:
-                entry["names"].append(_clean_vlan_name(iface_desc, iface_vid))
-            for ip_c, net_c in iface_ips:
-                entry["ips"].add(ip_c)
-                if net_c:
-                    entry["subnets"].add(net_c)
+            if_label = base_if if not base_if.lower().startswith("vlanif") else current_iface
+
+            for vid in sorted(all_iface_vids):
+                entry = _ensure_vlan(vid)
+                entry["interfaces"].add(if_label)
+                for t_type, t_label in iface_tunnels:
+                    entry["interfaces"].add(f"{t_type}:{t_label}")
+
+                if iface_desc:
+                    clean_d = _clean_vlan_name(iface_desc, vid)
+                    if iface_tunnels:
+                        t_types = "/".join(sorted({t[0] for t in iface_tunnels}))
+                        tagged_name = f"{clean_d} ({t_types})" if t_types.lower() not in clean_d.lower() else clean_d
+                        if tagged_name not in entry["names"]:
+                            entry["names"].append(tagged_name)
+                    elif clean_d not in entry["names"]:
+                        entry["names"].append(clean_d)
+                elif iface_tunnels:
+                    for t_type, t_label in iface_tunnels:
+                        clean_t = _clean_vlan_name(t_label.split("(")[0].split("->")[0], vid)
+                        tagged_name = f"{clean_t} ({t_type})"
+                        if tagged_name not in entry["names"]:
+                            entry["names"].append(tagged_name)
+
+                # Sub-redes L3 pertencem ao VID principal da interface L3
+                if vid == iface_vid:
+                    for ip_c, net_c in iface_ips:
+                        entry["ips"].add(ip_c)
+                        if net_c:
+                            entry["subnets"].add(net_c)
+
         current_iface = None
         iface_vid = None
+        iface_extra_vids = set()
         iface_desc = None
         iface_ips = []
+        iface_tunnels = []
 
     for raw in text.splitlines():
         s = raw.strip()
         if not s or s.startswith("#") or s.startswith("!"):
             if s in ("#", "!"):
+                _flush_vsi()
                 _flush_iface()
                 current_vid = None
             continue
 
+        # Bloco `vsi <name> [static|auto]` (VPLS Huawei)
+        m_vsi = re.match(r"^vsi\s+(\S+)(?:\s+\S+)?$", s, flags=re.IGNORECASE)
+        if m_vsi and current_iface is None:
+            _flush_vsi()
+            _flush_iface()
+            current_vid = None
+            current_vsi_name = m_vsi.group(1).strip()
+            continue
+
         # Bloco `vlan <id>`
         m_vlan = re.match(r"^vlan\s+(\d{1,4})$", s, flags=re.IGNORECASE)
-        if m_vlan:
+        if m_vlan and current_iface is None:
+            _flush_vsi()
             _flush_iface()
             vid = int(m_vlan.group(1))
             if 1 <= vid <= 4094 and vid != 1:
                 current_vid = vid
-                vlans.setdefault(vid, {
-                    "vlan_id": vid,
-                    "names": [],
-                    "interfaces": set(),
-                    "ips": set(),
-                    "subnets": set(),
-                })
+                _ensure_vlan(vid)
             else:
                 current_vid = None
             continue
@@ -275,6 +365,7 @@ def parse_vrp_vlans(text: str) -> Dict[int, Dict[str, Any]]:
         # Bloco `interface ...`
         m_if = re.match(r"^interface\s+(\S+)", s, flags=re.IGNORECASE)
         if m_if:
+            _flush_vsi()
             _flush_iface()
             current_vid = None
             current_iface = m_if.group(1)
@@ -283,10 +374,27 @@ def parse_vrp_vlans(text: str) -> Dict[int, Dict[str, Any]]:
                 iface_vid = int(m_vif.group(1))
             continue
 
+        if current_vsi_name is not None:
+            m_vsi_id = re.match(r"^vsi-id\s+(\d+)\b", s, flags=re.IGNORECASE)
+            if m_vsi_id:
+                current_vsi_id = int(m_vsi_id.group(1))
+                continue
+            m_vsi_desc = re.match(r"^description\s+(.+)$", s, flags=re.IGNORECASE)
+            if m_vsi_desc:
+                current_vsi_desc = m_vsi_desc.group(1).strip()
+                continue
+            m_vsi_peer = re.match(r"^peer\s+(\d+\.\d+\.\d+\.\d+)\b", s, flags=re.IGNORECASE)
+            if m_vsi_peer:
+                current_vsi_peers.append(m_vsi_peer.group(1))
+                continue
+            continue
+
         if current_vid is not None:
             m_desc = re.match(r"^(?:description|name)\s+(.+)$", s, flags=re.IGNORECASE)
             if m_desc:
-                vlans[current_vid]["names"].append(_clean_vlan_name(m_desc.group(1), current_vid))
+                clean_n = _clean_vlan_name(m_desc.group(1), current_vid)
+                if clean_n not in vlans[current_vid]["names"]:
+                    vlans[current_vid]["names"].append(clean_n)
             continue
 
         if current_iface is not None:
@@ -295,13 +403,93 @@ def parse_vrp_vlans(text: str) -> Dict[int, Dict[str, Any]]:
                 iface_desc = m_desc.group(1).strip()
                 continue
 
+            # dot1q termination vid <id> / vlan-type dot1q <id>
             m_dot1q = re.match(
-                r"^(?:dot1q\s+termination\s+vid|vlan-type\s+dot1q|qinq\s+termination\s+pe-vid)\s+(\d{1,4})\b",
+                r"^(?:dot1q\s+termination\s+vid|vlan-type\s+dot1q)\s+(\d{1,4})\b",
                 s,
                 flags=re.IGNORECASE,
             )
             if m_dot1q:
                 iface_vid = int(m_dot1q.group(1))
+                continue
+
+            # qinq termination pe-vid <pe_vid> [ce-vid <ce_spec>]
+            m_qinq_term = re.match(
+                r"^qinq\s+termination\s+pe-vid\s+(\d{1,4})(?:\s+ce-vid\s+(.+))?$",
+                s,
+                flags=re.IGNORECASE,
+            )
+            if m_qinq_term:
+                iface_vid = int(m_qinq_term.group(1))
+                if m_qinq_term.group(2):
+                    iface_extra_vids.update(_expand_vlan_spec(m_qinq_term.group(2), max_range_span=64))
+                continue
+
+            # qinq stacking vid <spec> pe-vid <pe_vid>
+            m_qinq_stack = re.match(
+                r"^qinq\s+stacking\s+vid\s+(.+?)\s+pe-vid\s+(\d{1,4})\b",
+                s,
+                flags=re.IGNORECASE,
+            )
+            if m_qinq_stack:
+                pe_v = int(m_qinq_stack.group(2))
+                iface_vid = iface_vid or pe_v
+                iface_extra_vids.add(pe_v)
+                iface_extra_vids.update(_expand_vlan_spec(m_qinq_stack.group(1), max_range_span=64))
+                continue
+
+            # port vlan-stacking vlan <spec> stack-vlan <svlan>
+            m_pstack = re.match(
+                r"^port\s+vlan-stacking\s+vlan\s+(.+?)\s+stack-vlan\s+(\d{1,4})\b",
+                s,
+                flags=re.IGNORECASE,
+            )
+            if m_pstack:
+                svlan = int(m_pstack.group(2))
+                iface_extra_vids.add(svlan)
+                iface_extra_vids.update(_expand_vlan_spec(m_pstack.group(1), max_range_span=64))
+                continue
+
+            # port default vlan <vid> (ex: dot1q-tunnel / access)
+            m_pdef = re.match(r"^port\s+default\s+vlan\s+(\d{1,4})\b", s, flags=re.IGNORECASE)
+            if m_pdef:
+                d_vid = int(m_pdef.group(1))
+                if d_vid != 1:
+                    iface_extra_vids.add(d_vid)
+                continue
+
+            # user-vlan <start> [<end>] [qinq <svlan>] (BNG Huawei NE8000)
+            m_uvlan = re.match(
+                r"^user-vlan\s+(\d{1,4})(?:\s+(\d{1,4}))?(?:\s+qinq\s+(\d{1,4}))?\b",
+                s,
+                flags=re.IGNORECASE,
+            )
+            if m_uvlan:
+                u_start = int(m_uvlan.group(1))
+                u_end = int(m_uvlan.group(2)) if m_uvlan.group(2) else u_start
+                u_qinq = int(m_uvlan.group(3)) if m_uvlan.group(3) else None
+                if u_qinq and (1 <= u_qinq <= 4094):
+                    iface_vid = iface_vid or u_qinq
+                    iface_extra_vids.add(u_qinq)
+                if 1 <= u_start <= u_end <= 4094 and (u_end - u_start) <= 64:
+                    iface_extra_vids.update(range(u_start, u_end + 1))
+                continue
+
+            # l2 binding vsi <vsi_name> (VPLS binding)
+            m_bind_vsi = re.match(r"^l2\s+binding\s+vsi\s+(\S+)", s, flags=re.IGNORECASE)
+            if m_bind_vsi:
+                v_name = m_bind_vsi.group(1).strip()
+                iface_tunnels.append(("VPLS", v_name))
+                continue
+
+            # mpls l2vc <peer_ip> <vc_id> ... (VPWS Martini L2VC)
+            m_l2vc = re.match(r"^mpls\s+l2vc\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+)\b", s, flags=re.IGNORECASE)
+            if m_l2vc:
+                peer_ip = m_l2vc.group(1)
+                vc_id = int(m_l2vc.group(2))
+                if 1 <= vc_id <= 4094:
+                    iface_extra_vids.add(vc_id)
+                iface_tunnels.append(("VPWS", f"l2vc->{peer_ip}(vc:{vc_id})"))
                 continue
 
             m_ip = re.match(r"^ip\s+address\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+\.\d+\.\d+\.\d+|\d{1,2})\b", s, flags=re.IGNORECASE)
@@ -310,6 +498,7 @@ def parse_vrp_vlans(text: str) -> Dict[int, Dict[str, Any]]:
                 if ip_c:
                     iface_ips.append((ip_c, net_c))
 
+    _flush_vsi()
     _flush_iface()
     return vlans
 
@@ -319,26 +508,41 @@ def parse_datacom_vlans(text: str) -> Dict[int, Dict[str, Any]]:
     Extrai VLANs de configurações Datacom DmOS (OLTs e Switches):
       - Blocos `dot1q` -> `vlan <spec>` -> `name <name>` / `interface <iface>`
       - Blocos `interface l3 <name>` -> `lower-layer-if vlan <id>` -> `ipv4 address <cidr>`
+      - Blocos `mpls l2vpn` -> `vpws-group <grp>` / `vpls-group <grp>` -> `vpn <name>`
+        (`pw-type vlan <id>`, `pw-id <id>`, `bridge-domain` -> `dot1q <spec>`, `access-interface` -> `dot1q <spec>`)
     """
     vlans: Dict[int, Dict[str, Any]] = {}
     in_dot1q = False
     current_vids: List[int] = []
+
     in_l3 = False
     l3_name: Optional[str] = None
     l3_vid: Optional[int] = None
     l3_desc: Optional[str] = None
     l3_ips: List[Tuple[str, Optional[str]]] = []
 
+    in_l2vpn = False
+    l2vpn_type: Optional[str] = None  # "VPWS" | "VPLS"
+    l2vpn_group: Optional[str] = None
+    l2vpn_vpn: Optional[str] = None
+    l2vpn_vids: Set[int] = set()
+    l2vpn_pwid: Optional[int] = None
+    l2vpn_neighbors: List[str] = []
+    l2vpn_interfaces: Set[str] = set()
+
+    def _ensure_vlan(vid: int) -> Dict[str, Any]:
+        return vlans.setdefault(vid, {
+            "vlan_id": vid,
+            "names": [],
+            "interfaces": set(),
+            "ips": set(),
+            "subnets": set(),
+        })
+
     def _flush_l3():
         nonlocal in_l3, l3_name, l3_vid, l3_desc, l3_ips
         if in_l3 and l3_vid and (1 <= l3_vid <= 4094):
-            entry = vlans.setdefault(l3_vid, {
-                "vlan_id": l3_vid,
-                "names": [],
-                "interfaces": set(),
-                "ips": set(),
-                "subnets": set(),
-            })
+            entry = _ensure_vlan(l3_vid)
             if l3_desc:
                 entry["names"].append(_clean_vlan_name(l3_desc, l3_vid))
             elif l3_name:
@@ -355,6 +559,46 @@ def parse_datacom_vlans(text: str) -> Dict[int, Dict[str, Any]]:
         l3_desc = None
         l3_ips = []
 
+    def _flush_l2vpn_vpn():
+        nonlocal l2vpn_vpn, l2vpn_vids, l2vpn_pwid, l2vpn_neighbors, l2vpn_interfaces
+        if l2vpn_vpn and l2vpn_type:
+            # Se o túnel usa pw-type ethernet sem cláusula dot1q explícita, mas o pw-id está na faixa de VLAN (1..4094),
+            # usa o pw-id como VLAN ID (ex: pw-id 900, pw-id 3501).
+            target_vids = set(v for v in l2vpn_vids if 1 <= v <= 4094 and v != 1)
+            if not target_vids and l2vpn_pwid and (1 <= l2vpn_pwid <= 4094) and l2vpn_pwid != 1:
+                target_vids.add(l2vpn_pwid)
+
+            if target_vids:
+                grp = l2vpn_group or ""
+                vpn = l2vpn_vpn
+                if grp and grp.lower() != vpn.lower() and vpn.lower() in ("ipv4", "ipv6", "bgp", "olt", "pppoe", "pppoes"):
+                    raw_label = f"{grp}-{vpn}"
+                elif grp and grp.lower() != vpn.lower() and not vpn.lower().startswith("int-"):
+                    raw_label = f"{grp}-{vpn}"
+                else:
+                    # Remover prefixo 'int-15512-' quando houver nome descritivo após
+                    m_int = re.match(r"^int-\d+-(.+)$", vpn, flags=re.IGNORECASE)
+                    raw_label = m_int.group(1) if m_int else vpn
+
+                pw_tag = f"(pw:{l2vpn_pwid})" if l2vpn_pwid else ""
+                tunnel_if = f"{l2vpn_type}:{grp}/{vpn}{pw_tag}" if grp else f"{l2vpn_type}:{vpn}{pw_tag}"
+
+                for vid in sorted(target_vids):
+                    entry = _ensure_vlan(vid)
+                    clean_lbl = _clean_vlan_name(raw_label, vid)
+                    tunnel_name = f"{clean_lbl} ({l2vpn_type})"
+                    if tunnel_name not in entry["names"]:
+                        entry["names"].append(tunnel_name)
+                    entry["interfaces"].add(tunnel_if)
+                    for ac_if in sorted(l2vpn_interfaces):
+                        entry["interfaces"].add(ac_if)
+
+        l2vpn_vpn = None
+        l2vpn_vids = set()
+        l2vpn_pwid = None
+        l2vpn_neighbors = []
+        l2vpn_interfaces = set()
+
     for raw in text.splitlines():
         s = raw.strip()
         if not s:
@@ -362,6 +606,8 @@ def parse_datacom_vlans(text: str) -> Dict[int, Dict[str, Any]]:
 
         if s == "dot1q":
             _flush_l3()
+            _flush_l2vpn_vpn()
+            in_l2vpn = False
             in_dot1q = True
             current_vids = []
             continue
@@ -369,10 +615,23 @@ def parse_datacom_vlans(text: str) -> Dict[int, Dict[str, Any]]:
         m_l3 = re.match(r"^interface\s+l3\s+(\S+)", s, flags=re.IGNORECASE)
         if m_l3:
             _flush_l3()
+            _flush_l2vpn_vpn()
+            in_l2vpn = False
             in_dot1q = False
             current_vids = []
             in_l3 = True
             l3_name = m_l3.group(1)
+            continue
+
+        if s.lower() == "mpls l2vpn":
+            _flush_l3()
+            _flush_l2vpn_vpn()
+            in_dot1q = False
+            in_l3 = False
+            current_vids = []
+            in_l2vpn = True
+            l2vpn_type = None
+            l2vpn_group = None
             continue
 
         if in_dot1q:
@@ -386,13 +645,7 @@ def parse_datacom_vlans(text: str) -> Dict[int, Dict[str, Any]]:
             if m_v:
                 current_vids = [v for v in _expand_vlan_spec(m_v.group(1), max_range_span=64) if v != 1]
                 for vid in current_vids:
-                    vlans.setdefault(vid, {
-                        "vlan_id": vid,
-                        "names": [],
-                        "interfaces": set(),
-                        "ips": set(),
-                        "subnets": set(),
-                    })
+                    _ensure_vlan(vid)
                 continue
 
             if current_vids:
@@ -400,7 +653,9 @@ def parse_datacom_vlans(text: str) -> Dict[int, Dict[str, Any]]:
                 if m_name:
                     vname = m_name.group(1).strip()
                     for vid in current_vids:
-                        vlans[vid]["names"].append(_clean_vlan_name(vname, vid))
+                        clean_n = _clean_vlan_name(vname, vid)
+                        if clean_n not in vlans[vid]["names"]:
+                            vlans[vid]["names"].append(clean_n)
                     continue
 
                 m_if = re.match(r"^interface\s+(.+)$", s, flags=re.IGNORECASE)
@@ -428,7 +683,55 @@ def parse_datacom_vlans(text: str) -> Dict[int, Dict[str, Any]]:
                 if ip_c:
                     l3_ips.append((ip_c, net_c))
 
+        elif in_l2vpn:
+            if not raw.startswith(" ") and s != "!":
+                _flush_l2vpn_vpn()
+                in_l2vpn = False
+                l2vpn_type = None
+                l2vpn_group = None
+                continue
+
+            m_grp = re.match(r"^(vpws|vpls)-group\s+(\S+)", s, flags=re.IGNORECASE)
+            if m_grp:
+                _flush_l2vpn_vpn()
+                l2vpn_type = m_grp.group(1).upper()
+                l2vpn_group = m_grp.group(2).strip()
+                continue
+
+            m_vpn = re.match(r"^vpn\s+(\S+)", s, flags=re.IGNORECASE)
+            if m_vpn:
+                _flush_l2vpn_vpn()
+                l2vpn_vpn = m_vpn.group(1).strip()
+                continue
+
+            if l2vpn_vpn:
+                m_pw_vlan = re.match(r"^pw-type\s+vlan\s+(\d{1,4})\b", s, flags=re.IGNORECASE)
+                if m_pw_vlan:
+                    l2vpn_vids.add(int(m_pw_vlan.group(1)))
+                    continue
+
+                m_pwid = re.match(r"^pw-id\s+(\d+)\b", s, flags=re.IGNORECASE)
+                if m_pwid:
+                    l2vpn_pwid = int(m_pwid.group(1))
+                    continue
+
+                m_neigh = re.match(r"^neighbor\s+(\d+\.\d+\.\d+\.\d+)\b", s, flags=re.IGNORECASE)
+                if m_neigh:
+                    l2vpn_neighbors.append(m_neigh.group(1))
+                    continue
+
+                m_ac = re.match(r"^access-interface\s+(\S+)", s, flags=re.IGNORECASE)
+                if m_ac:
+                    l2vpn_interfaces.add(m_ac.group(1).strip())
+                    continue
+
+                m_d1q = re.match(r"^dot1q\s+([0-9,\-\s]+)$", s, flags=re.IGNORECASE)
+                if m_d1q:
+                    l2vpn_vids.update(_expand_vlan_spec(m_d1q.group(1), max_range_span=64))
+                    continue
+
     _flush_l3()
+    _flush_l2vpn_vpn()
     return vlans
 
 
@@ -505,7 +808,9 @@ def parse_device_config_vlans(model: str, text: str) -> Dict[int, Dict[str, Any]
     # Fallback heurístico
     if "/interface vlan" in text:
         return parse_routeros_vlans(text)
-    if "dot1q" in text and "interface l3" in text:
+    if "dot1q" in text and ("interface l3" in text or "vpws-group" in text or "vpls-group" in text or "switchport" in text):
+        return parse_datacom_vlans(text)
+    if "vpws-group" in text or "vpls-group" in text:
         return parse_datacom_vlans(text)
     return parse_vrp_vlans(text)
 
@@ -616,6 +921,10 @@ async def extract_vlans_from_oxidized(
                     agg["subnets"].add(sub)
 
                 local_name = vinfo["names"][0] if vinfo.get("names") else f"VLAN {vid}"
+                sorted_ifs = sorted(
+                    vinfo.get("interfaces", set()),
+                    key=lambda x: (0 if x.startswith(("VPLS:", "VPWS:")) else 1, x)
+                )
                 agg["devices"].append({
                     "asset_id": asset.id,
                     "asset_name": asset.name,
@@ -623,7 +932,7 @@ async def extract_vlans_from_oxidized(
                     "ip_address": asset.ip_address,
                     "model": model,
                     "local_name": local_name,
-                    "interfaces": sorted(vinfo.get("interfaces", set())),
+                    "interfaces": sorted_ifs,
                     "ips": sorted(vinfo.get("ips", set())),
                 })
 
@@ -647,13 +956,28 @@ async def extract_vlans_from_oxidized(
         # Escolher o melhor nome (preferir nomes descritivos que não sejam apenas 'VLAN <id>' ou 'vlan<id>')
         descriptive_names = [
             n for n in data["names"]
-            if not re.match(rf"^(?:vlan\s*)?0*{vid}$", n.strip(), flags=re.IGNORECASE)
+            if not re.match(rf"^(?:vlan\s*)?0*{vid}(?:\s*\((?:VPLS|VPWS)\))?$", n.strip(), flags=re.IGNORECASE)
         ]
-        canonical_name = (descriptive_names[0] if descriptive_names else (data["names"][0] if data["names"] else f"VLAN {vid}"))[:200]
+        base_name = descriptive_names[0] if descriptive_names else (data["names"][0] if data["names"] else f"VLAN {vid}")
+
+        # Verificar se a VLAN possui vínculo com túnel VPLS ou VPWS em algum equipamento
+        tunnel_types: Set[str] = set()
+        for d in data["devices"]:
+            for iface in d.get("interfaces", []):
+                if iface.startswith("VPLS:"):
+                    tunnel_types.add("VPLS")
+                elif iface.startswith("VPWS:"):
+                    tunnel_types.add("VPWS")
+        if tunnel_types:
+            t_badge = "/".join(sorted(tunnel_types))
+            if "vpls" not in base_name.lower() and "vpws" not in base_name.lower():
+                base_name = f"{base_name} ({t_badge})"
+
+        canonical_name = base_name[:200]
 
         dev_summaries = []
         for d in data["devices"]:
-            if_str = f" ({', '.join(d['interfaces'][:3])})" if d.get("interfaces") else ""
+            if_str = f" ({', '.join(d['interfaces'][:4])})" if d.get("interfaces") else ""
             ip_str = f" [{', '.join(d['ips'])}]" if d.get("ips") else ""
             dev_summaries.append(f"{d['asset_name']}{if_str}{ip_str}")
         description = f"Equipamentos ({len(data['devices'])}): " + "; ".join(dev_summaries)
