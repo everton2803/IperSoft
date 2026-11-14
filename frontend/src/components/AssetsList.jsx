@@ -353,6 +353,387 @@ const getIntegrationBadge = (asset, type, vlogsActivity = null) => {
   return { label: type, status: 'disabled', tooltip: '', dotColor: 'gray', hasCheck: false, hasAlert: false };
 };
 
+const normalizeBackupModel = (m) => {
+  if (!m) return '';
+  const s = String(m).trim().toLowerCase();
+  if (s === 'dmos' || s === 'datacom') return 'datacom';
+  return s;
+};
+
+// Audita todas as integrações do ativo comparando valores cadastrados nas plataformas vs IperSoft
+const auditAssetIntegrations = (asset, vlogsActivity = null) => {
+  const diffs = [];
+
+  // 1. ZABBIX
+  const isZbxDisabled = asset.status === 'unmonitored' || asset.zabbix?.status === 'unmonitored';
+  const zbxHostId = asset.zabbix?.hostid || asset.external_id;
+  const hasZbxHost = Boolean(zbxHostId && zbxHostId !== 'None');
+  const zbxDiffs = [];
+
+  let zbxPlatform;
+  if (isZbxDisabled) {
+    zbxPlatform = {
+      key: 'zabbix',
+      short: 'ZBX',
+      label: 'Zabbix',
+      status: 'disabled',
+      dotColor: 'gray',
+      statusLabel: 'Desativado',
+      summary: 'Monitoramento desativado no IperSoft',
+      diffs: [],
+      canSync: false
+    };
+  } else if (!hasZbxHost) {
+    zbxDiffs.push({
+      field: 'Vínculo de Host',
+      platformVal: 'Não vinculado',
+      ipersoftVal: asset.name || asset.hostname || '-'
+    });
+    zbxPlatform = {
+      key: 'zabbix',
+      short: 'ZBX',
+      label: 'Zabbix',
+      status: 'divergent',
+      dotColor: 'yellow',
+      statusLabel: 'Não Sincronizado',
+      summary: 'Ativo sem host vinculado no Zabbix Server',
+      diffs: zbxDiffs,
+      canSync: true
+    };
+  } else {
+    if (asset.zabbix?.name && asset.name && asset.zabbix.name.trim() !== asset.name.trim()) {
+      zbxDiffs.push({
+        field: 'Nome Visível',
+        platformVal: asset.zabbix.name,
+        ipersoftVal: asset.name
+      });
+    }
+    if (asset.zabbix?.snmp_community && asset.snmp_community &&
+        asset.zabbix.snmp_community.trim() !== asset.snmp_community.trim()) {
+      zbxDiffs.push({
+        field: 'Community SNMP',
+        platformVal: asset.zabbix.snmp_community,
+        ipersoftVal: asset.snmp_community
+      });
+    }
+    if (asset.zabbix?.port && asset.port &&
+        String(asset.zabbix.port).trim() !== String(asset.port).trim()) {
+      zbxDiffs.push({
+        field: 'Porta Agente/SNMP',
+        platformVal: String(asset.zabbix.port),
+        ipersoftVal: String(asset.port)
+      });
+    }
+    const zbxNamedGroups = (asset.zabbix?.host_groups || [])
+      .map(g => String(g).trim())
+      .filter(g => g && !/^\d+$/.test(g));
+    if (asset.client_group && zbxNamedGroups.length > 0 &&
+        !zbxNamedGroups.some(g => g.toLowerCase() === asset.client_group.trim().toLowerCase())) {
+      zbxDiffs.push({
+        field: 'Grupo / Cliente',
+        platformVal: zbxNamedGroups.join(', '),
+        ipersoftVal: asset.client_group
+      });
+    }
+
+    zbxPlatform = {
+      key: 'zabbix',
+      short: 'ZBX',
+      label: 'Zabbix',
+      status: zbxDiffs.length > 0 ? 'divergent' : 'ok',
+      dotColor: zbxDiffs.length > 0 ? 'yellow' : 'green',
+      statusLabel: zbxDiffs.length > 0 ? `${zbxDiffs.length} divergência(s)` : 'Em dia',
+      summary: `HostID: ${zbxHostId}${asset.zabbix?.port ? ` • Porta ${asset.zabbix.port}` : ''}`,
+      diffs: zbxDiffs,
+      canSync: true
+    };
+  }
+  zbxDiffs.forEach(d => diffs.push({ target: 'zabbix', targetLabel: 'Zabbix', ...d }));
+
+  // 2. GUACAMOLE
+  const isGuacDisabled = Boolean(asset.ignore_guacamole);
+  const primaryGuac = (asset.guacamole && asset.guacamole.length > 0) ? asset.guacamole[0] : null;
+  const connId = primaryGuac?.connection_id || asset.guacamole_connection_id;
+  const hasRealGuac = Boolean(connId && !String(connId).startsWith('local-'));
+  const guacDiffs = [];
+
+  let guacPlatform;
+  if (isGuacDisabled) {
+    guacPlatform = {
+      key: 'guacamole',
+      short: 'GUA',
+      label: 'Guacamole',
+      status: 'disabled',
+      dotColor: 'gray',
+      statusLabel: 'Ignorado',
+      summary: 'Acesso remoto desativado para este ativo',
+      diffs: [],
+      canSync: false
+    };
+  } else if (!hasRealGuac) {
+    const proto = (asset.guacamole_protocol || 'ssh').toUpperCase();
+    const port = asset.guacamole_port || (proto === 'TELNET' ? '23' : proto === 'RDP' ? '3389' : '22');
+    guacDiffs.push({
+      field: 'Conexão Remota',
+      platformVal: 'Não cadastrada',
+      ipersoftVal: `${proto}:${port}`
+    });
+    guacPlatform = {
+      key: 'guacamole',
+      short: 'GUA',
+      label: 'Guacamole',
+      status: 'divergent',
+      dotColor: 'yellow',
+      statusLabel: 'Não Sincronizado',
+      summary: 'Habilitado no IperSoft, sem conexão no Guacamole',
+      diffs: guacDiffs,
+      canSync: true
+    };
+  } else {
+    if (primaryGuac?.connection_name && asset.name &&
+        primaryGuac.connection_name.trim() !== asset.name.trim()) {
+      guacDiffs.push({
+        field: 'Nome da Conexão',
+        platformVal: primaryGuac.connection_name,
+        ipersoftVal: asset.name
+      });
+    }
+    const cleanAssetIp = (asset.ip_address || '').trim().toLowerCase();
+    const cleanGuacIp = (primaryGuac?.hostname || '').trim().toLowerCase();
+    if (cleanAssetIp && cleanGuacIp && cleanAssetIp !== '-' && cleanGuacIp !== cleanAssetIp) {
+      guacDiffs.push({
+        field: 'IP / Host Remoto',
+        platformVal: primaryGuac.hostname,
+        ipersoftVal: asset.ip_address
+      });
+    }
+    const expProto = (asset.guacamole_protocol || '').trim().toLowerCase();
+    const actProto = (primaryGuac?.protocol || '').trim().toLowerCase();
+    if (expProto && actProto && expProto !== actProto) {
+      guacDiffs.push({
+        field: 'Protocolo',
+        platformVal: actProto.toUpperCase(),
+        ipersoftVal: expProto.toUpperCase()
+      });
+    }
+    if (primaryGuac?.port && asset.guacamole_port &&
+        String(primaryGuac.port).trim() !== String(asset.guacamole_port).trim()) {
+      guacDiffs.push({
+        field: 'Porta Remota',
+        platformVal: String(primaryGuac.port),
+        ipersoftVal: String(asset.guacamole_port)
+      });
+    }
+
+    const rProto = (primaryGuac?.protocol || asset.guacamole_protocol || 'ssh').toUpperCase();
+    const rPort = primaryGuac?.port || asset.guacamole_port || '';
+    guacPlatform = {
+      key: 'guacamole',
+      short: 'GUA',
+      label: 'Guacamole',
+      status: guacDiffs.length > 0 ? 'divergent' : 'ok',
+      dotColor: guacDiffs.length > 0 ? 'yellow' : 'green',
+      statusLabel: guacDiffs.length > 0 ? `${guacDiffs.length} divergência(s)` : 'Em dia',
+      summary: `${rProto}${rPort ? `:${rPort}` : ''} • ID: ${connId}`,
+      diffs: guacDiffs,
+      canSync: true
+    };
+  }
+  guacDiffs.forEach(d => diffs.push({ target: 'guacamole', targetLabel: 'Guacamole', ...d }));
+
+  // 3. OXIDIZED
+  const isOxDisabled = asset.backup_enabled === false;
+  const ox = asset.oxidized;
+  const oxDiffs = [];
+
+  let oxPlatform;
+  if (isOxDisabled) {
+    oxPlatform = {
+      key: 'oxidized',
+      short: 'OXI',
+      label: 'Oxidized',
+      status: 'disabled',
+      dotColor: 'gray',
+      statusLabel: 'Desativado',
+      summary: 'Backup automático desativado no IperSoft',
+      diffs: [],
+      canSync: false
+    };
+  } else if (!ox) {
+    oxDiffs.push({
+      field: 'Nó de Backup',
+      platformVal: 'Não sincronizado',
+      ipersoftVal: `${asset.name} (${asset.backup_model || 'RouterOS'})`
+    });
+    oxPlatform = {
+      key: 'oxidized',
+      short: 'OXI',
+      label: 'Oxidized',
+      status: 'divergent',
+      dotColor: 'yellow',
+      statusLabel: 'Não Sincronizado',
+      summary: `Aguardando sincronização (${asset.backup_model || 'RouterOS'})`,
+      diffs: oxDiffs,
+      canSync: true
+    };
+  } else {
+    if (ox.node_name && asset.name && ox.node_name.trim() !== asset.name.trim()) {
+      oxDiffs.push({
+        field: 'Nome do Nó',
+        platformVal: ox.node_name,
+        ipersoftVal: asset.name
+      });
+    }
+    if (ox.model && asset.backup_model &&
+        normalizeBackupModel(ox.model) !== normalizeBackupModel(asset.backup_model)) {
+      oxDiffs.push({
+        field: 'Modelo Backup',
+        platformVal: ox.model,
+        ipersoftVal: asset.backup_model
+      });
+    }
+    const expOxGroup = (asset.client_group || 'default').trim();
+    const actOxGroup = (ox.group || 'default').trim();
+    if (ox.group && expOxGroup.toLowerCase() !== actOxGroup.toLowerCase()) {
+      oxDiffs.push({
+        field: 'Grupo Backup',
+        platformVal: actOxGroup,
+        ipersoftVal: expOxGroup
+      });
+    }
+    if (ox.timeout && asset.backup_timeout && Number(ox.timeout) !== Number(asset.backup_timeout)) {
+      oxDiffs.push({
+        field: 'Timeout Backup',
+        platformVal: `${ox.timeout}s`,
+        ipersoftVal: `${asset.backup_timeout}s`
+      });
+    }
+
+    const isBackupError = ox.status === 'fail' || ox.status === 'no_connection';
+    const oxStatus = oxDiffs.length > 0 ? 'divergent' : (isBackupError ? 'error' : (ox.status === 'success' ? 'ok' : 'idle'));
+    const oxDot = oxDiffs.length > 0 ? 'yellow' : (isBackupError ? 'red' : (ox.status === 'success' ? 'green' : 'yellow'));
+    const oxStatusLabel = oxDiffs.length > 0
+      ? `${oxDiffs.length} divergência(s)`
+      : (isBackupError ? `Falha (${ox.status})` : (ox.status === 'success' ? 'Backup OK' : `Aguardando (${ox.status || 'pendente'})`));
+
+    oxPlatform = {
+      key: 'oxidized',
+      short: 'OXI',
+      label: 'Oxidized',
+      status: oxStatus,
+      dotColor: oxDot,
+      statusLabel: oxStatusLabel,
+      summary: `${ox.model || asset.backup_model || 'RouterOS'} • Grupo: ${ox.group || 'default'}`,
+      diffs: oxDiffs,
+      canSync: true
+    };
+  }
+  oxDiffs.forEach(d => diffs.push({ target: 'oxidized', targetLabel: 'Oxidized', ...d }));
+
+  // 4. SYSLOG (Telemetria)
+  const syslogBadge = getIntegrationBadge(asset, 'syslog', vlogsActivity);
+  const syslogPlatform = {
+    key: 'syslog',
+    short: 'LOG',
+    label: 'Syslog',
+    status: syslogBadge.status,
+    dotColor: syslogBadge.dotColor,
+    statusLabel: syslogBadge.status === 'ok' ? 'Ativo agora' : (syslogBadge.status === 'idle' ? 'Logs 24h' : 'Sem logs'),
+    summary: syslogBadge.tooltip,
+    diffs: [],
+    canSync: false
+  };
+
+  const corePlatforms = [zbxPlatform, guacPlatform, oxPlatform];
+  const activePlatforms = corePlatforms.filter(p => p.status !== 'disabled');
+  const okCount = activePlatforms.filter(p => p.status === 'ok').length;
+  const hasError = corePlatforms.some(p => p.status === 'error');
+  const hasDivergence = diffs.length > 0;
+
+  return {
+    platforms: [zbxPlatform, guacPlatform, oxPlatform, syslogPlatform],
+    diffs,
+    hasDivergence,
+    hasError,
+    okCount,
+    activeCount: activePlatforms.length
+  };
+};
+
+// Audita os testes de conectividade (Ping ICMP, SNMP e Porta Remota) para exibição agrupada
+const auditAssetConnectivity = (asset) => {
+  const zbx = asset.zabbix;
+  const primaryGuac = (asset.guacamole && asset.guacamole.length > 0) ? asset.guacamole[0] : null;
+  const isGuacDisabled = Boolean(asset.ignore_guacamole);
+  const remoteProto = (primaryGuac?.protocol || asset.guacamole_protocol || 'ssh').toUpperCase();
+
+  const mapDot = (status) => {
+    if (status === 'ok') return 'green';
+    if (status === 'timeout') return 'yellow';
+    if (status === 'failed') return 'red';
+    return 'gray';
+  };
+
+  const mapLabel = (status, okText = 'OK') => {
+    if (status === 'ok') return okText;
+    if (status === 'timeout') return 'Timeout';
+    if (status === 'failed') return 'Falhou';
+    return 'Não testado';
+  };
+
+  const tests = [
+    {
+      key: 'icmp',
+      short: 'PING',
+      label: 'ICMP Ping',
+      status: zbx?.icmp_status || 'none',
+      dotColor: mapDot(zbx?.icmp_status),
+      statusLabel: mapLabel(zbx?.icmp_status, zbx?.icmp_latency_ms ? `${zbx.icmp_latency_ms}ms` : 'OK'),
+      detail: zbx?.icmp_status === 'ok'
+        ? (zbx.icmp_latency_ms ? `Latência: ${zbx.icmp_latency_ms} ms` : 'Respondendo ao ICMP')
+        : (zbx?.icmp_status === 'timeout' ? 'Tempo limite esgotado' : (zbx?.icmp_status === 'failed' ? 'Inacessível via ICMP' : 'Aguardando verificação'))
+    },
+    {
+      key: 'snmp',
+      short: 'SNMP',
+      label: 'SNMP v2c',
+      status: zbx?.snmp_status || 'none',
+      dotColor: mapDot(zbx?.snmp_status),
+      statusLabel: mapLabel(zbx?.snmp_status, 'OK'),
+      detail: zbx?.snmp_message || (zbx?.snmp_status === 'ok' ? 'OID sysName respondendo' : 'Aguardando verificação SNMP')
+    }
+  ];
+
+  if (primaryGuac && !isGuacDisabled) {
+    const rPort = primaryGuac.port || asset.guacamole_port || '';
+    tests.push({
+      key: 'remote',
+      short: remoteProto,
+      label: `Acesso ${remoteProto}${rPort ? ` (${rPort})` : ''}`,
+      status: primaryGuac.tcp_status || 'none',
+      dotColor: mapDot(primaryGuac.tcp_status),
+      statusLabel: mapLabel(primaryGuac.tcp_status, 'Aberta'),
+      detail: primaryGuac.tcp_status === 'ok'
+        ? `Porta ${rPort || '-'} aberta${primaryGuac.tcp_latency_ms ? ` (${primaryGuac.tcp_latency_ms}ms)` : ''}`
+        : (primaryGuac.tcp_message || (primaryGuac.tcp_status ? 'Porta inacessível ou timeout TCP' : 'Aguardando teste de porta TCP'))
+    });
+  }
+
+  const okCount = tests.filter(t => t.status === 'ok').length;
+  const failCount = tests.filter(t => t.status === 'failed').length;
+  const timeoutCount = tests.filter(t => t.status === 'timeout').length;
+  const untestedCount = tests.filter(t => t.status === 'none').length;
+
+  return {
+    tests,
+    okCount,
+    failCount,
+    timeoutCount,
+    untestedCount,
+    totalCount: tests.length
+  };
+};
+
 export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
   const [assets, setAssets] = useState([]);
   const [retestingId, setRetestingId] = useState(null);
@@ -382,10 +763,36 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
   const [revealedPasswords, setRevealedPasswords] = useState({});
   const [vlogsActivity, setVlogsActivity] = useState({ active_now_ips: [], counts_24h: {} });
 
-  // Ordenação & Duplicados
+  // Ordenação, Duplicados & Divergências
   const [sortField, setSortField] = useState('name'); // 'name' | 'ip'
   const [sortDirection, setSortDirection] = useState('asc'); // 'asc' | 'desc'
   const [showOnlyDuplicates, setShowOnlyDuplicates] = useState(false);
+  const [showOnlyDivergent, setShowOnlyDivergent] = useState(false);
+
+  // Popover interativo agrupado (Plataformas e Conectividade)
+  const [openPopover, setOpenPopover] = useState(null); // { assetId, type, openUpward, left, top, bottom, width }
+  const [syncingKey, setSyncingKey] = useState(null); // `${assetId}:${target}`
+
+  useEffect(() => {
+    if (!openPopover) return;
+    const handleOutsideClick = (e) => {
+      if (!e.target.closest('.status-popover-wrapper')) {
+        setOpenPopover(null);
+      }
+    };
+    const handleViewportChange = (e) => {
+      if (e.target && e.target.closest && e.target.closest('.status-popover-dropdown')) return;
+      setOpenPopover(null);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    window.addEventListener('scroll', handleViewportChange, true);
+    window.addEventListener('resize', handleViewportChange);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('scroll', handleViewportChange, true);
+      window.removeEventListener('resize', handleViewportChange);
+    };
+  }, [openPopover]);
 
   // Densidade e Filtros Avançados
   const [density, setDensity] = useState(() => {
@@ -401,14 +808,16 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
     if (statusFilter !== 'all') count++;
     if (presenceFilter !== 'all') count++;
     if (showOnlyDuplicates) count++;
+    if (showOnlyDivergent) count++;
     return count;
-  }, [selectedGroup, statusFilter, presenceFilter, showOnlyDuplicates]);
+  }, [selectedGroup, statusFilter, presenceFilter, showOnlyDuplicates, showOnlyDivergent]);
 
   const handleClearFilters = () => {
     setSelectedGroup('');
     setStatusFilter('all');
     setPresenceFilter('all');
     setShowOnlyDuplicates(false);
+    setShowOnlyDivergent(false);
   };
 
   // Seleção múltipla para ações em lote
@@ -580,6 +989,80 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
     }
   };
 
+  // Auditoria em memória de divergências entre IperSoft e Zabbix / Guacamole / Oxidized
+  const auditByAssetId = useMemo(() => {
+    const map = {};
+    assets.forEach((asset) => {
+      map[asset.id] = {
+        integrations: auditAssetIntegrations(asset, vlogsActivity),
+        connectivity: auditAssetConnectivity(asset)
+      };
+    });
+    return map;
+  }, [assets, vlogsActivity]);
+
+  const divergentAssetsCount = useMemo(() => {
+    return assets.filter((a) => auditByAssetId[a.id]?.integrations?.hasDivergence).length;
+  }, [assets, auditByAssetId]);
+
+  const handleToggleDivergentFilter = () => {
+    setShowOnlyDivergent((prev) => !prev);
+  };
+
+  const togglePopover = (e, assetId, type) => {
+    e.stopPropagation();
+    if (openPopover && openPopover.assetId === assetId && openPopover.type === type) {
+      setOpenPopover(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpward = spaceBelow < 340 && rect.top > spaceBelow;
+    const popoverWidth = type === 'platforms' ? 370 : 300;
+    let left = rect.left;
+    if (left + popoverWidth > window.innerWidth - 16) {
+      left = Math.max(16, window.innerWidth - popoverWidth - 16);
+    }
+    setOpenPopover({
+      assetId,
+      type,
+      openUpward,
+      left,
+      top: openUpward ? undefined : rect.bottom + 6,
+      bottom: openUpward ? window.innerHeight - rect.top + 6 : undefined,
+      width: popoverWidth
+    });
+  };
+
+  const handleQuickSyncPlatform = async (asset, target) => {
+    const key = `${asset.id}:${target}`;
+    setSyncingKey(key);
+    try {
+      let res;
+      if (target === 'zabbix') {
+        res = await authService.syncAssetToZabbix(asset.id);
+      } else if (target === 'guacamole') {
+        res = await authService.syncAssetToGuacamole(asset.id);
+      } else if (target === 'oxidized') {
+        res = await authService.syncAssetToOxidized(asset.id);
+      } else if (target === 'all') {
+        res = await authService.syncAssetToAll(asset.id);
+      }
+      setFeedbackMsg({
+        type: 'success',
+        text: res?.message || `Sincronização (${target.toUpperCase()}) executada com sucesso para "${asset.name}".`
+      });
+      await loadData();
+    } catch (err) {
+      setFeedbackMsg({
+        type: 'error',
+        text: err.message || `Falha ao sincronizar "${asset.name}" com ${target}.`
+      });
+    } finally {
+      setSyncingKey(null);
+    }
+  };
+
   const displayedAssets = useMemo(() => {
     let list = [...assets];
 
@@ -607,10 +1090,15 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
       });
     }
 
-    // 3. Ordenação
+    // 3. Filtro de Cadastros Divergentes entre IperSoft e Integrações
+    if (showOnlyDivergent) {
+      list = list.filter((asset) => auditByAssetId[asset.id]?.integrations?.hasDivergence);
+    }
+
+    // 4. Ordenação
     list.sort((a, b) => compareAssets(a, b, sortField, sortDirection));
     return list;
-  }, [assets, deferredSearch, showOnlyDuplicates, duplicateIpMap, sortField, sortDirection]);
+  }, [assets, deferredSearch, showOnlyDuplicates, showOnlyDivergent, duplicateIpMap, auditByAssetId, sortField, sortDirection]);
 
   const renderSortHeader = (label, field, extraStyle = {}) => {
     const isActive = sortField === field;
@@ -816,8 +1304,8 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
       {/* Overview Statistics Strip */}
       <div className="status-strip" style={{ marginBottom: '1rem' }}>
         <div 
-          className={`status-item clickable-stat ${presenceFilter === 'all' && statusFilter === 'all' ? 'active-stat' : ''}`}
-          onClick={() => { setPresenceFilter('all'); setStatusFilter('all'); }}
+          className={`status-item clickable-stat ${presenceFilter === 'all' && statusFilter === 'all' && !showOnlyDuplicates && !showOnlyDivergent ? 'active-stat' : ''}`}
+          onClick={handleClearFilters}
           title="Ver todos os ativos cadastrados"
         >
           <span className="status-label">Total Unificado</span>
@@ -832,6 +1320,18 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
           <span className="status-label">Integrados (Ambos)</span>
           <span className="status-value online">
             <span className="dot-online"></span> {stats.with_both}
+          </span>
+        </div>
+
+        <div 
+          className={`status-item clickable-stat ${showOnlyDivergent ? 'active-stat' : ''}`}
+          onClick={handleToggleDivergentFilter}
+          title="Clique para filtrar equipamentos cujo cadastro no IperSoft diverge de Zabbix, Guacamole ou Oxidized"
+        >
+          <span className="status-label">Cadastros Divergentes</span>
+          <span className="status-value" style={{ color: divergentAssetsCount > 0 ? '#f59e0b' : 'var(--color-success)' }}>
+            {divergentAssetsCount > 0 && <AlertTriangle size={13} style={{ marginRight: 4, display: 'inline' }} />}
+            {divergentAssetsCount}
           </span>
         </div>
 
@@ -1032,8 +1532,17 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
             </select>
           </div>
 
-          <div className="filter-chip-group" style={{ justifyContent: 'flex-end' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer', paddingBottom: '6px', userSelect: 'none' }}>
+          <div className="filter-chip-group" style={{ justifyContent: 'flex-end', flexDirection: 'row', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', paddingBottom: '6px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={showOnlyDivergent}
+                onChange={(e) => setShowOnlyDivergent(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              <span>Apenas Cadastros Divergentes</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer', userSelect: 'none' }}>
               <input
                 type="checkbox"
                 checked={showOnlyDuplicates}
@@ -1068,6 +1577,25 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
             style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}
           >
             <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {showOnlyDivergent && (
+        <div className="duplicate-banner">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={16} color="#f59e0b" />
+            <span>
+              Exibindo <strong>{displayedAssets.length} equipamentos</strong> com diferenças entre o IperSoft e Zabbix, Guacamole ou Oxidized. Clique na coluna <strong>Plataformas & Sincronia</strong> de qualquer linha para inspecionar e sincronizar.
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
+            onClick={() => setShowOnlyDivergent(false)}
+          >
+            Ver Todos os Equipamentos
           </button>
         </div>
       )}
@@ -1231,28 +1759,38 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                     </th>
                     {renderSortHeader('Equipamento', 'name')}
                     {renderSortHeader('Endereço IP', 'ip')}
-                    <th>Plataformas Sincronizadas</th>
-                    <th>Status dos Testes de Conectividade</th>
+                    <th>Plataformas & Sincronia</th>
+                    <th>Conectividade</th>
                     <th style={{ textAlign: 'right' }}>Ações</th>
                   </tr>
                 </thead>
                 <tbody>
                   {displayedAssets.map((asset) => {
-                    const hasZbx = Boolean(asset.zabbix || asset.external_id);
                     const hasGuac = Boolean((asset.guacamole && asset.guacamole.length > 0) || asset.guacamole_connection_id);
-                    const zbx = asset.zabbix;
-                    const primaryGuac = (asset.guacamole && asset.guacamole.length > 0) ? asset.guacamole[0] : null;
-                    const remoteProto = (primaryGuac?.protocol || asset.guacamole_protocol || 'ssh').toUpperCase();
                     const cleanIp = asset.ip_address?.trim();
                     const isDup = cleanIp && cleanIp !== '-' && duplicateIpMap[cleanIp] > 1;
+                    const audit = auditByAssetId[asset.id]?.integrations || auditAssetIntegrations(asset, vlogsActivity);
+                    const conn = auditByAssetId[asset.id]?.connectivity || auditAssetConnectivity(asset);
+                    const isPlatOpen = openPopover?.assetId === asset.id && openPopover?.type === 'platforms';
+                    const isConnOpen = openPopover?.assetId === asset.id && openPopover?.type === 'connectivity';
+
+                    const platTriggerClass = audit.hasDivergence
+                      ? 'has-divergence'
+                      : (audit.hasError ? 'has-error' : (audit.okCount > 0 ? 'all-ok' : 'all-disabled'));
+
+                    const connTriggerClass = conn.failCount > 0
+                      ? 'has-error'
+                      : (conn.totalCount > 0 && conn.okCount === conn.totalCount
+                          ? 'all-ok'
+                          : (conn.timeoutCount > 0 || conn.okCount > 0 ? 'has-divergence' : 'all-disabled'));
 
                     return (
                       <tr 
                         key={asset.id} 
-                        className={`clickable-asset-row ${isDup ? 'row-duplicate-ip' : ''} ${selectedAssetIds.includes(asset.id) ? 'row-selected' : ''}`}
+                        className={`clickable-asset-row ${isDup ? 'row-duplicate-ip' : ''} ${audit.hasDivergence ? 'row-divergent' : ''} ${selectedAssetIds.includes(asset.id) ? 'row-selected' : ''}`}
                         onClick={(e) => {
-                          // Evita disparar se clicou num botão específico ou checkbox
-                          if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) return;
+                          // Evita disparar se clicou num botão específico, checkbox ou popover
+                          if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input') || e.target.closest('.status-popover-wrapper')) return;
                           if (onSelectAsset) onSelectAsset(asset.id);
                         }}
                       >
@@ -1326,82 +1864,286 @@ export const AssetsList = ({ onOpenZabbix, isAdmin, onSelectAsset }) => {
                           </div>
                         </td>
 
-                        {/* PLATAFORMAS SINCRONIZADAS */}
+                        {/* PLATAFORMAS & SINCRONIA (AGRUPADO COM DROPDOWN DE DIVERGÊNCIAS) */}
                         <td>
-                          <div className="presence-badge-pair">
-                            {['zabbix', 'guacamole', 'oxidized', 'syslog'].map((itype) => {
-                              const badge = getIntegrationBadge(asset, itype, vlogsActivity);
-                              return (
-                                <span 
-                                  key={itype}
-                                  className={`presence-pill presence-status-${badge.status}`} 
-                                  title={badge.tooltip}
-                                >
-                                  <span className={`presence-dot ${badge.dotColor}`}></span>
-                                  {badge.label}
-                                  {badge.hasCheck && <Check size={10} style={{ marginLeft: 2 }} />}
-                                  {badge.hasAlert && <AlertTriangle size={10} style={{ marginLeft: 2 }} />}
-                                </span>
-                              );
-                            })}
+                          <div className="status-popover-wrapper" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className={`grouped-status-trigger ${platTriggerClass} ${isPlatOpen ? 'is-open' : ''}`}
+                              onClick={(e) => togglePopover(e, asset.id, 'platforms')}
+                              title={
+                                audit.hasDivergence
+                                  ? `${audit.diffs.length} divergência(s) encontrada(s) — clique para comparar e sincronizar`
+                                  : 'Clique para inspecionar o status detalhado das integrações'
+                              }
+                            >
+                              <span className="grouped-summary-main">
+                                {audit.hasDivergence ? (
+                                  <>
+                                    <AlertTriangle size={12} />
+                                    <span>{audit.diffs.length} {audit.diffs.length === 1 ? 'Diverg.' : 'Divergs.'}</span>
+                                  </>
+                                ) : audit.hasError ? (
+                                  <>
+                                    <XCircle size={12} />
+                                    <span>Falha</span>
+                                  </>
+                                ) : audit.okCount > 0 ? (
+                                  <>
+                                    <CheckCircle2 size={12} />
+                                    <span>{audit.okCount}/{audit.activeCount || audit.okCount} OK</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <PowerOff size={12} />
+                                    <span>Desativado</span>
+                                  </>
+                                )}
+                              </span>
+
+                              <span className="grouped-mini-tags">
+                                {audit.platforms.map((p) => (
+                                  <span
+                                    key={p.key}
+                                    className={`mini-plat-tag mini-plat-${p.status}`}
+                                    title={`${p.label}: ${p.statusLabel}`}
+                                  >
+                                    <span className={`presence-dot ${p.dotColor}`}></span>
+                                    {p.short}
+                                  </span>
+                                ))}
+                              </span>
+
+                              <ChevronDown size={12} className={`trigger-chevron ${isPlatOpen ? 'rotated' : ''}`} />
+                            </button>
+
+                            {isPlatOpen && (
+                              <div
+                                className={`status-popover-dropdown ${openPopover.openUpward ? 'open-up' : ''}`}
+                                style={{
+                                  position: 'fixed',
+                                  left: `${openPopover.left}px`,
+                                  top: openPopover.top !== undefined ? `${openPopover.top}px` : undefined,
+                                  bottom: openPopover.bottom !== undefined ? `${openPopover.bottom}px` : undefined,
+                                  width: `${openPopover.width}px`
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="popover-header">
+                                  <div className="popover-title-group">
+                                    <span className="popover-title">{asset.name}</span>
+                                    <span className="popover-subtitle">
+                                      Auditoria de Integrações • {asset.ip_address || '-'}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="popover-close-btn"
+                                    onClick={() => setOpenPopover(null)}
+                                    title="Fechar"
+                                  >
+                                    <X size={13} />
+                                  </button>
+                                </div>
+
+                                <div className="popover-body">
+                                  {audit.platforms.map((plat) => {
+                                    const IconComp = plat.key === 'zabbix'
+                                      ? Server
+                                      : (plat.key === 'guacamole'
+                                          ? Terminal
+                                          : (plat.key === 'oxidized' ? HardDrive : Radio));
+                                    const isPlatSyncing = syncingKey === `${asset.id}:${plat.key}`;
+                                    return (
+                                      <div key={plat.key} className={`popover-section plat-row-${plat.status}`}>
+                                        <div className="popover-section-head">
+                                          <div className="popover-section-name">
+                                            <IconComp size={13} />
+                                            <span>{plat.label}</span>
+                                            <span className={`popover-pill pill-${plat.status}`}>
+                                              <span className={`presence-dot ${plat.dotColor}`}></span>
+                                              {plat.statusLabel}
+                                            </span>
+                                          </div>
+                                          {isAdmin && plat.canSync && (plat.diffs.length > 0 || plat.status === 'error') && (
+                                            <button
+                                              type="button"
+                                              className="popover-inline-sync-btn"
+                                              onClick={() => handleQuickSyncPlatform(asset, plat.key)}
+                                              disabled={Boolean(syncingKey)}
+                                              title={`Enviar dados do IperSoft para ${plat.label}`}
+                                            >
+                                              <RefreshCw size={11} className={isPlatSyncing ? 'spin-icon' : ''} />
+                                              <span>Sincronizar</span>
+                                            </button>
+                                          )}
+                                        </div>
+
+                                        {plat.diffs.length > 0 ? (
+                                          <div className="popover-diff-list">
+                                            {plat.diffs.map((d, dIdx) => (
+                                              <div key={dIdx} className="diff-item-row">
+                                                <span className="diff-field-label">{d.field}:</span>
+                                                <div className="diff-values-flow">
+                                                  <span className="diff-old" title={`Na plataforma (${plat.label})`}>
+                                                    {d.platformVal}
+                                                  </span>
+                                                  <span className="diff-arrow">→</span>
+                                                  <span className="diff-new" title="No IperSoft (referência)">
+                                                    {d.ipersoftVal}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <div className="popover-section-summary">{plat.summary}</div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className="popover-footer">
+                                  {isAdmin && audit.hasDivergence && (
+                                    <button
+                                      type="button"
+                                      className="btn-primary popover-footer-btn"
+                                      onClick={() => handleQuickSyncPlatform(asset, 'all')}
+                                      disabled={Boolean(syncingKey)}
+                                    >
+                                      <RefreshCw size={12} className={syncingKey === `${asset.id}:all` ? 'spin-icon' : ''} />
+                                      <span>Sincronizar Tudo</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="btn-secondary popover-footer-btn"
+                                    onClick={() => {
+                                      setOpenPopover(null);
+                                      if (onSelectAsset) onSelectAsset(asset.id);
+                                    }}
+                                  >
+                                    <Edit2 size={12} />
+                                    <span>Abrir Detalhes</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
 
-                        {/* STATUS DOS TESTES */}
+                        {/* CONECTIVIDADE (AGRUPADO COM DROPDOWN DE TESTES) */}
                         <td>
-                          <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                            {/* PING */}
-                            {zbx?.icmp_status === 'ok' ? (
-                              <span className="status-pill-ok" title={zbx.icmp_latency_ms ? `Latência: ${zbx.icmp_latency_ms} ms` : 'Ping OK'}>
-                                <CheckCircle2 size={11} /> Ping {zbx.icmp_latency_ms ? `${zbx.icmp_latency_ms}ms` : 'OK'}
+                          <div className="status-popover-wrapper" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className={`grouped-status-trigger ${connTriggerClass} ${isConnOpen ? 'is-open' : ''}`}
+                              onClick={(e) => togglePopover(e, asset.id, 'connectivity')}
+                              title="Clique para ver detalhes de Ping, SNMP e Acesso Remoto"
+                            >
+                              <span className="grouped-summary-main">
+                                {conn.failCount > 0 ? (
+                                  <>
+                                    <XCircle size={12} />
+                                    <span>{conn.failCount} {conn.failCount === 1 ? 'Falha' : 'Falhas'}</span>
+                                  </>
+                                ) : conn.timeoutCount > 0 ? (
+                                  <>
+                                    <Clock size={12} />
+                                    <span>{conn.timeoutCount} Timeout</span>
+                                  </>
+                                ) : conn.totalCount > 0 && conn.okCount === conn.totalCount ? (
+                                  <>
+                                    <CheckCircle2 size={12} />
+                                    <span>{conn.okCount}/{conn.totalCount} OK</span>
+                                  </>
+                                ) : conn.okCount > 0 ? (
+                                  <>
+                                    <Activity size={12} />
+                                    <span>{conn.okCount}/{conn.totalCount} OK</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Activity size={12} />
+                                    <span>Sem teste</span>
+                                  </>
+                                )}
                               </span>
-                            ) : zbx?.icmp_status === 'timeout' ? (
-                              <span className="status-pill-timeout" title="Tempo limite esgotado">
-                                <Clock size={11} /> Ping Timeout
-                              </span>
-                            ) : zbx?.icmp_status === 'failed' ? (
-                              <span className="status-pill-fail" title="Falha de comunicação">
-                                <XCircle size={11} /> Ping Falhou
-                              </span>
-                            ) : (
-                              <span className="status-pill-none" title="Não testado">Ping -</span>
-                            )}
 
-                            {/* SNMP */}
-                            {zbx?.snmp_status === 'ok' ? (
-                              <span className="status-pill-ok" title={zbx.snmp_message || 'SNMP OK'}>
-                                <CheckCircle2 size={11} /> SNMP OK
+                              <span className="grouped-mini-tags">
+                                {conn.tests.map((t) => (
+                                  <span
+                                    key={t.key}
+                                    className="mini-plat-tag"
+                                    title={`${t.label}: ${t.statusLabel}`}
+                                  >
+                                    <span className={`presence-dot ${t.dotColor}`}></span>
+                                    {t.short}
+                                  </span>
+                                ))}
                               </span>
-                            ) : zbx?.snmp_status === 'timeout' ? (
-                              <span className="status-pill-timeout" title={zbx.snmp_message || 'Timeout SNMP'}>
-                                <Clock size={11} /> SNMP Timeout
-                              </span>
-                            ) : zbx?.snmp_status === 'failed' ? (
-                              <span className="status-pill-fail" title={zbx.snmp_message || 'Falha SNMP'}>
-                                <XCircle size={11} /> SNMP Falhou
-                              </span>
-                            ) : (
-                              <span className="status-pill-none" title="Não testado">SNMP -</span>
-                            )}
 
-                            {/* ACESSO REMOTO (SSH / TELNET / RDP) */}
-                            {primaryGuac ? (
-                              primaryGuac.tcp_status === 'ok' ? (
-                                <span className="status-pill-ok" title={`Porta ${primaryGuac.port} aberta (${primaryGuac.tcp_latency_ms || ''}ms)`}>
-                                  <CheckCircle2 size={11} /> {remoteProto} OK
-                                </span>
-                              ) : primaryGuac.tcp_status === 'timeout' ? (
-                                <span className="status-pill-timeout" title="Timeout de conexão TCP">
-                                  <Clock size={11} /> {remoteProto} Timeout
-                                </span>
-                              ) : primaryGuac.tcp_status === 'failed' ? (
-                                <span className="status-pill-fail" title="Porta fechada ou inacessível">
-                                  <XCircle size={11} /> {remoteProto} Falhou
-                                </span>
-                              ) : (
-                                <span className="status-pill-none">{remoteProto} -</span>
-                              )
-                            ) : null}
+                              <ChevronDown size={12} className={`trigger-chevron ${isConnOpen ? 'rotated' : ''}`} />
+                            </button>
+
+                            {isConnOpen && (
+                              <div
+                                className={`status-popover-dropdown ${openPopover.openUpward ? 'open-up' : ''}`}
+                                style={{
+                                  position: 'fixed',
+                                  left: `${openPopover.left}px`,
+                                  top: openPopover.top !== undefined ? `${openPopover.top}px` : undefined,
+                                  bottom: openPopover.bottom !== undefined ? `${openPopover.bottom}px` : undefined,
+                                  width: `${openPopover.width}px`
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="popover-header">
+                                  <div className="popover-title-group">
+                                    <span className="popover-title">Testes de Rede</span>
+                                    <span className="popover-subtitle">
+                                      {asset.name} • {asset.ip_address || '-'}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="popover-close-btn"
+                                    onClick={() => setOpenPopover(null)}
+                                    title="Fechar"
+                                  >
+                                    <X size={13} />
+                                  </button>
+                                </div>
+
+                                <div className="popover-body">
+                                  {conn.tests.map((t) => (
+                                    <div key={t.key} className="popover-section">
+                                      <div className="popover-section-head">
+                                        <span className="popover-section-name">{t.label}</span>
+                                        <span className={`popover-pill pill-${t.status === 'ok' ? 'ok' : (t.status === 'timeout' ? 'divergent' : (t.status === 'failed' ? 'error' : 'disabled'))}`}>
+                                          <span className={`presence-dot ${t.dotColor}`}></span>
+                                          {t.statusLabel}
+                                        </span>
+                                      </div>
+                                      <div className="popover-section-summary">{t.detail}</div>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div className="popover-footer">
+                                  <button
+                                    type="button"
+                                    className="btn-primary popover-footer-btn"
+                                    onClick={() => handleQuickTest(asset)}
+                                    disabled={retestingId === asset.id}
+                                  >
+                                    <Activity size={12} className={retestingId === asset.id ? 'spin-icon' : ''} />
+                                    <span>{retestingId === asset.id ? 'Testando...' : 'Testar Conectividade Agora'}</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
 

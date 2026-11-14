@@ -110,6 +110,8 @@ async def remove_asset_guacamole_connections(
 class ZabbixDetail(BaseModel):
     id: int
     hostid: Optional[str] = None
+    host: Optional[str] = None
+    name: Optional[str] = None
     port: Optional[str] = None
     snmp_community: Optional[str] = None
     host_groups: List[str] = []
@@ -1032,6 +1034,13 @@ async def get_asset_comparison(
                 "platform": zabbix_data["snmp_community"],
                 "target": "zabbix"
             })
+        if str(zabbix_data.get("port") or "10050").strip() != str(ipersoft_data.get("port") or "10050").strip():
+            differences.append({
+                "field": "Porta Zabbix",
+                "ipersoft": ipersoft_data.get("port") or "10050",
+                "platform": zabbix_data.get("port") or "10050",
+                "target": "zabbix"
+            })
     else:
         differences.append({
             "field": "Cadastro Zabbix",
@@ -1076,6 +1085,39 @@ async def get_asset_comparison(
                 "ipersoft": "Presente",
                 "platform": "Não sincronizado",
                 "target": "guacamole"
+            })
+
+    if oxidized_data.get("backup_enabled"):
+        if oxidized_data.get("is_synced"):
+            if oxidized_data.get("node_name") and oxidized_data["node_name"] != ipersoft_data["name"]:
+                differences.append({
+                    "field": "Nome do Nó (Oxidized)",
+                    "ipersoft": ipersoft_data["name"],
+                    "platform": oxidized_data["node_name"],
+                    "target": "oxidized"
+                })
+            if (oxidized_data.get("model") or "").strip().lower() != (ipersoft_data.get("backup_model") or "RouterOS").strip().lower():
+                differences.append({
+                    "field": "Modelo Backup (Oxidized)",
+                    "ipersoft": ipersoft_data.get("backup_model") or "RouterOS",
+                    "platform": oxidized_data.get("model") or "-",
+                    "target": "oxidized"
+                })
+            expected_ox_group = (ipersoft_data.get("client_group") or "default").strip()
+            actual_ox_group = (oxidized_data.get("group") or "default").strip()
+            if actual_ox_group != expected_ox_group:
+                differences.append({
+                    "field": "Grupo Backup (Oxidized)",
+                    "ipersoft": expected_ox_group,
+                    "platform": actual_ox_group,
+                    "target": "oxidized"
+                })
+        else:
+            differences.append({
+                "field": "Nó Oxidized",
+                "ipersoft": "Presente",
+                "platform": "Não sincronizado",
+                "target": "oxidized"
             })
 
     return {
